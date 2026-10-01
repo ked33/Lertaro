@@ -43,6 +43,7 @@ internal static class ExplorerTabUiAutomation
             // InvokePattern is a cross-process call into Explorer: it lets the shell run its own real
             // "new tab" command rather than trying to recreate what that command does.
             if (!button.TryGetCurrentPattern(InvokePattern.Pattern, out var pattern)) return false;
+            PluginSdk.Helpers.ShellOpenHelper.AllowExplorerForeground();
             ((InvokePattern)pattern).Invoke();
             return true;
         }

@@ -16,6 +16,32 @@ namespace Lertaro.PluginSdk.Helpers;
 /// </remarks>
 public static class ShellOpenHelper
 {
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetShellWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AllowSetForegroundWindow(uint processId);
+
+    // Shared by ordinary folder opens and "open containing folder". Call on the shell worker just
+    // before the request, since later user input can revoke the foreground permission.
+    public static void AllowExplorerForeground()
+    {
+        // ponytail: target the desktop shell process; separately hosted Explorer windows
+        // would need a handoff to their specific process instead.
+        var shellWindow = GetShellWindow();
+        if (shellWindow != IntPtr.Zero &&
+            GetWindowThreadProcessId(shellWindow, out var shellProcessId) != 0 && shellProcessId != 0)
+        {
+            var allowed = AllowSetForegroundWindow(shellProcessId);
+            var error = allowed ? 0 : Marshal.GetLastWin32Error();
+            Logger.Log($"[ShellOpenHelper] Explorer foreground handoff: allowed={allowed}, error={error}.", LogLevel.Debug);
+        }
+    }
+
     private const int SwShowNormal = 1;
 
     // ShellExecuteW's documented success test: the returned HINSTANCE is a value greater than 32, and
@@ -55,6 +81,7 @@ public static class ShellOpenHelper
         if (string.IsNullOrWhiteSpace(folderPath)) return false;
         try
         {
+            AllowExplorerForeground();
             return (long)ShellExecuteW(IntPtr.Zero, "open", folderPath, null, null, SwShowNormal) > ShellExecuteSuccessThreshold;
         }
         catch
@@ -80,6 +107,7 @@ public static class ShellOpenHelper
 
             // Selecting the item itself (cidl 0, apidl null) is the "open the parent and highlight me"
             // call; the shell reuses an existing Explorer window on the matching monitor when it can.
+            AllowExplorerForeground();
             return SHOpenFolderAndSelectItems(pidl, 0, null, 0) == 0;
         }
         catch
