@@ -72,6 +72,7 @@ public class QuickSearchWindowResultExecutor
         }
         else
         {
+            _window.SuppressNextForegroundRestore();
             _window.HideWindow();
             if (asAdmin)
                 FileExecutor.OpenFileOrFolderAsAdmin(result.FullPath, currentQuery, _window.HideWindow);

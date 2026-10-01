@@ -193,11 +193,13 @@ public partial class QuickSearchWindow : Window, ISearchWindow, IHasVisibleConte
     public void OpenFileOrFolderExternal(string path)
     {
         RecordKeywordHistory();
+        SuppressNextForegroundRestore();
         FileExecutor.OpenFileOrFolder(path, TxtSearch.Text, HideWindow);
     }
     public void OpenFileOrFolderAsAdminExternal(string path)
     {
         RecordKeywordHistory();
+        SuppressNextForegroundRestore();
         FileExecutor.OpenFileOrFolderAsAdmin(path, TxtSearch.Text, HideWindow);
     }
     public void LocateInExplorerExternal(string path) => FileExecutor.LocateInExplorer(path);
