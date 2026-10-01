@@ -202,7 +202,11 @@ public partial class QuickSearchWindow : Window, ISearchWindow, IHasVisibleConte
         SuppressNextForegroundRestore();
         FileExecutor.OpenFileOrFolderAsAdmin(path, TxtSearch.Text, HideWindow);
     }
-    public void LocateInExplorerExternal(string path) => FileExecutor.LocateInExplorer(path);
+    public void LocateInExplorerExternal(string path)
+    {
+        SuppressNextForegroundRestore();
+        FileExecutor.LocateInExplorer(path);
+    }
     public static T? FindVisualParentExternal<T>(DependencyObject? child) where T : DependencyObject => FindVisualParent<T>(child);
     private void Window_Deactivated(object sender, EventArgs e)
     {
