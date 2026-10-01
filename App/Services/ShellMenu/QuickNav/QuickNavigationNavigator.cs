@@ -139,14 +139,6 @@ public static class QuickNavigationNavigator
             return;
         }
 
-        try
-        {
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = path,
-                UseShellExecute = true
-            });
-        }
-        catch { }
+        FileExecutor.OpenFileOrFolder(path);
     }
 }

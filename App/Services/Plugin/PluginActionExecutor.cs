@@ -185,6 +185,7 @@ public static class PluginActionExecutor
         // and an empty one is a legitimate no-op inside those actions, so it is worth knowing which it was.
         Logger.Log($"[PluginActionExecutor] Running shortcut command '{registration.Action.GetType().Name}' keyword='{registration.Action.Keywords.FirstOrDefault()}' argument='{result.PluginActionArgumentText}' context='{result.ContextDirectory}'", LogLevel.Info);
 
+        (view as QuickSearchWindow)?.SuppressNextForegroundRestore();
         view.HideWindow();
 
         // Guarded: these actions are third-party-plugin-authored, and an exception escaping here travels up

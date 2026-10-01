@@ -54,7 +54,7 @@ internal static class ExplorerLocateHelper
             }
         }
 
-        if (fileManager.OpenFoldersInNewExplorerTabs && FileExecutor.TryLocateInNewExplorerTab(path, () => TryRevealWithForeground(path)))
+        if (fileManager.OpenFoldersInNewExplorerTabs && FileExecutor.TryLocateInNewExplorerTab(path, () => ShellOpenHelper.TryRevealInFolder(path)))
             return;
 
         RevealWithShell(path, folder);
@@ -121,12 +121,6 @@ internal static class ExplorerLocateHelper
         }
     }
 
-    private static bool TryRevealWithForeground(string path)
-    {
-        FileExecutor.AllowExplorerForeground();
-        return ShellOpenHelper.TryRevealInFolder(path);
-    }
-
     // Last resort for a locate: the documented shell routes, in decreasing fidelity. Selecting the item
     // is what the action promises; when the shell will not do that -- a virtual item with nowhere to be
     // selected in, a path it cannot parse -- opening the folder without the highlight is still closer to
@@ -134,10 +128,9 @@ internal static class ExplorerLocateHelper
     // other "show me this folder" in the app does.
     private static void RevealWithShell(string path, string? folder)
     {
-        if (TryRevealWithForeground(path)) return;
+        if (ShellOpenHelper.TryRevealInFolder(path)) return;
         if (!string.IsNullOrEmpty(folder))
         {
-            FileExecutor.AllowExplorerForeground();
             if (ShellOpenHelper.TryOpenFolder(folder)) return;
         }
 
