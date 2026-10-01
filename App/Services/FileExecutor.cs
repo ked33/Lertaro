@@ -3,6 +3,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using Lertaro.Core;
+using Lertaro.Core.Hook;
 using Lertaro.App.Services.AppWindow;
 using Lertaro.PluginSdk.Helpers;
 using MessageBox = Lertaro.App.Views.Controls.Dialogs.CustomMessageBox;
@@ -10,6 +11,10 @@ namespace Lertaro.App.Services;
 
 public static class FileExecutor
 {
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AllowSetForegroundWindow(uint processId);
+
     // ponytail: Explorer has no stable API to associate simultaneous tab requests with their callers.
     // Serialize folder opens while the experimental tab option is enabled; a public Explorer-tab API is the upgrade path.
     private static readonly SemaphoreSlim FolderOpenGate = new(1, 1);
@@ -114,6 +119,22 @@ public static class FileExecutor
 
                 try
                 {
+                    // The quick window may have finished hiding while this STA worker was preparing
+                    // the launch. Let the existing shell (including QTTabBar) activate its own window.
+                    // Grant immediately before launch: subsequent user input can revoke the permission.
+                    if (!asAdmin && !isFile && !isVirtual && startInfo.FileName == path)
+                    {
+                        // ponytail: target the desktop shell process; separately hosted Explorer windows
+                        // would need a handoff to their specific process instead.
+                        var shellWindow = ExplorerNativeHooks.GetShellWindow();
+                        if (shellWindow != IntPtr.Zero &&
+                            ExplorerNativeHooks.GetWindowThreadProcessId(shellWindow, out var shellProcessId) != 0 && shellProcessId != 0)
+                        {
+                            var allowed = AllowSetForegroundWindow(shellProcessId);
+                            var error = allowed ? 0 : Marshal.GetLastWin32Error();
+                            Logger.Log($"[FileExecutor] Explorer foreground handoff: allowed={allowed}, error={error}.", LogLevel.Debug);
+                        }
+                    }
                     Process.Start(startInfo);
                 }
 
