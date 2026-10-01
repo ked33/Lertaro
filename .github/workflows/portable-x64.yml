@@ -1,0 +1,47 @@
+# x64 portable zip only. The slice of make.bat that does not need Inno Setup or an arm64 pass.
+# A run's zip is the Actions artifact Lertaro-Portable, not a GitHub Release.
+name: Portable x64
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  portable-x64:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish and zip
+        shell: pwsh
+        run: |
+          $out = "publish/x64/Lertaro"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+
+          dotnet publish Lertaro.slnx -c Release -o $out -v minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet publish Lertaro.Plugins.slnx -c Release -o "$out/Plugins" -v minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          Copy-Item portable-updater.bat, install-dotnet-runtime.bat, portable-cleanup.bat -Destination $out
+          Get-ChildItem $out -Recurse -Filter *.pdb | Remove-Item -Force
+
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path $out -DestinationPath dist/Lertaro-Portable.zip -Force
+
+      - name: Upload Lertaro-Portable.zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lertaro-Portable
+          path: dist/Lertaro-Portable.zip
+          if-no-files-found: error
