@@ -22,8 +22,19 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Publish and zip
+      # No packages.lock.json, so setup-dotnet's own cache input cannot key a restore.
+      # Hash the project files instead. The previous run's global-packages folder is what
+      # actually skips the download; obj/ stays out so a stale incremental publish cannot ship.
+      - name: Restore NuGet cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ github.workspace }}/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/*.slnx') }}
+
+      - name: Publish
         shell: pwsh
+        env:
+          NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
         run: |
           $out = "publish/x64/Lertaro"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
@@ -36,12 +47,11 @@ jobs:
           Copy-Item portable-updater.bat, install-dotnet-runtime.bat, portable-cleanup.bat -Destination $out
           Get-ChildItem $out -Recurse -Filter *.pdb | Remove-Item -Force
 
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Compress-Archive -Path $out -DestinationPath dist/Lertaro-Portable.zip -Force
-
-      - name: Upload Lertaro-Portable.zip
-        uses: actions/upload-artifact@v4
+      # upload-artifact zips its path. Uploading the directory once is the portable zip;
+      # uploading an already-zipped Lertaro-Portable.zip wraps a second zip around it.
+      - name: Upload Lertaro-Portable
+        uses: actions/upload-artifact@v7
         with:
           name: Lertaro-Portable
-          path: dist/Lertaro-Portable.zip
+          path: publish/x64/Lertaro/
           if-no-files-found: error
