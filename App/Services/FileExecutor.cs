@@ -123,18 +123,7 @@ public static class FileExecutor
                     // the launch. Let the existing shell (including QTTabBar) activate its own window.
                     // Grant immediately before launch: subsequent user input can revoke the permission.
                     if (!asAdmin && !isFile && !isVirtual && startInfo.FileName == path)
-                    {
-                        // ponytail: target the desktop shell process; separately hosted Explorer windows
-                        // would need a handoff to their specific process instead.
-                        var shellWindow = ExplorerNativeHooks.GetShellWindow();
-                        if (shellWindow != IntPtr.Zero &&
-                            ExplorerNativeHooks.GetWindowThreadProcessId(shellWindow, out var shellProcessId) != 0 && shellProcessId != 0)
-                        {
-                            var allowed = AllowSetForegroundWindow(shellProcessId);
-                            var error = allowed ? 0 : Marshal.GetLastWin32Error();
-                            Logger.Log($"[FileExecutor] Explorer foreground handoff: allowed={allowed}, error={error}.", LogLevel.Debug);
-                        }
-                    }
+                        AllowExplorerForeground();
                     Process.Start(startInfo);
                 }
 
@@ -155,6 +144,22 @@ public static class FileExecutor
         {
             Logger.Log($"[FileExecutor] OpenFileOrFolder failed for '{path}': {ex}", LogLevel.Error);
             MessageBox.Show(string.Format(TranslationManager.Instance["Executor_OpenFailed"], ex.Message), TranslationManager.Instance["Service_Error"], MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    // Shared by ordinary folder opens and "open containing folder". Call on the shell worker just
+    // before the request, since later user input can revoke the foreground permission.
+    internal static void AllowExplorerForeground()
+    {
+        // ponytail: target the desktop shell process; separately hosted Explorer windows
+        // would need a handoff to their specific process instead.
+        var shellWindow = ExplorerNativeHooks.GetShellWindow();
+        if (shellWindow != IntPtr.Zero &&
+            ExplorerNativeHooks.GetWindowThreadProcessId(shellWindow, out var shellProcessId) != 0 && shellProcessId != 0)
+        {
+            var allowed = AllowSetForegroundWindow(shellProcessId);
+            var error = allowed ? 0 : Marshal.GetLastWin32Error();
+            Logger.Log($"[FileExecutor] Explorer foreground handoff: allowed={allowed}, error={error}.", LogLevel.Debug);
         }
     }
 
