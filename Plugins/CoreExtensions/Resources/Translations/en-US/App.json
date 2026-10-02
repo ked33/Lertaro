@@ -1,4 +1,11 @@
 {
+  "Appearance_EnableAnimations": "UI animations",
+  "Appearance_AnimateTransitions": "Window and control transitions",
+  "Appearance_AnimateScrolling": "Smooth scrolling",
+  "Appearance_AnimateBackgrounds": "Animated theme backgrounds",
+  "Appearance_AnimateMarquee": "Automatic long-text scrolling",
+  "Appearance_AnimationHint": "Changes apply immediately. Turning animations off keeps status indicators and media playback.",
+  "Appearance_AnimationSystemDisabled": "Animations are currently disabled by Windows.",
   "Settings_Title": "Lertaro Settings",
   "Settings_TriggerWordTaken": "This trigger word is already used by {0}. Both features answer to it and the word is stripped from the file search once, so use a different word to tell them apart.",
   "Settings_SearchPlaceholder": " Search settings...",

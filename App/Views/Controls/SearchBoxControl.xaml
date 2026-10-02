@@ -1,7 +1,8 @@
 <UserControl x:Class="Lertaro.App.SearchBoxControl"
              x:Name="root"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:motion="clr-namespace:Lertaro.PluginSdk.Services;assembly=Lertaro.PluginSdk"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
              xmlns:services="clr-namespace:Lertaro.App.Services"
@@ -54,23 +55,12 @@
                                     <Setter Property="Opacity" Value="0.8"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding IsSearching}" Value="True">
-                                    <DataTrigger.EnterActions>
-                                        <BeginStoryboard x:Name="LeftLogoBreathe">
-                                            <Storyboard>
+                                    <Setter Property="Opacity" Value="1"/>
+                                    <Setter Property="motion:Motion.Loop"><Setter.Value><Storyboard>
                                                 <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0.25" To="1" Duration="0:0:0.6" AutoReverse="True" RepeatBehavior="Forever">
                                                     <DoubleAnimation.EasingFunction><SineEase EasingMode="EaseInOut"/></DoubleAnimation.EasingFunction>
                                                 </DoubleAnimation>
-                                            </Storyboard>
-                                        </BeginStoryboard>
-                                    </DataTrigger.EnterActions>
-                                    <DataTrigger.ExitActions>
-                                        <StopStoryboard BeginStoryboardName="LeftLogoBreathe"/>
-                                        <BeginStoryboard>
-                                            <Storyboard>
-                                                <DoubleAnimation Storyboard.TargetProperty="Opacity" To="0.5" Duration="0:0:0.2" FillBehavior="Stop"/>
-                                            </Storyboard>
-                                        </BeginStoryboard>
-                                    </DataTrigger.ExitActions>
+                                            </Storyboard></Setter.Value></Setter>
                                 </DataTrigger>
                                 <MultiDataTrigger>
                                     <MultiDataTrigger.Conditions>
@@ -231,9 +221,8 @@
                                     <Setter Property="Opacity" Value="0.8"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding IsSearching}" Value="True">
-                                    <DataTrigger.EnterActions>
-                                        <BeginStoryboard x:Name="RightLogoBreathe">
-                                            <Storyboard>
+                                    <Setter Property="Opacity" Value="1"/>
+                                    <Setter Property="motion:Motion.Loop"><Setter.Value><Storyboard>
                                                 <DoubleAnimation Storyboard.TargetProperty="Opacity"
                                                                  From="0.25" To="1" Duration="0:0:0.6"
                                                                  AutoReverse="True" RepeatBehavior="Forever">
@@ -241,18 +230,7 @@
                                                         <SineEase EasingMode="EaseInOut"/>
                                                     </DoubleAnimation.EasingFunction>
                                                 </DoubleAnimation>
-                                            </Storyboard>
-                                        </BeginStoryboard>
-                                    </DataTrigger.EnterActions>
-                                    <DataTrigger.ExitActions>
-                                        <StopStoryboard BeginStoryboardName="RightLogoBreathe"/>
-                                        <BeginStoryboard>
-                                            <Storyboard>
-                                                <!-- FillBehavior="Stop": see the left-icon block's identical fix. -->
-                                                <DoubleAnimation Storyboard.TargetProperty="Opacity" To="0.6" Duration="0:0:0.2" FillBehavior="Stop"/>
-                                            </Storyboard>
-                                        </BeginStoryboard>
-                                    </DataTrigger.ExitActions>
+                                            </Storyboard></Setter.Value></Setter>
                                 </DataTrigger>
                                 <!-- Hover highlight: only when this window has actually wired up
                                      IconLeftClicked (IsIconClickable): otherwise hovering would light

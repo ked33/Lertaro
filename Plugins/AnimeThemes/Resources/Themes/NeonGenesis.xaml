@@ -1,4 +1,5 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:motion="clr-namespace:Lertaro.PluginSdk.Services;assembly=Lertaro.PluginSdk"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=mscorlib">
 
@@ -63,16 +64,11 @@
                     <Border.RenderTransform>
                         <TranslateTransform X="0" Y="0"/>
                     </Border.RenderTransform>
-                    <Border.Triggers>
-                        <EventTrigger RoutedEvent="FrameworkElement.SizeChanged">
-                            <BeginStoryboard>
-                                <Storyboard>
+                    <motion:Motion.IsBackground>True</motion:Motion.IsBackground>
+                        <motion:Motion.Loop><Storyboard>
                                     <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.Y)"
                                                      From="0" To="600" Duration="0:0:6" RepeatBehavior="Forever"/>
-                                </Storyboard>
-                            </BeginStoryboard>
-                        </EventTrigger>
-                    </Border.Triggers>
+                                </Storyboard></motion:Motion.Loop>
                 </Border>
             </Grid>
         </VisualBrush.Visual>

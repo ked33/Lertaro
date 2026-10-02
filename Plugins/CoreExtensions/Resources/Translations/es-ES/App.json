@@ -1,4 +1,11 @@
 {
+  "Appearance_EnableAnimations": "Animaciones de la interfaz",
+  "Appearance_AnimateTransitions": "Transiciones de ventanas y controles",
+  "Appearance_AnimateScrolling": "Desplazamiento suave",
+  "Appearance_AnimateBackgrounds": "Fondos de tema animados",
+  "Appearance_AnimateMarquee": "Desplazamiento automático de textos largos",
+  "Appearance_AnimationHint": "Los cambios se aplican inmediatamente. Al desactivar las animaciones se mantienen los indicadores de estado y la reproducción multimedia.",
+  "Appearance_AnimationSystemDisabled": "Windows tiene las animaciones desactivadas.",
   "Settings_Title": "Configuración de Lertaro",
   "Settings_TriggerWordTaken": "Esta palabra de activación ya la usa «{0}». Ambas funciones responden a ella y la palabra se quita una sola vez de la búsqueda de archivos, así que usa otra palabra para distinguirlas.",
   "Settings_SearchPlaceholder": " Buscar configuración...",

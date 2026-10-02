@@ -1,4 +1,5 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:motion="clr-namespace:Lertaro.PluginSdk.Services;assembly=Lertaro.PluginSdk"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:app="clr-namespace:Lertaro.App"
                     xmlns:converters="clr-namespace:Lertaro.App.Converters"
@@ -210,7 +211,7 @@
 						       AllowsTransparency="True"
 						       Focusable="False"
 						       IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}"
-						       PopupAnimation="Fade">
+						       PopupAnimation="{Binding Source={x:Static motion:AnimationSettings.Instance}, Path=PopupAnimation}">
 							<Border Background="{DynamicResource MenuBackground}"
 							        BorderBrush="{DynamicResource MenuBorderBrush}"
 							        BorderThickness="1"

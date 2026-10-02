@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using Lertaro.PluginSdk.Services;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -186,7 +188,7 @@ public static class SmoothWheelScrollBehavior
 
     private static void OnMouseWheel(object sender, MouseWheelEventArgs e)
     {
-        if (e.Delta == 0 || sender is not ScrollViewer scrollViewer)
+        if (!AnimationSettings.Instance.SmoothScrolling || e.Delta == 0 || sender is not ScrollViewer scrollViewer)
             return;
 
         // Glide everything that scrolls by pixel, and leave item-based scrolling alone:
@@ -253,7 +255,18 @@ public static class SmoothWheelScrollBehavior
                 _clock.Restart();
                 _lastSeconds = 0;
                 CompositionTarget.Rendering += OnRendering;
+                AnimationSettings.Instance.PropertyChanged += PolicyChanged;
+                _scrollViewer.IsVisibleChanged += VisibilityChanged;
             }
+        }
+
+        private void PolicyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (!AnimationSettings.Instance.SmoothScrolling) Stop();
+        }
+        private void VisibilityChanged(object sender, DependencyPropertyChangedEventArgs e)
+        {
+            if (!_scrollViewer.IsVisible) Stop();
         }
 
         private void OnRendering(object? sender, EventArgs e)
@@ -298,6 +311,10 @@ public static class SmoothWheelScrollBehavior
             _running = false;
             _clock.Stop();
             CompositionTarget.Rendering -= OnRendering;
+            AnimationSettings.Instance.PropertyChanged -= PolicyChanged;
+            _scrollViewer.IsVisibleChanged -= VisibilityChanged;
+            _velocity = 0;
+            _notchCount = 0;
             _scrollViewer.Unloaded -= OnScrollViewerUnloaded;
         }
     }

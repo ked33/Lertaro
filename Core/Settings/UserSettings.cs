@@ -66,6 +66,12 @@ public class UserSettings
     public string GlobalTokenPrefix { get; set; } = ":";
     public string LogLevel { get; set; } = "Info";
     public string PreferredLanguage { get; set; } = GetDefaultSystemLanguage();
+    public bool EnableAnimations { get; set; } = false;
+    public bool AnimateTransitions { get; set; } = true;
+    public bool AnimateScrolling { get; set; } = false;
+    public bool AnimateBackgrounds { get; set; } = false;
+    public bool AnimateMarquee { get; set; } = false;
+
     public string Theme { get; set; } = "Light";
     public bool ThemeFollowSystem { get; set; } = false;
     // Empty means "unset" -- themes come entirely from plugins, so there's no safe hardcoded default

@@ -1,3 +1,4 @@
+using Lertaro.PluginSdk.Services;
 using System.Windows;
 using System.Windows.Documents;
 using System.Windows.Input;
@@ -39,29 +40,15 @@ public class RippleAdorner : Adorner
             ? d.TimeSpan
             : TimeSpan.FromMilliseconds(400);
 
-        // Animate Radius
         var targetRadius = Math.Max(adornedElement.RenderSize.Width, adornedElement.RenderSize.Height) * 1.5;
-        var radiusAnimation = new DoubleAnimation(0.0, targetRadius, rippleDuration)
+        // Start only after insertion into the layer, so even a disabled transition can clean up.
+        Loaded += (_, _) =>
         {
-            EasingFunction = System.Windows.Application.Current?.TryFindResource("EaseOutCubic") as IEasingFunction
-                              ?? new CubicEase { EasingMode = EasingMode.EaseOut }
+            MotionTransition.Start(this, CurrentRadiusProperty, targetRadius, rippleDuration, new CubicEase { EasingMode = EasingMode.EaseOut });
+            MotionTransition.Start(this, CurrentOpacityProperty, 0, rippleDuration,
+                new ExponentialEase { EasingMode = EasingMode.EaseOut },
+                () => AdornerLayer.GetAdornerLayer(adornedElement)?.Remove(this));
         };
-
-        // Animate Opacity
-        var opacityAnimation = new DoubleAnimation(0.4, 0.0, rippleDuration)
-        {
-            EasingFunction = System.Windows.Application.Current?.TryFindResource("EaseOutExponential") as IEasingFunction
-                              ?? new ExponentialEase { EasingMode = EasingMode.EaseOut }
-        };
-
-        opacityAnimation.Completed += (s, e) =>
-        {
-            var layer = AdornerLayer.GetAdornerLayer(adornedElement);
-            layer?.Remove(this);
-        };
-
-        BeginAnimation(CurrentRadiusProperty, radiusAnimation);
-        BeginAnimation(CurrentOpacityProperty, opacityAnimation);
     }
 
     protected override void OnRender(DrawingContext drawingContext)
@@ -104,7 +91,7 @@ public class RippleAdorner : Adorner
 
     private static void Element_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (sender is UIElement clickedElement)
+        if (AnimationSettings.Instance.Transitions && sender is UIElement clickedElement)
         {
             var layer = AdornerLayer.GetAdornerLayer(clickedElement);
             if (layer != null)

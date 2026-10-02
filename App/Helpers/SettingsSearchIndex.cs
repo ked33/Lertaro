@@ -116,6 +116,11 @@ public static class SettingsSearchIndex
 
         // Appearance
         new("Settings_Appearance", "Appearance"),
+        new("Appearance_EnableAnimations", "Appearance", TargetElementName: "RowAnimations"),
+        new("Appearance_AnimateTransitions", "Appearance", TargetElementName: "RowAnimations"),
+        new("Appearance_AnimateScrolling", "Appearance", TargetElementName: "RowAnimations"),
+        new("Appearance_AnimateBackgrounds", "Appearance", TargetElementName: "RowAnimations"),
+        new("Appearance_AnimateMarquee", "Appearance", TargetElementName: "RowAnimations"),
         new("Appearance_ModeGroupTitle", "Appearance", TargetElementName: "RowThemeModeCards"),
         new("Appearance_ModeLight", "Appearance", TargetElementName: "RowThemeModeCards", TabLabelKey: "Appearance_ModeGroupTitle"),
         new("Appearance_ModeDark", "Appearance", TargetElementName: "RowThemeModeCards", TabLabelKey: "Appearance_ModeGroupTitle"),

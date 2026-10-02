@@ -47,6 +47,14 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
+      - name: Test animation controls and settings search
+        shell: pwsh
+        env:
+          NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+        run: |
+          dotnet test Tests/App/App.csproj -c Release --filter "FullyQualifiedName~AnimationControlTests|FullyQualifiedName~SmoothWheelScrollBehaviorTests|FullyQualifiedName~MarqueeBehaviorTests|FullyQualifiedName~SettingsSearchIndexTests" --logger trx --results-directory TestResults
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7

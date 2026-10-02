@@ -1,4 +1,11 @@
 {
+  "Appearance_EnableAnimations": "啟用介面動畫",
+  "Appearance_AnimateTransitions": "視窗與控制項過渡",
+  "Appearance_AnimateScrolling": "平滑捲動",
+  "Appearance_AnimateBackgrounds": "動態佈景主題背景",
+  "Appearance_AnimateMarquee": "長文字自動捲動",
+  "Appearance_AnimationHint": "立即生效。關閉動畫後仍保留狀態提示和正常媒體播放。",
+  "Appearance_AnimationSystemDisabled": "Windows 目前已關閉動畫效果。",
   "Settings_Title": "Lertaro 設定",
   "Settings_TriggerWordTaken": "該觸發詞已被「{0}」使用，兩者會同時回應，檔案搜尋只會剝離這個詞一次；建議改用不同的詞以便區分。",
   "Settings_SearchPlaceholder": " 搜尋設定...",

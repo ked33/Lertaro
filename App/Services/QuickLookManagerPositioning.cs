@@ -1,3 +1,5 @@
+using Lertaro.App.Helpers.Visuals;
+using Lertaro.PluginSdk.Services;
 using System.Windows;
 using System.Windows.Media.Animation;
 using Lertaro.App.Services.AppWindow;
@@ -25,14 +27,14 @@ public partial class QuickLookManager
             // Clear any still-running/held slide-in animation before touching Left directly -- WPF keeps
             // an animated dependency property pinned to the animation's value until the clock is cleared,
             // so a bare assignment here would silently be ignored while one is active.
-            _window.BeginAnimation(Window.LeftProperty, null);
+            MotionTransition.Cancel(_window, Window.LeftProperty);
             _window.Top = _sessionTop ?? rect.OuterTop;
 
             if (_sessionLeft.HasValue)
             {
                 _window.Left = _sessionLeft.Value;
             }
-            else if (animate)
+            else if (animate && AnimationSettings.Instance.Transitions)
             {
                 // Slide out like a drawer: start just short of the resting spot, on the side it docked
                 // to, and ease out to it -- rather than just snapping into place.
@@ -40,11 +42,8 @@ public partial class QuickLookManager
                 var startLeft = rect.DockedRight ? rect.OuterLeft - SlideDistance : rect.OuterLeft + SlideDistance;
                 _window.Left = startLeft;
 
-                var slideIn = new DoubleAnimation(startLeft, rect.OuterLeft, TimeSpan.FromMilliseconds(180))
-                {
-                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
-                };
-                _window.BeginAnimation(Window.LeftProperty, slideIn);
+                MotionTransition.Start(_window, Window.LeftProperty, rect.OuterLeft, TimeSpan.FromMilliseconds(180),
+                    new QuadraticEase { EasingMode = EasingMode.EaseOut });
             }
             else
             {

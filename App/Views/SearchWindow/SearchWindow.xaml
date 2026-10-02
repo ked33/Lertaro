@@ -1,6 +1,7 @@
 <Window x:Class="Lertaro.App.SearchWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:motion="clr-namespace:Lertaro.PluginSdk.Services;assembly=Lertaro.PluginSdk"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:app="clr-namespace:Lertaro.App"
         xmlns:converters="clr-namespace:Lertaro.App.Converters"
         xmlns:controls="clr-namespace:Lertaro.App.Views.Controls"
@@ -108,27 +109,10 @@
                                     Background="{DynamicResource WindowChromeText}">
                                 <Border.Style>
                                     <Style TargetType="Border">
-                                        <Setter Property="Opacity" Value="0"/>
+                                        <Setter Property="motion:Motion.Opacity" Value="0"/>
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding IsMouseOver, ElementName=HeaderDragArea}" Value="True">
-                                                <DataTrigger.EnterActions>
-                                                    <BeginStoryboard>
-                                                        <Storyboard>
-                                                            <DoubleAnimation Storyboard.TargetProperty="Opacity" To="0.45"
-                                                                             Duration="{StaticResource DurationHover}"
-                                                                             EasingFunction="{StaticResource EaseOutCubic}"/>
-                                                        </Storyboard>
-                                                    </BeginStoryboard>
-                                                </DataTrigger.EnterActions>
-                                                <DataTrigger.ExitActions>
-                                                    <BeginStoryboard>
-                                                        <Storyboard>
-                                                            <DoubleAnimation Storyboard.TargetProperty="Opacity" To="0"
-                                                                             Duration="{StaticResource DurationHover}"
-                                                                             EasingFunction="{StaticResource EaseOutCubic}"/>
-                                                        </Storyboard>
-                                                    </BeginStoryboard>
-                                                </DataTrigger.ExitActions>
+                                                <Setter Property="motion:Motion.Opacity" Value="0.45"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>

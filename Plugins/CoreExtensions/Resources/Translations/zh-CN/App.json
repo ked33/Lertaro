@@ -1,4 +1,11 @@
 {
+  "Appearance_EnableAnimations": "启用界面动画",
+  "Appearance_AnimateTransitions": "窗口与控件过渡",
+  "Appearance_AnimateScrolling": "平滑滚动",
+  "Appearance_AnimateBackgrounds": "动态主题背景",
+  "Appearance_AnimateMarquee": "长文本自动滚动",
+  "Appearance_AnimationHint": "立即生效。关闭动画后仍保留状态提示和正常媒体播放。",
+  "Appearance_AnimationSystemDisabled": "Windows 当前已关闭动画效果。",
   "Settings_Title": "Lertaro 设置",
   "Settings_TriggerWordTaken": "该触发词已被「{0}」使用，两者会同时响应，文件搜索只剥离这个词一次；建议改用不同的词以便区分。",
   "Settings_SearchPlaceholder": " 搜索设置...",

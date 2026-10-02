@@ -1,3 +1,5 @@
+using Lertaro.PluginSdk.Services;
+using System.Windows.Threading;
 using System.Windows;
 using Lertaro.Core;
 
@@ -20,7 +22,18 @@ public class ThemeManager
 
     public event Action? ThemeChanged;
 
-    private ThemeManager() => PluginSdk.Services.ThemeService.IsDarkThemeFunc = () => _activeTheme?.IsDark ?? false;
+    private DispatcherTimer? _transitionTimer;
+    private Action? _finishTransition;
+    private int _transitionGeneration;
+
+    private ThemeManager()
+    {
+        PluginSdk.Services.ThemeService.IsDarkThemeFunc = () => _activeTheme?.IsDark ?? false;
+        AnimationSettings.Instance.PropertyChanged += (_, _) =>
+        {
+            if (!AnimationSettings.Instance.Transitions) _finishTransition?.Invoke();
+        };
+    }
 
     public IEnumerable<PluginSdk.Abstractions.ITheme> GetAvailableThemes() => PluginManager.Instance.ThemeProviders
             .SelectMany(p => PluginPerformanceMonitor.Measure(p, () => p.GetThemes()?.ToList() ?? new List<PluginSdk.Abstractions.ITheme>()))
@@ -88,59 +101,54 @@ public class ThemeManager
         {
             var newDict = theme.GetResources();
 
-            if (_activeThemeDictionary == null)
-            {
-                // Synchronous application for initial startup
-                var appResources = System.Windows.Application.Current.Resources;
-                appResources.MergedDictionaries.Add(newDict);
-                _activeThemeDictionary = newDict;
+            _transitionTimer?.Stop();
+            _transitionTimer = null;
+            _finishTransition = null;
+            var generation = ++_transitionGeneration;
+            var animate = _activeThemeDictionary != null && AnimationSettings.Instance.Transitions;
 
+            void ApplyResources()
+            {
+                if (generation != _transitionGeneration) return;
+                _transitionTimer?.Stop();
+                _transitionTimer = null;
+                _finishTransition = null;
+                var resources = System.Windows.Application.Current.Resources;
+                if (_activeThemeDictionary != null)
+                {
+                    SetBackgroundActive(_activeThemeDictionary, false);
+                    resources.MergedDictionaries.Remove(_activeThemeDictionary);
+                }
+                resources.MergedDictionaries.Add(newDict);
+                _activeThemeDictionary = newDict;
+                SetBackgroundActive(newDict, true);
                 foreach (Window window in System.Windows.Application.Current.Windows)
                 {
                     WindowEffectHelper.ApplyThemeEffects(window, theme);
+                    if (window.Content is UIElement content && !MotionTransition.HasCompletion(content, UIElement.OpacityProperty))
+                    {
+                        if (animate)
+                            MotionTransition.Start(content, UIElement.OpacityProperty, theme.WindowOpacity, TimeSpan.FromMilliseconds(180));
+                        else
+                        {
+                            MotionTransition.Cancel(content, UIElement.OpacityProperty);
+                            content.SetCurrentValue(UIElement.OpacityProperty, theme.WindowOpacity);
+                        }
+                    }
                 }
                 ThemeChanged?.Invoke();
             }
+
+            if (!animate) ApplyResources();
             else
             {
-                // Fade-out transition
                 foreach (Window window in System.Windows.Application.Current.Windows)
-                {
-                    if (window.Content is UIElement content)
-                    {
-                        var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(0.1, TimeSpan.FromMilliseconds(120));
-                        content.BeginAnimation(UIElement.OpacityProperty, fadeOut);
-                    }
-                }
-
-                // Swap dictionaries and Fade-in transition
-                Task.Run(async () =>
-                {
-                    await Task.Delay(120);
-                    System.Windows.Application.Current.Dispatcher.Invoke(() =>
-                    {
-                        var appResources = System.Windows.Application.Current.Resources;
-                        if (_activeThemeDictionary != null)
-                        {
-                            appResources.MergedDictionaries.Remove(_activeThemeDictionary);
-                        }
-
-                        appResources.MergedDictionaries.Add(newDict);
-                        _activeThemeDictionary = newDict;
-
-                        foreach (Window window in System.Windows.Application.Current.Windows)
-                        {
-                            WindowEffectHelper.ApplyThemeEffects(window, theme);
-                            if (window.Content is UIElement content)
-                            {
-                                var targetOpacity = theme.WindowOpacity;
-                                var fadeIn = new System.Windows.Media.Animation.DoubleAnimation(targetOpacity, TimeSpan.FromMilliseconds(180));
-                                content.BeginAnimation(UIElement.OpacityProperty, fadeIn);
-                            }
-                        }
-                        ThemeChanged?.Invoke();
-                    });
-                });
+                    if (window.Content is UIElement content && !MotionTransition.HasCompletion(content, UIElement.OpacityProperty))
+                        MotionTransition.Start(content, UIElement.OpacityProperty, 0.1, TimeSpan.FromMilliseconds(120));
+                _finishTransition = ApplyResources;
+                _transitionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
+                _transitionTimer.Tick += (_, _) => ApplyResources();
+                _transitionTimer.Start();
             }
 
             Logger.Log($"[ThemeManager] Theme applied successfully: '{theme.DisplayName}' (Dark: {theme.IsDark})");
@@ -159,5 +167,11 @@ public class ThemeManager
             Logger.Log($"[ThemeManager] Error applying theme '{themeId}': {ex.Message}", LogLevel.Error);
             return false;
         }
+    }
+
+    private static void SetBackgroundActive(ResourceDictionary resources, bool active)
+    {
+        if (resources["ContentBg"] is System.Windows.Media.VisualBrush { Visual: { } visual })
+            Motion.SetIsBackgroundActive(visual, active);
     }
 }

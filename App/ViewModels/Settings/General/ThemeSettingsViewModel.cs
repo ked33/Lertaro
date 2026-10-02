@@ -280,5 +280,17 @@ public class ThemeSettingsViewModel : ViewModelBase
         }
     }
 
+    public bool EnableAnimations { get => _userSettings.EnableAnimations; set { _userSettings.EnableAnimations = value; SaveMotion(); OnPropertyChanged(); } }
+    public bool AnimateTransitions { get => _userSettings.AnimateTransitions; set { _userSettings.AnimateTransitions = value; SaveMotion(); OnPropertyChanged(); } }
+    public bool AnimateScrolling { get => _userSettings.AnimateScrolling; set { _userSettings.AnimateScrolling = value; SaveMotion(); OnPropertyChanged(); } }
+    public bool AnimateBackgrounds { get => _userSettings.AnimateBackgrounds; set { _userSettings.AnimateBackgrounds = value; SaveMotion(); OnPropertyChanged(); } }
+    public bool AnimateMarquee { get => _userSettings.AnimateMarquee; set { _userSettings.AnimateMarquee = value; SaveMotion(); OnPropertyChanged(); } }
+
+    private void SaveMotion()
+    {
+        _userSettings.Save();
+        Lertaro.App.Helpers.Visuals.AnimationPolicy.Apply(_userSettings);
+    }
+
     public void Cleanup() => TranslationManager.Instance.PropertyChanged -= _translationHandler;
 }

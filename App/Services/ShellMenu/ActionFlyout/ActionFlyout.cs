@@ -141,9 +141,10 @@ public static class ActionFlyout
             Placement = placement,
             AllowsTransparency = true,
             StaysOpen = true,
-            PopupAnimation = PopupAnimation.Fade,
+            PopupAnimation = Lertaro.PluginSdk.Services.AnimationSettings.Instance.PopupAnimation,
             Child = border
         };
+            _popup.SetBinding(Popup.PopupAnimationProperty, new System.Windows.Data.Binding(nameof(Lertaro.PluginSdk.Services.AnimationSettings.PopupAnimation)) { Source = Lertaro.PluginSdk.Services.AnimationSettings.Instance });
         _owner = ownerWindow;
 
         // No row is pre-selected (unlike the in-window list); the first Down/Up highlights first/last.

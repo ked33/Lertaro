@@ -93,7 +93,7 @@ public partial class QuickLookWindow : Window
     {
         if (msg == WM_EXITSIZEMOVE)
         {
-            BeginAnimation(LeftProperty, null);
+            Lertaro.App.Helpers.Visuals.MotionTransition.Cancel(this, LeftProperty);
             Services.QuickLookManager.Instance.SetUserResizedDimensions(Width, Height);
             Services.QuickLookManager.Instance.SetUserMovedPosition(Left, Top);
         }
