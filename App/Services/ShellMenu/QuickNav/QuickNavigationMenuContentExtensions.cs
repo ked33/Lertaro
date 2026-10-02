@@ -247,6 +247,15 @@ internal static class QuickNavigationMenuContentExtensions
             }), System.Windows.Threading.DispatcherPriority.Background);
         };
 
+        AttachMiddleClick(menuItem, item, canNavigate, () =>
+        {
+            contextMenu.IsOpen = false;
+            (contextMenu.PlacementTarget as Window)?.Hide();
+            Application.Current.Dispatcher.BeginInvoke(new Action(() =>
+                FileExecutor.OpenFolderInNewExplorerTab(itemPath!, trigger.ActiveHwnd)),
+                System.Windows.Threading.DispatcherPriority.Background);
+        });
+
         // Always intercept the right-click, even when the flyout itself is disabled (root items): WPF's
         // own MenuItem raises Click for a right mouse-button release too, not just left, so an
         // unhandled right-click here was falling through to the same triggerAction() a left-click uses
@@ -286,5 +295,32 @@ internal static class QuickNavigationMenuContentExtensions
             QuickNavigationMenuKeyHandler.HandlePreviewKeyDown(e, menuItem, item, contextMenu, itemPath, canNavigate, enableRightClick, triggerAction);
 
         return menuItem;
+    }
+
+    internal static void AttachMiddleClick(MenuItem menuItem, DynamicMenuItem item, bool canNavigate, Action openFolder)
+    {
+        var pressed = false;
+        MouseButtonEventHandler handle = (s, e) =>
+        {
+            if (e.ChangedButton != System.Windows.Input.MouseButton.Middle ||
+                QuickNavigationMenu.FindVisualParent<MenuItem>(e.OriginalSource as DependencyObject) != menuItem) return;
+
+            e.Handled = true; // Do not let MenuItem turn this into its ordinary Click action.
+            if (e.RoutedEvent == UIElement.PreviewMouseDownEvent)
+            {
+                pressed = menuItem.IsEnabled;
+                return;
+            }
+
+            // The global hook opens this menu on middle DOWN. Its trailing UP must not open a folder.
+            var wasPressed = pressed;
+            pressed = false;
+            if (wasPressed && menuItem.IsEnabled && !item.IsDisabled && item.IsActionable && item.HasSubMenu && canNavigate)
+                openFolder();
+        };
+        menuItem.AddHandler(UIElement.PreviewMouseDownEvent, handle, handledEventsToo: true);
+        menuItem.AddHandler(UIElement.PreviewMouseUpEvent, handle, handledEventsToo: true);
+        menuItem.MouseLeave += (s, e) => pressed = false;
+        menuItem.Unloaded += (s, e) => pressed = false;
     }
 }

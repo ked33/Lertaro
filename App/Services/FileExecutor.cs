@@ -67,13 +67,19 @@ public static class FileExecutor
         ShellThread.Run("FileLaunch", () => LaunchExistingPath(path, asAdmin));
     }
 
-    private static void LaunchExistingPath(string path, bool asAdmin)
+    // An explicit menu gesture requests Explorer tabs independently of the normal folder-open setting.
+    // Resolve shell aliases and validate the target on the STA worker, just like other folder launches.
+    internal static void OpenFolderInNewExplorerTab(string path, IntPtr preferredExplorerWindow = default) =>
+        ShellThread.Run("ExplorerTabLaunch", () => LaunchExistingPath(path, asAdmin: false,
+            openFolderInNewExplorerTab: true, preferredExplorerWindow: preferredExplorerWindow));
+
+    private static void LaunchExistingPath(string path, bool asAdmin, bool openFolderInNewExplorerTab = false, IntPtr preferredExplorerWindow = default)
     {
         try
         {
             // Favorite targets are stored raw (e.g. %USERPROFILE%\Desktop); expand variables before
             // the File.Exists/Directory.Exists checks below so those paths launch correctly.
-            path = UserPathResolver.Expand(path);
+            path = openFolderInNewExplorerTab ? UserPathResolver.ResolveForNavigation(path) : UserPathResolver.Expand(path);
 
             // A "::{CLSID}"/"shell:..." token names a virtual shell namespace item (e.g. Control Panel,
             // This PC) rather than a real path -- File.Exists/Directory.Exists just return false for it,
@@ -82,14 +88,19 @@ public static class FileExecutor
             if (isVirtual || File.Exists(path) || Directory.Exists(path))
             {
                 var isFile = !isVirtual && File.Exists(path);
-                var defaultFileManager = UserSettings.Load().DefaultFileManager;
+                // A folder could have been replaced by a file since the menu was built. Never execute
+                // that file as a side effect of requesting a folder tab.
+                if (openFolderInNewExplorerTab && isFile) return;
+                var defaultFileManager = openFolderInNewExplorerTab
+                    ? new DefaultFileManagerSetting { OpenFoldersInNewExplorerTabs = true }
+                    : UserSettings.Load().DefaultFileManager;
 
                 // "Open" remains a normal shell launch for files, while native Explorer folders use the
                 // same new-tab route as "Locate". A configured file manager is intentionally allowed to
                 // keep its own folder-opening behavior.
                 if (!asAdmin && !isVirtual && !isFile && defaultFileManager.OpenFoldersInNewExplorerTabs &&
                     (defaultFileManager is not { Enabled: true } || string.IsNullOrWhiteSpace(defaultFileManager.Path)) &&
-                    TryOpenFolderInNewExplorerTab(path, defaultFileManager))
+                    TryOpenFolderInNewExplorerTab(path, defaultFileManager, preferredExplorerWindow))
                     return;
 
                 // The "runas" verb applies to executables, not documents, so a non-executable file can't
@@ -142,8 +153,8 @@ public static class FileExecutor
         }
     }
 
-    private static bool TryOpenFolderInNewExplorerTab(string path, DefaultFileManagerSetting defaultFileManager) => TryUseExplorerTabs(
-            () => ExplorerTabLocator.TryOpenFolderInNewTab(path),
+    private static bool TryOpenFolderInNewExplorerTab(string path, DefaultFileManagerSetting defaultFileManager, IntPtr preferredExplorerWindow) => TryUseExplorerTabs(
+            () => ExplorerTabLocator.TryOpenFolderInNewTab(path, preferredExplorerWindow),
             () =>
             {
                 // Keep the first folder on the documented shell route. Once its window is ready, later
