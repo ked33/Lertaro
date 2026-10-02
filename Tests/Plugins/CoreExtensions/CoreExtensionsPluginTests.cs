@@ -7,6 +7,18 @@ namespace Lertaro.Plugins.CoreExtensions.Tests;
 public sealed class CoreExtensionsPluginTests
 {
     [TestMethod]
+    public void GetConfigSchema_InlineSearchGroup_HasAsciiInputToggleDisabledByDefault()
+    {
+        var group = new CoreExtensionsPlugin().GetConfigSchema().Fields
+            .Single(field => field.Key == "InlineSearchGroup");
+        var field = group.SubFields!.Single(field => field.Key == "InlineSearchDisableChineseInput");
+        Assert.AreEqual(ConfigFieldType.Boolean, field.FieldType);
+        Assert.AreEqual(false, field.DefaultValue);
+        Assert.IsNotNull(field.LabelKey);
+        Assert.IsNotNull(field.DescriptionKey);
+    }
+
+    [TestMethod]
     public void GetActions_RegistersCopyNameImmediatelyBeforeCopyPath()
     {
         var actions = new CoreExtensionsPlugin().GetActions().ToList();

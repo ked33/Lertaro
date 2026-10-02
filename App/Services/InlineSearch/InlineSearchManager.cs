@@ -147,6 +147,8 @@ public class InlineSearchManager : IDisposable
             getWindow: () => _window,
             onCharacterTyped: ch =>
             {
+                if (ch != '\0' && (_window?.AsciiOnlyInput ?? InlineSearchAsciiInput.IsEnabled)
+                    && !InlineSearchAsciiInput.IsAllowed(ch.ToString())) return;
                 if (ch != '\0')
                 {
                     _searchText += ch;
