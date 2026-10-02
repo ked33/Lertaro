@@ -188,6 +188,8 @@
   "CoreExtensions_Config_InlineSearchGroupLabel": "インライン検索ウィンドウ",
   "CoreExtensions_Config_InlineSearchDisableChineseInputLabel": "中国語入力を無効にする",
   "CoreExtensions_Config_InlineSearchDisableChineseInputDesc": "すべてのインライン検索欄で英字、数字、ASCII記号と空白のみを許可します。IMEを無効にし、中国語、その他の言語、絵文字を含む入力や貼り付けを拒否します。次回インラインウィンドウを開くと適用されます。",
+  "CoreExtensions_Config_InlineSearchWindowWidthLabel": "ウィンドウの幅",
+  "CoreExtensions_Config_InlineSearchWindowWidthDesc": "すべてのインラインウィンドウの幅（システムの拡大率に対応）。0は自動です。指定値は最小200で、画面の作業領域の幅を超えません。次回ウィンドウを開くと適用されます。",
   "CoreExtensions_Config_InlineSearchAlwaysOpenLabel": "ダブルクリックやEnter時に移動せず直接開く",
   "CoreExtensions_Config_InlineSearchAlwaysOpenDesc": "有効にすると、エクスプローラーの組み込み検索ウィンドウで項目を選択した際、アクティブなウィンドウを移動するのではなく、ファイルを直接実行するか新しいウィンドウでフォルダーを開きます。",
   "CoreExtensions_Config_InlineSearchSearchActionsLabel": "インラインウィンドウにショートカットコマンドを表示",

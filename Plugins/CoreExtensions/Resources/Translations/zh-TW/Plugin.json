@@ -188,6 +188,8 @@
   "CoreExtensions_Config_InlineSearchGroupLabel": "內聯搜尋視窗",
   "CoreExtensions_Config_InlineSearchDisableChineseInputLabel": "停用中文輸入",
   "CoreExtensions_Config_InlineSearchDisableChineseInputDesc": "開啟後，所有內聯搜尋框僅允許英文字母、數字、半形符號和空格，停用輸入法並拒絕包含中文、其他語言或 emoji 的輸入及貼上。下次開啟內聯視窗時生效。",
+  "CoreExtensions_Config_InlineSearchWindowWidthLabel": "視窗寬度",
+  "CoreExtensions_Config_InlineSearchWindowWidthDesc": "所有內聯視窗的寬度（隨系統縮放）。0 為自動；自訂最小 200，最大不超過目前螢幕可用寬度。下次開啟內聯視窗時生效。",
   "CoreExtensions_Config_InlineSearchAlwaysOpenLabel": "雙擊或回車時直接打開而非轉跳",
   "CoreExtensions_Config_InlineSearchAlwaysOpenDesc": "開啟後，在檔案總管中透過內聯搜尋視窗選擇項目時，將直接啟動檔案或在獨立視窗中打開資料夾，而非轉跳當前檔案總管視窗。",
   "CoreExtensions_Config_InlineSearchSearchActionsLabel": "內聯視窗顯示快捷命令",

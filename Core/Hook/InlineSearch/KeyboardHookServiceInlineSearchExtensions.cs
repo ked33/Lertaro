@@ -229,10 +229,12 @@ internal static class KeyboardHookServiceInlineSearchExtensions
 
         if (isTriggerKey)
         {
+            var asciiOnly = service._settings.GetPluginSetting(
+                "Lertaro.Plugins.CoreExtensions", "InlineSearchDisableChineseInput", false);
             // When an IME is composing, ignore what/how many keys are pressed: just pop the (empty)
             // inline window and keep swallowing keys until focus is taken. Never let them through to
             // the host window (which would drive the system's default IME composition popup instead).
-            var imeOn = vkCode == KeyboardNativeMethods.VK_PROCESSKEY || KeyboardUtils.IsImeActive(fgHwnd);
+            var imeOn = !asciiOnly && (vkCode == KeyboardNativeMethods.VK_PROCESSKEY || KeyboardUtils.IsImeActive(fgHwnd));
             if (imeOn)
             {
                 if (!service.IsInlineSearchVisible)
@@ -242,9 +244,10 @@ internal static class KeyboardHookServiceInlineSearchExtensions
                 return true;
             }
 
-            if (!service.IsInlineSearchVisible)
+            if (!service.IsInlineSearchVisible || asciiOnly)
             {
-                // No IME: inject the first typed character as before; later keys go to the focused box.
+                // ASCII mode must forward the first letter even with the host IME open, and keep
+                // forwarding while focus is in transit. Once focused, WPF owns input and stops this hook.
                 var ch = KeyboardUtils.GetUnicodeChar(hookStruct);
                 service.RaiseCharacterTyped(ch);
                 return true;

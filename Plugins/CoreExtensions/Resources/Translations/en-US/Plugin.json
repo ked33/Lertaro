@@ -188,6 +188,8 @@
   "CoreExtensions_Config_InlineSearchGroupLabel": "Inline Search Windows",
   "CoreExtensions_Config_InlineSearchDisableChineseInputLabel": "Disable Chinese input",
   "CoreExtensions_Config_InlineSearchDisableChineseInputDesc": "Allow only English letters, digits, ASCII punctuation and spaces in all inline search boxes. Disable IME and reject input or pasted text containing Chinese, other languages or emoji. Applies the next time an inline window opens.",
+  "CoreExtensions_Config_InlineSearchWindowWidthLabel": "Window width",
+  "CoreExtensions_Config_InlineSearchWindowWidthDesc": "Width of all inline windows in device-independent pixels. 0 means automatic; custom widths have a minimum of 200 and fit the current screen working area. Applies the next time an inline window opens.",
   "CoreExtensions_Config_InlineSearchAlwaysOpenLabel": "Open items directly instead of navigating",
   "CoreExtensions_Config_InlineSearchAlwaysOpenDesc": "When enabled, selecting items in the Explorer inline search window will open files directly or open folders in a new window instead of navigating the active Explorer window.",
   "CoreExtensions_Config_InlineSearchSearchActionsLabel": "Show shortcut commands in the inline window",

@@ -188,6 +188,8 @@
   "CoreExtensions_Config_InlineSearchGroupLabel": "Ventanas de búsqueda integrada",
   "CoreExtensions_Config_InlineSearchDisableChineseInputLabel": "Desactivar la entrada en chino",
   "CoreExtensions_Config_InlineSearchDisableChineseInputDesc": "Permitir solo letras inglesas, dígitos, signos ASCII y espacios en todas las búsquedas integradas. Desactivar el IME y rechazar texto escrito o pegado con chino, otros idiomas o emojis. Se aplica al abrir la siguiente ventana integrada.",
+  "CoreExtensions_Config_InlineSearchWindowWidthLabel": "Ancho de ventana",
+  "CoreExtensions_Config_InlineSearchWindowWidthDesc": "Ancho de todas las ventanas integradas, ajustado a la escala del sistema. 0: automático; mínimo personalizado: 200, limitado al ancho disponible de la pantalla. Se aplica al abrir la siguiente ventana integrada.",
   "CoreExtensions_Config_InlineSearchAlwaysOpenLabel": "Abrir elementos directamente en lugar de navegar",
   "CoreExtensions_Config_InlineSearchAlwaysOpenDesc": "Al activarlo, al seleccionar elementos en la ventana de búsqueda integrada del Explorador, se abrirán los archivos directamente o las carpetas en una ventana nueva, en lugar de navegar en la ventana activa.",
   "CoreExtensions_Config_InlineSearchSearchActionsLabel": "Mostrar comandos rápidos en la ventana integrada",
