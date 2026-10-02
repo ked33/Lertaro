@@ -1,5 +1,8 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Controls;
+using System.Windows.Input;
 using Lertaro.PluginSdk.Abstractions;
 using Lertaro.PluginSdk.Abstractions.Plugins;
 using MenuItem = System.Windows.Controls.MenuItem;
@@ -15,6 +18,61 @@ namespace Lertaro.App.Services.ShellMenu.QuickNav;
 // already has (itemPath, canNavigate, ...) as parameters rather than re-deriving anything.
 internal static class QuickNavigationMenuKeyHandler
 {
+    // Keep execution on the menu item itself: its lifetime already follows the popup, and Tag is
+    // reserved for the asynchronous submenu loader. No global hotkey or process-wide item registry.
+    private static readonly DependencyProperty ShortcutActionProperty = DependencyProperty.RegisterAttached(
+        "ShortcutAction", typeof(Action), typeof(QuickNavigationMenuKeyHandler));
+
+    internal static void AttachShortcut(MenuItem menuItem, DynamicMenuItem item, Action triggerAction)
+    {
+        var key = item.ShortcutHint?.ToUpperInvariant() ?? "";
+        if (!item.IsActionable || item.IsHeader || item.IsSeparator || key.Length != 1 || key[0] is < 'A' or > 'Z') return;
+
+        menuItem.Header = QuickNavigationMenuContentExtensions.CreateItemHeader($"{item.Text} ({key})");
+        AutomationProperties.SetAcceleratorKey(menuItem, key);
+        menuItem.SetValue(ShortcutActionProperty, triggerAction);
+    }
+
+    internal static void HandleShortcutKeyDown(ContextMenu contextMenu, KeyEventArgs e)
+    {
+        if (e.Handled || !contextMenu.IsOpen || QuickNavigationMenu.IsShowingShellMenu) return;
+        var scope = FindShortcutScope(contextMenu, Keyboard.FocusedElement);
+        if (scope != null && TryInvokeShortcut(scope, Helpers.WpfUiHelper.GetActualKey(e), Keyboard.Modifiers, e.IsRepeat))
+            e.Handled = true;
+    }
+
+    internal static ItemsControl? FindShortcutScope(ContextMenu contextMenu, IInputElement? focused)
+    {
+        if (ReferenceEquals(focused, contextMenu)) return contextMenu;
+        // A textbox, another popup, or a header button must never donate its typing to navigation.
+        if (focused is not MenuItem menuItem) return null;
+        var scope = ItemsControl.ItemsControlFromItemContainer(menuItem);
+        var owner = scope;
+        while (owner is MenuItem parent && parent.IsSubmenuOpen)
+            owner = ItemsControl.ItemsControlFromItemContainer(parent);
+        return ReferenceEquals(owner, contextMenu) ? scope : null;
+    }
+
+    internal static bool TryInvokeShortcut(ItemsControl scope, Key key, ModifierKeys modifiers, bool isRepeat)
+    {
+        if (modifiers != ModifierKeys.None || key < Key.A || key > Key.Z) return false;
+        var letter = ((char)('A' + (int)key - (int)Key.A)).ToString();
+        MenuItem? match = null;
+        foreach (var candidate in scope.Items.OfType<MenuItem>())
+        {
+            if (candidate.Visibility != Visibility.Visible || AutomationProperties.GetAcceleratorKey(candidate) != letter
+                || candidate.GetValue(ShortcutActionProperty) is not Action) continue;
+            // Include disabled entries in conflict detection: a drive disconnecting must not silently
+            // redirect an ambiguous shortcut to another folder. Mouse activation remains available.
+            if (match != null) return true;
+            match = candidate;
+        }
+        if (match == null) return false;
+        if (!isRepeat && match.IsEnabled && match.Focusable)
+            ((Action)match.GetValue(ShortcutActionProperty))();
+        return true;
+    }
+
     public static void HandlePreviewKeyDown(
         KeyEventArgs e,
         MenuItem menuItem,
@@ -25,6 +83,11 @@ internal static class QuickNavigationMenuKeyHandler
         bool enableRightClick,
         Action triggerAction)
     {
+        // Submenu Popups can originate the routed event too; Handled prevents a second invocation
+        // if the root ContextMenu already processed it.
+        HandleShortcutKeyDown(contextMenu, e);
+        if (e.Handled) return;
+
         // Action hotkeys (Ctrl+C, Ctrl+Enter, ...) fire directly on the highlighted item without
         // opening its action menu — like the full window's result list. Gated to real file/folder
         // items (same places the action menu is allowed), so nav categories don't respond.

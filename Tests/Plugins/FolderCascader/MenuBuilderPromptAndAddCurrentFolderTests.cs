@@ -13,7 +13,7 @@ namespace Lertaro.Plugins.FolderCascader.Tests;
 public sealed class MenuBuilderPromptAndAddCurrentFolderTests
 {
     [TestMethod]
-    public void PromptAndAddCurrentFolder_PromptsWithAllThreeFieldsPreFilled()
+    public void PromptAndAddCurrentFolder_PromptsWithFolderFieldsAndOptionalShortcut()
     {
         using var dir = new TempDirectory();
         var subDir = Directory.CreateDirectory(Path.Combine(dir.Path, "MyStuff"));
@@ -28,7 +28,7 @@ public sealed class MenuBuilderPromptAndAddCurrentFolderTests
             MenuBuilder.PromptAndAddCurrentFolder(subDir.FullName, "Tools/Network");
 
             Assert.IsNotNull(promptedFields);
-            Assert.HasCount(3, promptedFields);
+            Assert.HasCount(4, promptedFields);
             var nameField = promptedFields.Single(f => f.Key == "Name");
             Assert.AreEqual(ConfigFieldType.Text, nameField.FieldType);
             Assert.AreEqual("MyStuff", nameField.DefaultValue);
@@ -40,6 +40,10 @@ public sealed class MenuBuilderPromptAndAddCurrentFolderTests
             var subMenuField = promptedFields.Single(f => f.Key == "SubMenu");
             Assert.AreEqual(ConfigFieldType.Text, subMenuField.FieldType);
             Assert.AreEqual("Tools/Network", subMenuField.DefaultValue);
+            var shortcutField = promptedFields.Single(f => f.Key == "ShortcutKey");
+            Assert.AreEqual(ConfigFieldType.Text, shortcutField.FieldType);
+            Assert.AreEqual(1, shortcutField.MaxLength);
+            Assert.AreEqual("", shortcutField.DefaultValue);
         }
         finally
         {
@@ -57,7 +61,7 @@ public sealed class MenuBuilderPromptAndAddCurrentFolderTests
         List<FolderCascaderPlugin.FolderConfigItem>? saved = null;
         PluginSettingsService.SetSettingFunc = (_, _, value) => saved = (List<FolderCascaderPlugin.FolderConfigItem>)value!;
         PluginPromptService.PromptFunc = (title, fields, initialValues) =>
-            new Dictionary<string, object?> { ["Name"] = "Custom Name", ["Path"] = editedDir.Path, ["SubMenu"] = "NewCategory" };
+            new Dictionary<string, object?> { ["Name"] = "Custom Name", ["Path"] = editedDir.Path, ["SubMenu"] = "NewCategory", ["ShortcutKey"] = "e" };
         try
         {
             MenuBuilder.PromptAndAddCurrentFolder(dir.Path, "");
@@ -66,6 +70,7 @@ public sealed class MenuBuilderPromptAndAddCurrentFolderTests
             Assert.AreEqual("Custom Name", added.Name);
             Assert.AreEqual(editedDir.Path, added.Path);
             Assert.AreEqual("NewCategory", added.SubMenu);
+            Assert.AreEqual("e", added.ShortcutKey);
         }
         finally
         {
@@ -90,6 +95,7 @@ public sealed class MenuBuilderPromptAndAddCurrentFolderTests
             MenuBuilder.PromptAndAddCurrentFolder(dir.Path, "");
 
             Assert.AreEqual(dir.Path, saved!.Single().Path);
+            Assert.AreEqual("", saved.Single().ShortcutKey);
         }
         finally
         {
