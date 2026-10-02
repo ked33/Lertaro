@@ -10,7 +10,7 @@ public sealed class QuickNavigationMiddleClickActivationTests
     private static readonly IntPtr Explorer = new(0x11);
     private static readonly IntPtr Console = new(0x22);
 
-    private static QuickNavMiddleClickActivation.Host Host(IntPtr hwnd, string path) =>
+    private static QuickNavMiddleClickActivation.Host Host(IntPtr hwnd, string? path) =>
         new(hwnd, "host", "CabinetWClass", IsDesktop: false, path);
 
     [TestMethod]

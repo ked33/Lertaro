@@ -24,7 +24,13 @@ public sealed class HookIpcNamesTests
     }
 
     [TestMethod]
-    public void EventPipeName_IsStableAcrossCalls() => Assert.AreEqual(HookIpcNames.EventPipeName, HookIpcNames.EventPipeName);
+    public void EventPipeName_IsStableAcrossCalls()
+    {
+        // Two evaluations: comparing the property to itself is an assertion the analyzer can prove.
+        var first = HookIpcNames.EventPipeName;
+        var second = HookIpcNames.EventPipeName;
+        Assert.AreEqual(first, second);
+    }
 
     [TestMethod]
     public void EventPipeName_AndCmdPipeName_AreDistinct() => Assert.AreNotEqual(HookIpcNames.EventPipeName, HookIpcNames.CmdPipeName);
