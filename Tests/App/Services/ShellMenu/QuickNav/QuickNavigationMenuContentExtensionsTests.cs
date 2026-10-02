@@ -96,6 +96,27 @@ public sealed class QuickNavigationMenuContentExtensionsTests
     }
 
     [StaTestMethod]
+    public void MiddleClick_AndShortcut_UseTheSameOpenActionWithoutOrdinaryClick()
+    {
+        var menu = new ContextMenu();
+        var row = new MenuItem();
+        menu.Items.Add(row);
+        var opens = 0;
+        var ordinaryClicks = 0;
+        row.Click += (s, e) => ordinaryClicks++;
+        var folder = Folder();
+        folder.ShortcutHint = "E";
+        QuickNavigationMenuContentExtensions.AttachMiddleClick(row, folder, true, () => opens++);
+
+        Assert.IsTrue(QuickNavigationMenuKeyHandler.TryInvokeShortcut(menu, Key.E, ModifierKeys.None, false));
+        Assert.AreEqual(1, opens);
+        RaiseButton(row, UIElement.PreviewMouseDownEvent);
+        RaiseButton(row, UIElement.PreviewMouseUpEvent);
+        Assert.AreEqual(2, opens);
+        Assert.AreEqual(0, ordinaryClicks);
+    }
+
+    [StaTestMethod]
     public void MiddleClick_ReleaseThatOpenedMenu_DoesNotOpenFolder()
     {
         var row = new MenuItem();
@@ -112,16 +133,19 @@ public sealed class QuickNavigationMenuContentExtensionsTests
     [DataRow(true, false, true, false)] // Category or a continuation page of a real folder.
     [DataRow(true, true, false, false)] // Unavailable folder or missing provider path.
     [DataRow(true, true, true, true)] // Disabled provider item.
-    public void MiddleClick_NonFolderOrUnavailableItem_IsConsumedWithoutAction(
+    public void MiddleClick_AndShortcut_NonFolderOrUnavailableItem_DoNotOpen(
         bool hasSubMenu, bool actionable, bool available, bool disabled)
     {
         var row = new MenuItem();
+        var menu = new ContextMenu();
+        menu.Items.Add(row);
         var opens = 0;
-        var item = new DynamicMenuItem { HasSubMenu = hasSubMenu, IsActionable = actionable, IsDisabled = disabled };
+        var item = new DynamicMenuItem { HasSubMenu = hasSubMenu, IsActionable = actionable, IsDisabled = disabled, ShortcutHint = "E" };
         QuickNavigationMenuContentExtensions.AttachMiddleClick(row, item, available, () => opens++);
 
         Assert.IsTrue(RaiseButton(row, UIElement.PreviewMouseDownEvent).Handled);
         Assert.IsTrue(RaiseButton(row, UIElement.PreviewMouseUpEvent).Handled);
+        QuickNavigationMenuKeyHandler.TryInvokeShortcut(menu, Key.E, ModifierKeys.None, false);
 
         Assert.AreEqual(0, opens);
     }

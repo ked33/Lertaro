@@ -14,7 +14,7 @@
   "FolderCascader_Config_SubMenuLabel": "子菜单",
   "FolderCascader_Config_SubMenuDesc": "把这个文件夹归到级联菜单里的某个子菜单下。用\"/\"可以嵌套多级，比如\"工具/网络\"代表两级子菜单。留空则直接显示在根层级。",
   "FolderCascader_Config_ShortcutKey": "菜单快捷键",
-  "FolderCascader_Config_ShortcutKeyDesc": "单个英文字母（如 E），留空关闭。仅在快速导航菜单当前层级生效，按键等同点击文件夹。同层重复键不执行。",
+  "FolderCascader_Config_ShortcutKeyDesc": "单个英文字母（如 E），留空关闭。仅在快速导航菜单当前层级生效，按键在新标签打开文件夹（等同鼠标中键）。同层重复键不执行。",
   "FolderCascader_Config_ShortcutKeyWarning": "以下菜单快捷键无效或在同一层级重复，相关快捷键不会生效；文件夹仍可用鼠标打开。请修改：\n{0}",
   "FolderCascader_Config_ShowHistory": "显示历史记录",
   "FolderCascader_Config_ShowHistoryDesc": "开启后，最近访问的文件和文件夹会显示在级联菜单中",

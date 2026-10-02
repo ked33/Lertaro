@@ -14,7 +14,7 @@
   "FolderCascader_Config_SubMenuLabel": "하위 메뉴",
   "FolderCascader_Config_SubMenuDesc": "이 폴더를 계단식 메뉴의 하위 메뉴에 중첩시킵니다. \"/\"를 사용하면 여러 단계로 중첩할 수 있습니다. 예: \"도구/네트워크\"는 2단계 하위 메뉴를 의미합니다. 비워두면 최상위 계층에 표시됩니다.",
   "FolderCascader_Config_ShortcutKey": "메뉴 단축키",
-  "FolderCascader_Config_ShortcutKeyDesc": "영문자 하나(A-Z, 예: E)를 입력하세요. 비워 두면 사용하지 않습니다. 빠른 탐색 메뉴의 현재 단계에서만 폴더 클릭과 동일하게 작동합니다. 같은 단계의 중복 키는 실행되지 않습니다.",
+  "FolderCascader_Config_ShortcutKeyDesc": "영문자 하나(A-Z, 예: E)를 입력하세요. 비워 두면 사용하지 않습니다. 빠른 탐색 메뉴의 현재 단계에서만 가운데 클릭처럼 폴더를 새 탭으로 엽니다. 같은 단계의 중복 키는 실행되지 않습니다.",
   "FolderCascader_Config_ShortcutKeyWarning": "다음 단축키는 유효하지 않거나 같은 단계에서 중복되어 작동하지 않습니다. 폴더는 마우스로 열 수 있습니다. 수정하세요:\n{0}",
   "FolderCascader_Config_ShowHistory": "기록 표시",
   "FolderCascader_Config_ShowHistoryDesc": "사용하면 최근에 접근한 폴더와 파일이 계단식 메뉴에 표시됩니다",

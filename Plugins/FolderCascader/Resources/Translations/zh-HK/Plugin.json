@@ -14,7 +14,7 @@
   "FolderCascader_Config_SubMenuLabel": "子選單",
   "FolderCascader_Config_SubMenuDesc": "把這個資料夾歸到階層式選單裡的某個子選單下。用「/」可以巢狀多層，例如「工具/網絡」代表兩層子選單。留空則直接顯示在根層級。",
   "FolderCascader_Config_ShortcutKey": "選單快捷鍵",
-  "FolderCascader_Config_ShortcutKeyDesc": "單個英文字母（如 E），留空停用。僅在快速導覽選單目前層級生效，按鍵等同點擊資料夾。同層重複鍵不執行。",
+  "FolderCascader_Config_ShortcutKeyDesc": "單個英文字母（如 E），留空停用。僅在快速導覽選單目前層級生效，按鍵會在新分頁開啟資料夾（等同滑鼠中鍵）。同層重複鍵不執行。",
   "FolderCascader_Config_ShortcutKeyWarning": "以下選單快捷鍵無效或在同一層級重複，相關快捷鍵不會生效；資料夾仍可用滑鼠開啟。請修改：\n{0}",
   "FolderCascader_Config_ShowHistory": "顯示瀏覽紀錄",
   "FolderCascader_Config_ShowHistoryDesc": "開啟後，最近存取的檔案和資料夾會顯示在階層式選單中",

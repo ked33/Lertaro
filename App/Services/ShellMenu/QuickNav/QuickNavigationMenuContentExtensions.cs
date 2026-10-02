@@ -247,8 +247,6 @@ internal static class QuickNavigationMenuContentExtensions
             }), System.Windows.Threading.DispatcherPriority.Background);
         };
 
-        QuickNavigationMenuKeyHandler.AttachShortcut(menuItem, item, triggerAction);
-
         AttachMiddleClick(menuItem, item, canNavigate, () =>
         {
             contextMenu.IsOpen = false;
@@ -301,6 +299,14 @@ internal static class QuickNavigationMenuContentExtensions
 
     internal static void AttachMiddleClick(MenuItem menuItem, DynamicMenuItem item, bool canNavigate, Action openFolder)
     {
+        // Single-key shortcuts use exactly the middle-click route, including its eligibility gates.
+        void OpenFolder()
+        {
+            if (menuItem.IsEnabled && !item.IsDisabled && item.IsActionable && item.HasSubMenu && canNavigate)
+                openFolder();
+        }
+        QuickNavigationMenuKeyHandler.AttachShortcut(menuItem, item, OpenFolder);
+
         var pressed = false;
         MouseButtonEventHandler handle = (s, e) =>
         {
@@ -317,8 +323,7 @@ internal static class QuickNavigationMenuContentExtensions
             // The global hook opens this menu on middle DOWN. Its trailing UP must not open a folder.
             var wasPressed = pressed;
             pressed = false;
-            if (wasPressed && menuItem.IsEnabled && !item.IsDisabled && item.IsActionable && item.HasSubMenu && canNavigate)
-                openFolder();
+            if (wasPressed) OpenFolder();
         };
         menuItem.AddHandler(UIElement.PreviewMouseDownEvent, handle, handledEventsToo: true);
         menuItem.AddHandler(UIElement.PreviewMouseUpEvent, handle, handledEventsToo: true);
