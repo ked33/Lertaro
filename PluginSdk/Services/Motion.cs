@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Media;
 using System.Windows.Media.Animation;
 
 namespace Lertaro.PluginSdk.Services;
@@ -48,6 +49,7 @@ public static class Motion
         private readonly FrameworkElement _element;
         private Storyboard? _running;
         private bool _subscribed;
+        private int _opacityVersion;
 
         public State(FrameworkElement element)
         {
@@ -76,9 +78,41 @@ public static class Motion
 
         private void Stop()
         {
-            _running?.Remove(_element);
-            _running = null;
+            if (_running != null)
+            {
+                _running.Remove(_element);
+                _running = null;
+                // Storyboard.Remove is deferred until a timing tick. A detached VisualBrush may
+                // have no next frame, so clear the target clocks of our transform loops as well.
+                ClearTransformClocks(_element.RenderTransform);
+            }
+            _opacityVersion++;
+            RestoreOpacity();
+        }
+
+        private void RestoreOpacity()
+        {
             _element.BeginAnimation(UIElement.OpacityProperty, null);
+            var opacity = GetOpacity(_element);
+            if (!double.IsNaN(opacity)) _element.SetCurrentValue(UIElement.OpacityProperty, opacity);
+        }
+
+        private static void ClearTransformClocks(Transform transform)
+        {
+            if (transform.IsFrozen) return;
+            switch (transform)
+            {
+                case TranslateTransform translation:
+                    translation.BeginAnimation(TranslateTransform.XProperty, null);
+                    translation.BeginAnimation(TranslateTransform.YProperty, null);
+                    break;
+                case RotateTransform rotation:
+                    rotation.BeginAnimation(RotateTransform.AngleProperty, null);
+                    break;
+                case TransformGroup group:
+                    foreach (var child in group.Children) ClearTransformClocks(child);
+                    break;
+            }
         }
 
         public void Apply(bool animateOpacity)
@@ -97,7 +131,11 @@ public static class Motion
                 if (animateOpacity && _element.IsLoaded && _element.IsVisible && AnimationSettings.Instance.Transitions)
                 {
                     var fade = new DoubleAnimation(from, opacity, TimeSpan.FromMilliseconds(150)) { FillBehavior = FillBehavior.Stop };
-                    fade.Completed += (_, _) => _element.BeginAnimation(UIElement.OpacityProperty, null);
+                    var version = _opacityVersion;
+                    fade.Completed += (_, _) =>
+                    {
+                        if (version == _opacityVersion) RestoreOpacity();
+                    };
                     _element.BeginAnimation(UIElement.OpacityProperty, fade);
                 }
             }
