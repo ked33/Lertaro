@@ -16,13 +16,13 @@ internal static class QuickNavigationTriggerGate
     {
         if (string.Equals(processName, "explorer", StringComparison.OrdinalIgnoreCase) || isDesktop)
         {
-            return CanShowInExplorer(activeHwnd, x, y);
+            return CanShowInExplorer(activeHwnd, x, y, triggerType);
         }
 
         return CanShowInOtherFileManager(activeHwnd, processName, className, x, y, triggerType);
     }
 
-    private static bool CanShowInExplorer(IntPtr activeHwnd, int x, int y)
+    private static bool CanShowInExplorer(IntPtr activeHwnd, int x, int y, MouseTriggerType triggerType)
     {
         var hwndUnderCursor = PointNative.WindowFromPoint(new PointNative.POINT { x = x, y = y });
         if (hwndUnderCursor == IntPtr.Zero) return false;
@@ -60,7 +60,9 @@ internal static class QuickNavigationTriggerGate
             }
         }
 
-        return ExplorerSelectionQuery.IsActiveWindowFolderEmptySpace(activeHwnd);
+        // Middle-click preserves the current selection; only double-click needs the selection check
+        // to avoid opening this menu while Explorer opens a file or folder.
+        return triggerType == MouseTriggerType.MiddleClick || ExplorerSelectionQuery.IsActiveWindowFolderEmptySpace(activeHwnd);
     }
 
     // Third-party file managers (Directory Opus, Total Commander, ...) integrate through their

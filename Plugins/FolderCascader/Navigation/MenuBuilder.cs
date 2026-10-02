@@ -22,7 +22,7 @@ public static class MenuBuilder
             return Enumerable.Empty<DynamicMenuItem>();
 
         if (path == RecentFoldersMenu.HandlePath)
-            return RecentFoldersMenu.Build(provider, RecentFoldersService.GetSnapshot());
+            return provider.RecentFolderSubmenu;
 
         if (path == "foldercascader://history")
             return MenuBuilderContentExtensions.BuildHistoryMenu(provider);
