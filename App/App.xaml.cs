@@ -79,6 +79,7 @@ public partial class App : Application
         TaskScheduler.UnobservedTaskException += (s, args) => { Helpers.App.AppCrashHandler.LogException("TaskScheduler UnobservedTaskException", args.Exception); args.SetObserved(); };
 
         var settings = UserSettings.Load();
+        Helpers.Visuals.AnimationPolicy.Initialize(settings);
         Logger.MinimumLevel = SettingsOptionGenerator.ParseLogLevel(settings.LogLevel);
         // Everything this process matches outside the search pipeline -- plugin catalog items,
         // favorites, shell-menu filtering, display highlighting -- reads this rather than the

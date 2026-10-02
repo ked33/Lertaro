@@ -147,9 +147,10 @@ public static class PluginContextMenuHelper
                 Placement = PlacementMode.MousePoint,
                 AllowsTransparency = true,
                 StaysOpen = true,
-                PopupAnimation = PopupAnimation.Fade,
+                PopupAnimation = Lertaro.PluginSdk.Services.AnimationSettings.Instance.PopupAnimation,
                 Child = border
             };
+            _currentRightClickPopup.SetBinding(Popup.PopupAnimationProperty, new System.Windows.Data.Binding(nameof(Lertaro.PluginSdk.Services.AnimationSettings.PopupAnimation)) { Source = Lertaro.PluginSdk.Services.AnimationSettings.Instance });
 
             // Shared with ActionFlyout so the reflection lookup for MenuItem's private IsHighlighted
             // setter happens once, cached, instead of being duplicated per popup host.

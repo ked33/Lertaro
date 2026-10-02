@@ -1,3 +1,4 @@
+using Lertaro.PluginSdk.Services;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
@@ -118,15 +119,24 @@ public static class MarqueeBehavior
             containingWindow.Deactivated += windowActivationHandler;
         }
 
-        element.SizeChanged += (s, e) => UpdateMarqueeAnimation(element, isActive);
-
-        if (VisualTreeHelper.GetParent(element) is FrameworkElement parent)
-        {
-            parent.SizeChanged += (s, e) => UpdateMarqueeAnimation(element, isActive);
-        }
+        SizeChangedEventHandler sizeHandler = (_, _) => UpdateMarqueeAnimation(element, isActive);
+        DependencyPropertyChangedEventHandler visibilityHandler = (_, _) => UpdateMarqueeAnimation(element, isActive);
+        EventHandler<PropertyChangedEventArgs> policyHandler = (_, _) => UpdateMarqueeAnimation(element, isActive);
+        element.SizeChanged += sizeHandler;
+        element.IsVisibleChanged += visibilityHandler;
+        PropertyChangedEventManager.AddHandler(AnimationSettings.Instance, policyHandler, string.Empty);
+        var parent = VisualTreeHelper.GetParent(element) as FrameworkElement;
+        if (parent != null) parent.SizeChanged += sizeHandler;
+        if (element is TextBlock text && text.ToolTip == null)
+            System.Windows.Data.BindingOperations.SetBinding(text, FrameworkElement.ToolTipProperty,
+                new System.Windows.Data.Binding(nameof(TextBlock.Text)) { Source = text });
 
         var state = new MarqueeState
         {
+            Parent = parent,
+            SizeHandler = sizeHandler,
+            VisibilityHandler = visibilityHandler,
+            PolicyHandler = policyHandler,
             WatchedContainer = watchedContainer,
             IsMouseOverDescriptor = isMouseOverDescriptor,
             IsSelectedDescriptor = isSelectedDescriptor,
@@ -158,6 +168,10 @@ public static class MarqueeBehavior
                 state.ContainingWindow.Deactivated -= state.WindowActivationHandler;
             }
 
+            element.SizeChanged -= state.SizeHandler;
+            element.IsVisibleChanged -= state.VisibilityHandler;
+            if (state.Parent != null) state.Parent.SizeChanged -= state.SizeHandler;
+            if (state.PolicyHandler != null) PropertyChangedEventManager.RemoveHandler(AnimationSettings.Instance, state.PolicyHandler, string.Empty);
             SetMarqueeState(element, null);
         }
 
@@ -180,7 +194,7 @@ public static class MarqueeBehavior
         if (availableWidth <= 0 || elementWidth <= 0) return;
 
         var overflow = elementWidth - availableWidth;
-        var shouldAnimate = overflow > 0 && isActive();
+        var shouldAnimate = AnimationSettings.Instance.Marquee && element.IsLoaded && element.IsVisible && overflow > 0 && isActive();
 
         if (shouldAnimate)
         {
@@ -228,6 +242,10 @@ public static class MarqueeBehavior
 
     private class MarqueeState
     {
+        public FrameworkElement? Parent { get; set; }
+        public SizeChangedEventHandler? SizeHandler { get; set; }
+        public DependencyPropertyChangedEventHandler? VisibilityHandler { get; set; }
+        public EventHandler<PropertyChangedEventArgs>? PolicyHandler { get; set; }
         public DependencyObject? WatchedContainer { get; set; }
         public DependencyPropertyDescriptor? IsMouseOverDescriptor { get; set; }
         public DependencyPropertyDescriptor? IsSelectedDescriptor { get; set; }

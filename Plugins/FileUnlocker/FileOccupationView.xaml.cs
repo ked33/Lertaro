@@ -34,6 +34,8 @@ public partial class FileOccupationView : UserControl
         InitializeComponent();
         _path = path;
         PathText.Text = path;
+        PathText.ToolTip = path;
+        IsVisibleChanged += (_, _) => UpdatePathMarquee();
         _processHeader = TranslationService.Get("FileUnlocker_ProcessName");
         _pidHeader = TranslationService.Get("FileUnlocker_ProcessId");
         _pathHeader = TranslationService.Get("FileUnlocker_ProcessPath");
@@ -59,6 +61,7 @@ public partial class FileOccupationView : UserControl
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        PropertyChangedEventManager.AddHandler(AnimationSettings.Instance, MotionChanged, string.Empty);
         _containingWindow = Window.GetWindow(this);
         if (_containingWindow != null)
         {
@@ -72,6 +75,7 @@ public partial class FileOccupationView : UserControl
 
     private void Window_Unloaded(object sender, RoutedEventArgs e)
     {
+        PropertyChangedEventManager.RemoveHandler(AnimationSettings.Instance, MotionChanged, string.Empty);
         if (_containingWindow != null && _windowActivationHandler != null)
         {
             _containingWindow.Activated -= _windowActivationHandler;
@@ -99,11 +103,13 @@ public partial class FileOccupationView : UserControl
 
     private void PathText_SizeChanged(object sender, SizeChangedEventArgs e) => UpdatePathMarquee();
 
+    private void MotionChanged(object? sender, PropertyChangedEventArgs e) => UpdatePathMarquee();
+
     private void UpdatePathMarquee()
     {
         var availableWidth = PathViewport.ActualWidth;
         var elementWidth = PathText.ActualWidth;
-        if (!_pathIsHovered || (_containingWindow != null && !_containingWindow.IsActive)
+        if (!AnimationSettings.Instance.Marquee || !IsVisible || !IsLoaded || !_pathIsHovered || (_containingWindow != null && !_containingWindow.IsActive)
             || availableWidth <= 0 || elementWidth <= 0)
         {
             StopPathMarquee();

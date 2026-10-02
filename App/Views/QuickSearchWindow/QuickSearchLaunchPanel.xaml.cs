@@ -167,14 +167,12 @@ public partial class QuickSearchLaunchPanel : WpfUserControl
         if (slot != null) System.Windows.Controls.Panel.SetZIndex(slot, 100);
         var duration = new Duration(TimeSpan.FromMilliseconds(160));
         var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
-        slot?.BeginAnimation(WidthProperty,
-            new DoubleAnimation(SourceSlotWidth, expandedWidth, duration) { EasingFunction = easing });
-        button.BeginAnimation(WidthProperty,
-            new DoubleAnimation(SourceSlotWidth, expandedWidth, duration) { EasingFunction = easing });
-        (button.Content as System.Windows.Controls.Grid)?.Children
-            .OfType<System.Windows.Controls.StackPanel>().FirstOrDefault()?.BeginAnimation(
-            OpacityProperty, new DoubleAnimation(1, 0, duration));
-        name.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, duration));
+        if (slot != null) MotionTransition.Start(slot, WidthProperty, expandedWidth, duration, easing);
+        MotionTransition.Start(button, WidthProperty, expandedWidth, duration, easing);
+        var dots = (button.Content as System.Windows.Controls.Grid)?.Children
+            .OfType<System.Windows.Controls.StackPanel>().FirstOrDefault();
+        if (dots != null) MotionTransition.Start(dots, OpacityProperty, 0, duration);
+        MotionTransition.Start(name, OpacityProperty, 1, duration);
     }
 
     private void ResetSourceButtons()
@@ -184,18 +182,18 @@ public partial class QuickSearchLaunchPanel : WpfUserControl
         {
             var slot = VisualTreeHelper.GetParent(button) as System.Windows.Controls.Grid;
             if (slot != null) System.Windows.Controls.Panel.SetZIndex(slot, 0);
-            slot?.BeginAnimation(WidthProperty, null);
+            if (slot != null) MotionTransition.Cancel(slot, WidthProperty);
             slot?.Width = SourceSlotWidth;
-            button.BeginAnimation(WidthProperty, null);
+            MotionTransition.Cancel(button, WidthProperty);
             button.Width = SourceSlotWidth;
             var reveal = slot?.Children.OfType<System.Windows.Controls.Canvas>()
                 .FirstOrDefault(candidate => candidate.Name == "SourceReveal");
             var dots = (button.Content as System.Windows.Controls.Grid)?.Children
                 .OfType<System.Windows.Controls.StackPanel>().FirstOrDefault();
-            dots?.BeginAnimation(OpacityProperty, null);
+            if (dots != null) MotionTransition.Cancel(dots, OpacityProperty);
             dots?.Opacity = 1;
             var name = reveal?.Children.OfType<System.Windows.Controls.TextBlock>().FirstOrDefault();
-            name?.BeginAnimation(OpacityProperty, null);
+            if (name != null) MotionTransition.Cancel(name, OpacityProperty);
             name?.Opacity = 0;
         }
     }
@@ -205,17 +203,13 @@ public partial class QuickSearchLaunchPanel : WpfUserControl
         var duration = new Duration(TimeSpan.FromMilliseconds(160));
         var slot = VisualTreeHelper.GetParent(button) as System.Windows.Controls.Grid;
         if (slot != null) System.Windows.Controls.Panel.SetZIndex(slot, 0);
-        slot?.BeginAnimation(WidthProperty,
-            new DoubleAnimation { To = SourceSlotWidth, Duration = duration });
-        button.BeginAnimation(WidthProperty,
-            new DoubleAnimation { To = SourceSlotWidth, Duration = duration });
-        var reveal = slot?.Children.OfType<System.Windows.Controls.Canvas>()
-            .FirstOrDefault(candidate => candidate.Name == "SourceReveal");
-        (button.Content as System.Windows.Controls.Grid)?.Children
-            .OfType<System.Windows.Controls.StackPanel>().FirstOrDefault()?.BeginAnimation(
-            OpacityProperty, new DoubleAnimation { To = 1, Duration = duration });
-        reveal?.Children.OfType<System.Windows.Controls.TextBlock>().FirstOrDefault()?.BeginAnimation(
-            OpacityProperty, new DoubleAnimation { To = 0, Duration = duration });
+        if (slot != null) MotionTransition.Start(slot, WidthProperty, SourceSlotWidth, duration);
+        MotionTransition.Start(button, WidthProperty, SourceSlotWidth, duration);
+        var reveal = slot?.Children.OfType<System.Windows.Controls.Canvas>().FirstOrDefault(candidate => candidate.Name == "SourceReveal");
+        var dots = (button.Content as System.Windows.Controls.Grid)?.Children.OfType<System.Windows.Controls.StackPanel>().FirstOrDefault();
+        var name = reveal?.Children.OfType<System.Windows.Controls.TextBlock>().FirstOrDefault();
+        if (dots != null) MotionTransition.Start(dots, OpacityProperty, 1, duration);
+        if (name != null) MotionTransition.Start(name, OpacityProperty, 0, duration);
     }
 
     private static IEnumerable<T> FindVisualChildren<T>(DependencyObject parent) where T : DependencyObject

@@ -1,4 +1,11 @@
 {
+  "Appearance_EnableAnimations": "인터페이스 애니메이션",
+  "Appearance_AnimateTransitions": "창 및 컨트롤 전환 효과",
+  "Appearance_AnimateScrolling": "부드러운 스크롤",
+  "Appearance_AnimateBackgrounds": "움직이는 테마 배경",
+  "Appearance_AnimateMarquee": "긴 텍스트 자동 스크롤",
+  "Appearance_AnimationHint": "즉시 적용됩니다. 애니메이션을 꺼도 상태 표시와 미디어 재생은 유지됩니다.",
+  "Appearance_AnimationSystemDisabled": "Windows에서 애니메이션이 꺼져 있습니다.",
   "Settings_Title": "Lertaro 설정",
   "Settings_TriggerWordTaken": "이 트리거 단어는 이미 '{0}'에서 사용 중입니다. 두 기능이 함께 반응하고 파일 검색에서는 이 단어가 한 번만 제거되므로, 구분할 수 있는 다른 단어를 사용하는 것이 좋습니다.",
   "Settings_SearchPlaceholder": " 설정 검색...",

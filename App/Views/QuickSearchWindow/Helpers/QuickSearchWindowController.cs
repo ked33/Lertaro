@@ -1,3 +1,5 @@
+using Lertaro.App.Helpers.Visuals;
+using Lertaro.PluginSdk.Services;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media.Animation;
@@ -266,24 +268,10 @@ public class QuickSearchWindowController
 
         if (_window.Content is UIElement fadeContent)
         {
-            var fadeOutDuration = (Duration)System.Windows.Application.Current.FindResource("DurationFast");
-            var fadeOut = new DoubleAnimation(0.0, fadeOutDuration)
-            {
-                EasingFunction = System.Windows.Application.Current.TryFindResource("EaseOutCubic") as IEasingFunction
-            };
-            fadeContent.BeginAnimation(UIElement.OpacityProperty, fadeOut);
-
-            // A one-shot dispatcher timer, not a pool thread sleeping to a blocking Invoke: the thread was
-            // occupied purely to wait out an animation, supersession is already handled by the search
-            // version guard inside FinishHide, and if the app began shutting down just after a hide the
-            // Invoke threw inside a fire-and-forget task -- an unobserved exception with no context.
-            var fadeTimer = new DispatcherTimer { Interval = fadeOutDuration.TimeSpan };
-            fadeTimer.Tick += (_, _) =>
-            {
-                fadeTimer.Stop();
-                FinishHide();
-            };
-            fadeTimer.Start();
+            MotionTransition.Start(fadeContent, UIElement.OpacityProperty, 0,
+                (Duration)System.Windows.Application.Current.FindResource("DurationFast"),
+                System.Windows.Application.Current.TryFindResource("EaseOutCubic") as IEasingFunction,
+                FinishHide);
         }
         else
         {

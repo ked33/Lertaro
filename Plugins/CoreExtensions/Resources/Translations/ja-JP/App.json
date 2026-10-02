@@ -1,4 +1,11 @@
 {
+  "Appearance_EnableAnimations": "UI アニメーション",
+  "Appearance_AnimateTransitions": "ウィンドウとコントロールの切り替え効果",
+  "Appearance_AnimateScrolling": "スムーズスクロール",
+  "Appearance_AnimateBackgrounds": "テーマ背景のアニメーション",
+  "Appearance_AnimateMarquee": "長いテキストの自動スクロール",
+  "Appearance_AnimationHint": "変更はすぐに反映されます。無効にしても状態表示とメディア再生は維持されます。",
+  "Appearance_AnimationSystemDisabled": "Windows でアニメーションが無効になっています。",
   "Settings_Title": "Lertaro 設定",
   "Settings_TriggerWordTaken": "このトリガーワードは既に「{0}」が使用しています。両方が同時に反応し、ファイル検索ではこのワードが一度だけ取り除かれるため、区別できる別のワードにすることをおすすめします。",
   "Settings_SearchPlaceholder": " 設定を検索...",

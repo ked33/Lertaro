@@ -1,3 +1,6 @@
+using Lertaro.PluginSdk.Services;
+using System.Windows.Threading;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Documents;
 using System.Windows.Media;
@@ -24,12 +27,30 @@ public static class SettingsSearchHighlight
         var adorner = new FlashAdorner(target, brush);
         layer.Add(adorner);
 
-        var fade = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(900))
+        // One-shot removal preserves the navigation cue even when motion is disabled.
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1600) };
+        void StopMotion(object? sender, PropertyChangedEventArgs e)
         {
-            BeginTime = TimeSpan.FromMilliseconds(700),
-        };
-        fade.Completed += (_, _) => layer.Remove(adorner);
-        adorner.BeginAnimation(UIElement.OpacityProperty, fade);
+            if (!AnimationSettings.Instance.Enabled) adorner.BeginAnimation(UIElement.OpacityProperty, null);
+        }
+        void Remove()
+        {
+            timer.Stop();
+            AnimationSettings.Instance.PropertyChanged -= StopMotion;
+            target.Unloaded -= Unloaded;
+            adorner.BeginAnimation(UIElement.OpacityProperty, null);
+            layer.Remove(adorner);
+        }
+        void Unloaded(object sender, RoutedEventArgs e) => Remove();
+        timer.Tick += (_, _) => Remove();
+        target.Unloaded += Unloaded;
+        AnimationSettings.Instance.PropertyChanged += StopMotion;
+        if (AnimationSettings.Instance.Enabled)
+        {
+            var fade = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(900)) { BeginTime = TimeSpan.FromMilliseconds(700) };
+            adorner.BeginAnimation(UIElement.OpacityProperty, fade);
+        }
+        timer.Start();
     }
 
     private sealed class FlashAdorner : Adorner

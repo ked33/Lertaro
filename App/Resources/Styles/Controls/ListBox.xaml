@@ -1,4 +1,5 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:motion="clr-namespace:Lertaro.PluginSdk.Services;assembly=Lertaro.PluginSdk"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:helpers="clr-namespace:Lertaro.App.Helpers.Visuals"
                     xmlns:services="clr-namespace:Lertaro.App.Services">
@@ -29,9 +30,9 @@
                              AccentBar: its Fill stays permanently AccentBarColor and only its own
                              Opacity toggles. -->
                         <Border x:Name="SelectionOverlay" CornerRadius="{StaticResource CornerRadiusControl}"
-                                Background="{DynamicResource HoverBackground}" Margin="6,2,6,2" Opacity="0"/>
+                                Background="{DynamicResource HoverBackground}" Margin="6,2,6,2" motion:Motion.Opacity="0"/>
                         <Rectangle x:Name="AccentBar" Width="3" HorizontalAlignment="Left"
-                                   RadiusX="1.5" RadiusY="1.5" Fill="{DynamicResource AccentBarColor}" Opacity="0" Margin="0,2"/>
+                                   RadiusX="1.5" RadiusY="1.5" Fill="{DynamicResource AccentBarColor}" motion:Motion.Opacity="0" Margin="0,2"/>
                         <Border x:Name="ItemBorder"
                                 Background="Transparent"
                                 CornerRadius="{StaticResource CornerRadiusControl}"
@@ -48,26 +49,8 @@
                              always covers the hover case too: a standalone hover trigger would be
                              dead weight that never fires differently from selection. -->
                         <Trigger Property="IsSelected" Value="True">
-                            <Trigger.EnterActions>
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetName="SelectionOverlay" Storyboard.TargetProperty="Opacity"
-                                                         To="1" Duration="{StaticResource DurationHover}" EasingFunction="{StaticResource EaseOutCubic}"/>
-                                        <DoubleAnimation Storyboard.TargetName="AccentBar" Storyboard.TargetProperty="Opacity"
-                                                         To="1" Duration="{StaticResource DurationHover}" EasingFunction="{StaticResource EaseOutCubic}"/>
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </Trigger.EnterActions>
-                            <Trigger.ExitActions>
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetName="SelectionOverlay" Storyboard.TargetProperty="Opacity"
-                                                         To="0" Duration="{StaticResource DurationHover}" EasingFunction="{StaticResource EaseOutCubic}"/>
-                                        <DoubleAnimation Storyboard.TargetName="AccentBar" Storyboard.TargetProperty="Opacity"
-                                                         To="0" Duration="{StaticResource DurationHover}" EasingFunction="{StaticResource EaseOutCubic}"/>
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </Trigger.ExitActions>
+                            <Setter TargetName="SelectionOverlay" Property="motion:Motion.Opacity" Value="1"/>
+                            <Setter TargetName="AccentBar" Property="motion:Motion.Opacity" Value="1"/>
                         </Trigger>
                         <!-- Visibility=Collapsed, not just Opacity=0: a running "selected" animation's
                              held value outranks a plain Setter on the SAME property (Opacity) regardless

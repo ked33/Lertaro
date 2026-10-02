@@ -1,4 +1,5 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:motion="clr-namespace:Lertaro.PluginSdk.Services;assembly=Lertaro.PluginSdk"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=mscorlib">
 
@@ -34,16 +35,11 @@
                         <Ellipse.RenderTransform>
                             <TranslateTransform X="-150" Y="40"/>
                         </Ellipse.RenderTransform>
-                        <Ellipse.Triggers>
-                            <EventTrigger RoutedEvent="FrameworkElement.SizeChanged">
-                                <BeginStoryboard>
-                                    <Storyboard>
+                        <motion:Motion.IsBackground>True</motion:Motion.IsBackground>
+                        <motion:Motion.Loop><Storyboard>
                                         <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)"
                                                          From="-150" To="850" Duration="0:0:20" RepeatBehavior="Forever"/>
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </EventTrigger>
-                        </Ellipse.Triggers>
+                                    </Storyboard></motion:Motion.Loop>
                     </Ellipse>
 
                     <!-- Cloud 2 -->
@@ -58,16 +54,11 @@
                         <Ellipse.RenderTransform>
                             <TranslateTransform X="-100" Y="250"/>
                         </Ellipse.RenderTransform>
-                        <Ellipse.Triggers>
-                            <EventTrigger RoutedEvent="FrameworkElement.SizeChanged">
-                                <BeginStoryboard>
-                                    <Storyboard>
+                        <motion:Motion.IsBackground>True</motion:Motion.IsBackground>
+                        <motion:Motion.Loop><Storyboard>
                                         <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)"
                                                          From="-100" To="850" Duration="0:0:28" RepeatBehavior="Forever"/>
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </EventTrigger>
-                        </Ellipse.Triggers>
+                                    </Storyboard></motion:Motion.Loop>
                     </Ellipse>
 
                     <!-- Cloud 3 -->
@@ -82,16 +73,11 @@
                         <Ellipse.RenderTransform>
                             <TranslateTransform X="-200" Y="380"/>
                         </Ellipse.RenderTransform>
-                        <Ellipse.Triggers>
-                            <EventTrigger RoutedEvent="FrameworkElement.SizeChanged">
-                                <BeginStoryboard>
-                                    <Storyboard>
+                        <motion:Motion.IsBackground>True</motion:Motion.IsBackground>
+                        <motion:Motion.Loop><Storyboard>
                                         <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)"
                                                          From="-200" To="850" Duration="0:0:36" RepeatBehavior="Forever"/>
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </EventTrigger>
-                        </Ellipse.Triggers>
+                                    </Storyboard></motion:Motion.Loop>
                     </Ellipse>
                 </Canvas>
             </Grid>

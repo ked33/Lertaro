@@ -1,3 +1,5 @@
+using Lertaro.App.Helpers.Visuals;
+using Lertaro.PluginSdk.Services;
 using System.Windows;
 using System.Windows.Media.Animation;
 using Lertaro.App.Helpers;
@@ -60,8 +62,8 @@ internal sealed class QuickSearchWindowShowSupport
         _controller.PositionWindow();
 
         var fadeContent = window.Content as UIElement;
-        fadeContent?.BeginAnimation(UIElement.OpacityProperty, null);
-        fadeContent?.Opacity = 0;
+        if (fadeContent != null) MotionTransition.Cancel(fadeContent, UIElement.OpacityProperty);
+        fadeContent?.Opacity = AnimationSettings.Instance.Transitions ? 0 : (ThemeManager.Instance.ActiveTheme?.WindowOpacity ?? 1.0);
         window.Show();
         window.WindowState = WindowState.Normal;
         _controller.PositionWindow();
@@ -69,11 +71,9 @@ internal sealed class QuickSearchWindowShowSupport
         if (fadeContent != null)
         {
             var targetOpacity = ThemeManager.Instance.ActiveTheme?.WindowOpacity ?? 1.0;
-            var fadeIn = new DoubleAnimation(targetOpacity, (Duration)System.Windows.Application.Current.FindResource("DurationWindowFadeIn"))
-            {
-                EasingFunction = System.Windows.Application.Current.TryFindResource("EaseOutCubic") as IEasingFunction
-            };
-            fadeContent.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+            MotionTransition.Start(fadeContent, UIElement.OpacityProperty, targetOpacity,
+                (Duration)System.Windows.Application.Current.FindResource("DurationWindowFadeIn"),
+                System.Windows.Application.Current.TryFindResource("EaseOutCubic") as IEasingFunction);
         }
 
         _controller.ForegroundWatcher.Start();
