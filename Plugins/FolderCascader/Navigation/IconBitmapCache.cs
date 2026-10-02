@@ -21,40 +21,53 @@ public static class IconBitmapCache
 
     public static void EnsureIcons()
     {
+        try
+        {
+            // Dispatch before taking _iconLock: the UI may also request icons while a worker waits.
+            // Brush lookup, Pen construction and drawing must all run on the same UI/STA thread.
+            var dispatcher = System.Windows.Application.Current?.Dispatcher;
+            if (dispatcher != null && !dispatcher.CheckAccess())
+                dispatcher.Invoke(UpdateIcons);
+            else if (dispatcher != null || Thread.CurrentThread.GetApartmentState() == ApartmentState.STA)
+                UpdateIcons();
+            else
+                RunOnSta(UpdateIcons);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"[FolderCascader] Failed to update themed icons: {ex}", LogLevel.Warn);
+        }
+    }
+
+    private static void UpdateIcons()
+    {
         lock (_iconLock)
         {
-            try
-            {
-                // Render the new handles first, then delete the old ones, so a failed render never leaves
-                // the menu pointing at deleted GDI objects.
-                var newFavorites = CreateStarHBitmap();
-                var newHistory = CreateClockHBitmap();
-                var newOpened = CreateOpenedFoldersHBitmap();
-                var newCategory = CreateCategoryHBitmap();
-                var newAdd = CreateAddHBitmap();
+            // Render the new handles first, then delete the old ones, so a failed render never leaves
+            // the menu pointing at deleted GDI objects.
+            var newFavorites = CreateStarHBitmap();
+            var newHistory = CreateClockHBitmap();
+            var newOpened = CreateOpenedFoldersHBitmap();
+            var newCategory = CreateCategoryHBitmap();
+            var newAdd = CreateAddHBitmap();
 
-                var oldFavorites = FavoritesHBitmap;
-                var oldHistory = HistoryHBitmap;
-                var oldOpened = OpenedFoldersHBitmap;
-                var oldCategory = CategoryHBitmap;
-                var oldAdd = AddHBitmap;
+            var oldFavorites = FavoritesHBitmap;
+            var oldHistory = HistoryHBitmap;
+            var oldOpened = OpenedFoldersHBitmap;
+            var oldCategory = CategoryHBitmap;
+            var oldAdd = AddHBitmap;
 
-                FavoritesHBitmap = newFavorites;
-                HistoryHBitmap = newHistory;
-                OpenedFoldersHBitmap = newOpened;
-                CategoryHBitmap = newCategory;
-                AddHBitmap = newAdd;
+            FavoritesHBitmap = newFavorites;
+            HistoryHBitmap = newHistory;
+            OpenedFoldersHBitmap = newOpened;
+            CategoryHBitmap = newCategory;
+            AddHBitmap = newAdd;
 
-                if (oldFavorites != IntPtr.Zero) DeleteObject(oldFavorites);
-                if (oldHistory != IntPtr.Zero) DeleteObject(oldHistory);
-                if (oldOpened != IntPtr.Zero) DeleteObject(oldOpened);
-                if (oldCategory != IntPtr.Zero) DeleteObject(oldCategory);
-                if (oldAdd != IntPtr.Zero) DeleteObject(oldAdd);
-            }
-            catch (Exception ex)
-            {
-                Logger.Log($"[FolderCascader] Failed to update themed icons: {ex.Message}", LogLevel.Warn);
-            }
+            if (oldFavorites != IntPtr.Zero) DeleteObject(oldFavorites);
+            if (oldHistory != IntPtr.Zero) DeleteObject(oldHistory);
+            if (oldOpened != IntPtr.Zero) DeleteObject(oldOpened);
+            if (oldCategory != IntPtr.Zero) DeleteObject(oldCategory);
+            if (oldAdd != IntPtr.Zero) DeleteObject(oldAdd);
         }
     }
 
@@ -62,17 +75,6 @@ public static class IconBitmapCache
     // category hamburger path below is authored in a 24-unit viewBox (matching QuickNavIcon's own
     // copy of it) and needs a correspondingly smaller scale, or it renders oversized/clipped.
     private static IntPtr CreateHBitmapFromWpfPath(string pathData, System.Windows.Media.Brush? fill, System.Windows.Media.Pen? stroke, double scale = 4.0)
-    {
-        Func<IntPtr> render = () => CreateHBitmapFromWpfPathCore(pathData, fill, stroke, scale);
-        var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher != null && dispatcher.CheckAccess())
-            return render();
-        if (dispatcher != null)
-            return dispatcher.Invoke(render);
-        return RunOnSta(render);
-    }
-
-    private static IntPtr CreateHBitmapFromWpfPathCore(string pathData, System.Windows.Media.Brush? fill, System.Windows.Media.Pen? stroke, double scale)
     {
         var geometry = System.Windows.Media.Geometry.Parse(pathData);
         var visual = new System.Windows.Media.DrawingVisual();
@@ -99,16 +101,13 @@ public static class IconBitmapCache
         return bmp.GetHbitmap();
     }
 
-    private static IntPtr RunOnSta(Func<IntPtr> render)
+    private static void RunOnSta(Action render)
     {
-        using var done = new ManualResetEventSlim(false);
         Exception? error = null;
-        var result = IntPtr.Zero;
         var thread = new Thread(() =>
         {
-            try { result = render(); }
+            try { render(); }
             catch (Exception ex) { error = ex; }
-            finally { done.Set(); }
         })
         {
             IsBackground = true,
@@ -116,9 +115,8 @@ public static class IconBitmapCache
         };
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
-        done.Wait();
-        if (error != null) throw error;
-        return result;
+        thread.Join();
+        if (error != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(error);
     }
 
     private static IntPtr CreateStarHBitmap()
@@ -157,28 +155,14 @@ public static class IconBitmapCache
 
     private static readonly System.Windows.Media.Color FallbackAccent = System.Windows.Media.Color.FromRgb(33, 150, 243);
 
-    /// <summary>
-    /// The theme's accent brush, resolved on the UI thread.
-    /// </summary>
-    /// <remarks>
-    /// The lookup has to happen on the UI thread even though the brush is only USED for rendering: a
-    /// resource brush comes out of the application's own resource dictionary, and WPF Freezables are
-    /// thread-affine, so reading one from a worker thread throws "the DependencyObject belongs to a
-    /// different thread than its parent Freezable" -- which is exactly what filled the log before this.
-    /// The geometry rendering below was already marshalled; the resource lookup was not.
-    /// When there is no application (the STA fallback path below) a local brush is used instead, which is
-    /// safe precisely because it belongs to nobody else.
-    /// </remarks>
+    // Resolve a snapshot on the rendering thread, without retaining the shared theme brush or
+    // its bindings/animations in the bitmap's drawing content.
     private static System.Windows.Media.Brush AccentBrush()
     {
-        var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        System.Windows.Media.Brush? Resolve() =>
-            System.Windows.Application.Current?.TryFindResource("AccentBlue") as System.Windows.Media.Brush;
-
         try
         {
-            var found = dispatcher == null || dispatcher.CheckAccess() ? Resolve() : dispatcher.Invoke(Resolve);
-            if (found != null) return found;
+            if (System.Windows.Application.Current?.TryFindResource("AccentBlue") is System.Windows.Media.Brush found)
+                return found.CloneCurrentValue();
         }
         catch (Exception)
         {
