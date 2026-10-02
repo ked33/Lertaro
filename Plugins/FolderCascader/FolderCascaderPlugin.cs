@@ -58,6 +58,15 @@ public class FolderCascaderPlugin : IPlugin, IConfigurable
 
                     new PluginConfigField
                     {
+                        Key = "ShowRecentFolders",
+                        LabelKey = "FolderCascader_ShowRecentFolders",
+                        DescriptionKey = "FolderCascader_ShowRecentFoldersDesc",
+                        FieldType = ConfigFieldType.Boolean,
+                        DefaultValue = true
+                    },
+
+                    new PluginConfigField
+                    {
                         Key = "Folders",
                         LabelKey = "FolderCascader_Config_FoldersLabel",
                         DescriptionKey = "FolderCascader_Config_FoldersDesc",

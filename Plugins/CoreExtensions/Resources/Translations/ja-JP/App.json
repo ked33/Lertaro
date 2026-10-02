@@ -711,5 +711,19 @@
   "About_TutorialTitle": "インタラクティブチュートリアル",
   "About_TutorialHint": "Lertaro の中核となる高効率機能を、段階を追って学び習得できます",
   "About_TutorialBtn": "ガイドを開始",
-  "Search_WelcomeTitle": "入力を開始してファイルを検索"
+  "Search_WelcomeTitle": "入力を開始してファイルを検索",
+  "Settings_RecentFolders": "最近開いたフォルダー",
+  "RecentFolders_Hint": "前面の Windows エクスプローラーで表示したフォルダーを記録します。検索履歴とは別に管理します。",
+  "RecentFolders_Enable": "フォルダーへのアクセスを記録",
+  "RecentFolders_Capacity": "保存件数",
+  "RecentFolders_MenuLimit": "メニュー件数",
+  "RecentFolders_Exclusions": "記録しないフォルダー",
+  "RecentFolders_ExclusionsHint": "絶対パスを1行に1つ指定します。環境変数とサブフォルダーに対応します。適用時に一致する既存の記録も削除します。",
+  "RecentFolders_Browse": "フォルダーを選択",
+  "RecentFolders_Search": "フォルダー名またはパスを検索",
+  "RecentFolders_Remove": "削除",
+  "RecentFolders_ImmediateHint": "削除と全消去はすぐに反映されます。記録設定、件数、除外は「適用」で保存します。",
+  "RecentFolders_CapacityError": "1～5000の整数を入力してください。",
+  "RecentFolders_MenuLimitError": "1～100で、保存件数以下の整数を入力してください。",
+  "RecentFolders_ExclusionError": "ワイルドカードを使わず、絶対パスを1行に1つ入力してください。"
 }

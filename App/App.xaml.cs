@@ -120,6 +120,8 @@ public partial class App : Application
         HookClient = new HookIpcClient();
         PluginSdkBridge.ConfigureExplorerPathTracking();
         HookClient.OnOpenedFoldersCaptured += PluginSdkBridge.UpdateOpenedFolders;
+        var recentFolders = RecentFoldersStore.Instance;
+        HookClient.OnRecentFolderVisited += (_, path, time) => recentFolders.Record(path, time);
         QuickNavigationHookHandlers.AttachTo(HookClient, Dispatcher);
 
         HookClient.OnActivated += () => Dispatcher.BeginInvoke(new Action(() =>
@@ -297,6 +299,7 @@ public partial class App : Application
         _favoriteHotkeys?.Dispose(); _favoriteHotkeys = null;
         foreach (var provider in PluginManager.Instance.AllSearchScopeProviders.OfType<IDisposable>()) provider.Dispose();
         HookClient?.Stop(); HookClient?.Dispose(); HookClient = null;
+        RecentFoldersStore.Shutdown();
         AppPipeService.StopServer(); AppSearchPipeService.StopServer(); Services.Everything.EverythingServiceBootstrapper.Stop(); InlineSearchManager.Instance.Dispose(); CloseAllManagedWindows();
         if (_appMutex != null) { try { _appMutex.ReleaseMutex(); } catch { } _appMutex.Dispose(); }
         base.OnExit(e);

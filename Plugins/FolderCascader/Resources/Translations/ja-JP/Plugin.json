@@ -26,5 +26,9 @@
   "FolderCascader_Group_Content": "コンテンツ設定",
   "FolderCascader_PluginDesc": "カスケードフォルダーブラウザープラグイン。ホットキーまたはマウス操作による階層的なカスケードメニューで、ローカルおよび仮想システムフォルダーを素早く参照、開く、お気に入り登録できるようにします。",
   "Plugin_Comp_Desc_Provider": "ディレクトリ/結果を右クリックまたは中クリックした際に、階層的なカスケードフォルダー参照メニューを提供します。",
-  "Plugin_Comp_Desc_TranslationProvider": "カスケードフォルダーブラウザープラグインの UI ローカライズと翻訳辞書サービスを提供します。"
+  "Plugin_Comp_Desc_TranslationProvider": "カスケードフォルダーブラウザープラグインの UI ローカライズと翻訳辞書サービスを提供します。",
+  "FolderCascader_RecentFolders": "最近開いたフォルダー",
+  "FolderCascader_NoRecentFolders": "（最近開いたフォルダーはありません）",
+  "FolderCascader_ShowRecentFolders": "最近開いたフォルダーを表示",
+  "FolderCascader_ShowRecentFoldersDesc": "Windows エクスプローラーで表示したフォルダーを表示します。"
 }

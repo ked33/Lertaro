@@ -70,7 +70,8 @@ public enum IpcMessageId : byte
     // lifetime (see Logger), and it usually runs elevated, so the App can neither reopen nor delete the
     // file -- it has to ask. Carries nothing, and like every other command here is only reachable by the
     // App the hook actually launched (see HookPipePeer).
-    ClearHookLog = 46
+    ClearHookLog = 46,
+    RecentFolderVisited = 47
 }
 
 public struct IpcMessage
@@ -83,6 +84,7 @@ public struct IpcMessage
     public int MouseX { get; set; }
     public int MouseY { get; set; }
     public long Hwnd { get; set; }
+    public long ObservedUtcTicks { get; set; }
     public string? StringVal1 { get; set; }
     public string? StringVal2 { get; set; }
     public IReadOnlyList<string>? StringList { get; set; }

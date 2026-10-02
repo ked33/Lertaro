@@ -21,6 +21,9 @@ public static class MenuBuilder
         if (!provider.TryGetPath(hMenu, out var path) || path == null)
             return Enumerable.Empty<DynamicMenuItem>();
 
+        if (path == RecentFoldersMenu.HandlePath)
+            return RecentFoldersMenu.Build(provider, RecentFoldersService.GetSnapshot());
+
         if (path == "foldercascader://history")
             return MenuBuilderContentExtensions.BuildHistoryMenu(provider);
 

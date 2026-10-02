@@ -190,6 +190,7 @@ public sealed class HookCommandHandler
                         var newSettings = UserSettings.ForceReload();
                         if (Enum.TryParse<LogLevel>(newSettings.LogLevel, ignoreCase: true, out var newLogLevel))
                             Logger.MinimumLevel = newLogLevel;
+                        _process.ExplorerTracker?.ConfigureRecentFolders(newSettings.RecentFolders?.Enabled ?? true);
                         _process.KeyboardHook?.ReloadSettings();
                         _process.RefreshActiveWindowAdapters();
                     }

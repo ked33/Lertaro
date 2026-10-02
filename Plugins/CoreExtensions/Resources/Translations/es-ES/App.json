@@ -711,5 +711,19 @@
   "About_TutorialTitle": "Tutorial Interactivo",
   "About_TutorialHint": "Aprende y domina paso a paso las funciones principales de alta eficiencia de Lertaro",
   "About_TutorialBtn": "Iniciar Guía",
-  "Search_WelcomeTitle": "Empieza a escribir para buscar archivos"
+  "Search_WelcomeTitle": "Empieza a escribir para buscar archivos",
+  "Settings_RecentFolders": "Abiertos recientemente",
+  "RecentFolders_Hint": "Carpetas visitadas en el Explorador de archivos de Windows en primer plano. El historial de búsqueda se gestiona por separado.",
+  "RecentFolders_Enable": "Registrar visitas a carpetas",
+  "RecentFolders_Capacity": "Entradas guardadas",
+  "RecentFolders_MenuLimit": "Entradas del menú",
+  "RecentFolders_Exclusions": "No registrar estas carpetas",
+  "RecentFolders_ExclusionsHint": "Una ruta absoluta por línea; admite variables de entorno e incluye subcarpetas. Aplicar también elimina las entradas guardadas que coincidan.",
+  "RecentFolders_Browse": "Elegir carpetas",
+  "RecentFolders_Search": "Buscar nombres o rutas de carpetas",
+  "RecentFolders_Remove": "Eliminar",
+  "RecentFolders_ImmediateHint": "Eliminar y vaciar tienen efecto inmediato. El registro, los límites y las exclusiones se guardan con Aplicar.",
+  "RecentFolders_CapacityError": "Introduce un entero entre 1 y 5000.",
+  "RecentFolders_MenuLimitError": "Introduce un entero entre 1 y 100 que no supere las entradas guardadas.",
+  "RecentFolders_ExclusionError": "Introduce una ruta absoluta de carpeta por línea, sin comodines."
 }

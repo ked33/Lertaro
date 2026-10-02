@@ -26,5 +26,9 @@
   "FolderCascader_Group_Content": "콘텐츠 설정",
   "FolderCascader_PluginDesc": "계단식 폴더 브라우저 플러그인입니다. 단축키나 마우스 클릭을 사용하여 계층적인 계단식 메뉴로 로컬 및 가상 시스템 폴더를 빠르게 찾아보고, 열고, 즐겨찾기에 추가할 수 있게 합니다.",
   "Plugin_Comp_Desc_Provider": "디렉터리/결과에서 우클릭 또는 가운데 클릭할 때 계층적인 계단식 폴더 찾아보기 메뉴를 제공합니다.",
-  "Plugin_Comp_Desc_TranslationProvider": "폴더 캐스케이더 플러그인에 UI 지역화 및 번역 사전 서비스를 제공합니다."
+  "Plugin_Comp_Desc_TranslationProvider": "폴더 캐스케이더 플러그인에 UI 지역화 및 번역 사전 서비스를 제공합니다.",
+  "FolderCascader_RecentFolders": "최근 연 폴더",
+  "FolderCascader_NoRecentFolders": "(최근 연 폴더 없음)",
+  "FolderCascader_ShowRecentFolders": "최근 연 폴더 표시",
+  "FolderCascader_ShowRecentFoldersDesc": "Windows 파일 탐색기에서 방문한 폴더를 표시합니다."
 }

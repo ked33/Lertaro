@@ -22,6 +22,9 @@ public class ExplorerTracker : IDisposable
     private IntPtr _hLocationChangeHook = IntPtr.Zero;
     private IntPtr _hFocusHook = IntPtr.Zero;
     private bool _isRunning;
+    private readonly ExplorerRecentFolderTracker _recentFolders;
+    public event Action<IntPtr, string, long>? OnRecentFolderVisited;
+    public void ConfigureRecentFolders(bool enabled) => _recentFolders.Configure(enabled);
     private readonly FileDialogNavigationTracker _dialogTracker = new();
     private readonly ExplorerWindowClassifier _classifier;
     private readonly ExplorerActivePathPoller _pathPoller;
@@ -332,6 +335,8 @@ public class ExplorerTracker : IDisposable
     {
         _classifier = new ExplorerWindowClassifier(this, _dialogTracker);
         _pathPoller = new ExplorerActivePathPoller(_classifier);
+        _recentFolders = new ExplorerRecentFolderTracker(GetProcessName,
+            (hwnd, path, time) => OnRecentFolderVisited?.Invoke(hwnd, path, time));
     }
     public void Start()
     {
@@ -356,11 +361,13 @@ public class ExplorerTracker : IDisposable
             return;
         }
         _isRunning = true;
+        ConfigureRecentFolders(UserSettings.Load().RecentFolders?.Enabled ?? true);
         Logger.Log("[ExplorerTracker] Started.");
         _classifier.CheckActiveWindow(ExplorerNativeHooks.GetForegroundWindow());
     }
     public void Stop()
     {
+        _recentFolders.Configure(false);
         if (_hForegroundHook != IntPtr.Zero) { ExplorerNativeHooks.UnhookWinEvent(_hForegroundHook); _hForegroundHook = IntPtr.Zero; }
         if (_hNameChangeHook != IntPtr.Zero) { ExplorerNativeHooks.UnhookWinEvent(_hNameChangeHook); _hNameChangeHook = IntPtr.Zero; }
         if (_hLocationChangeHook != IntPtr.Zero) { ExplorerNativeHooks.UnhookWinEvent(_hLocationChangeHook); _hLocationChangeHook = IntPtr.Zero; }
@@ -449,6 +456,8 @@ public class ExplorerTracker : IDisposable
         int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
     {
         if (!_isRunning || hwnd == IntPtr.Zero) return;
+        // Recent-folder capture also needs client/list focus events (OBJID_CLIENT), particularly tabs.
+        _recentFolders.Observe(eventType, hwnd);
         if (idObject != 0) return;
         if (eventType == ExplorerNativeHooks.EVENT_SYSTEM_FOREGROUND)
         {
@@ -490,6 +499,7 @@ public class ExplorerTracker : IDisposable
         // Only on Dispose, not in Stop: Stop/Start is a restart, and the poller's deferred-poll timer is
         // owned for the tracker's whole life.
         _pathPoller.Dispose();
+        _recentFolders.Dispose();
     }
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
     public struct RECT

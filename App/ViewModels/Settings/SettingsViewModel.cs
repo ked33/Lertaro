@@ -51,6 +51,7 @@ public class SettingsViewModel : ViewModelBase
     public ServiceLogViewModel Log => _deferred.Log;
     public ThemeSettingsViewModel Appearance => _deferred.Appearance;
     public HistorySettingsViewModel History => _deferred.History;
+    public RecentFoldersSettingsViewModel RecentFolders => _deferred.RecentFolders;
 
     // The Quick Panel page is nudged from here rather than subscribing itself: its labels are built in
     // code (the kind dropdown's options, a plugin tab's name) instead of bound through the XAML
@@ -61,6 +62,7 @@ public class SettingsViewModel : ViewModelBase
         QuickPanel.NotifyLanguageChanged();
         QuickLaunch.NotifyLanguageChanged();
         _deferred.ExistingHistory?.NotifyLanguageChanged();
+        _deferred.ExistingRecentFolders?.NotifyLanguageChanged();
     }
 
     public ServiceSettingsViewModel Service { get; }
@@ -115,6 +117,7 @@ public class SettingsViewModel : ViewModelBase
         General.Cleanup();
         _deferred.ExistingAppearance?.Cleanup();
         _deferred.ExistingHistory?.Cleanup();
+        _deferred.ExistingRecentFolders?.Cleanup();
         LocalDrive.Cleanup();
         NetworkDrive.Cleanup();
         Hotkeys.Cleanup();
@@ -196,6 +199,7 @@ public class SettingsViewModel : ViewModelBase
         // staged to save -- going through the property would construct it (loading both history files)
         // purely to write back what it already read.
         _deferred.ExistingHistory?.Save();
+        _deferred.ExistingRecentFolders?.Save();
         Favorites.Save(); SettingsApplyHelpers.RebindFavoriteHotkeys(Favorites);
         QuickLaunch.Save();
         QuickPanel.Save();

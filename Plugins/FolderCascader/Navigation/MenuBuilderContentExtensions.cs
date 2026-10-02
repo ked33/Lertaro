@@ -79,7 +79,8 @@ internal static class MenuBuilderContentExtensions
             hasSupplementalMenu = true;
         }
 
-        if (showHistory && HistoryService.GetHistoryEntries().Take(30).ToList().Count > 0)
+        var historyShown = showHistory && HistoryService.GetHistoryEntries().Any();
+        if (historyShown)
         {
             if (!hasSupplementalMenu && items.Count > 0 && !items.Last().IsSeparator)
             {
@@ -93,6 +94,9 @@ internal static class MenuBuilderContentExtensions
                 HBitmapItem = IconBitmapCache.HistoryHBitmap
             });
         }
+
+        if (PluginSettingsService.GetSetting("Lertaro.Plugins.FolderCascader", "ShowRecentFolders", true))
+            RecentFoldersMenu.AppendRoot(items, provider, historyShown);
 
         while (items.Count > 0 && items.Last().IsSeparator)
         {

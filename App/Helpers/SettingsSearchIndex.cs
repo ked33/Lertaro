@@ -195,6 +195,13 @@ public static class SettingsSearchIndex
         new("Settings_History_Enable", "History", vm => vm.History.SelectedTab = "Keyword", "TabKeywordHistory/ChkEnable", "Settings_History_Tab_Keyword"),
         new("Settings_History_Clear_All", "History", vm => vm.History.SelectedTab = "Keyword", "TabKeywordHistory/BtnClearAll", "Settings_History_Tab_Keyword"),
 
+        // Explorer browsing history has its own page and independent controls.
+        new("Settings_RecentFolders", "RecentFolders"),
+        new("RecentFolders_Enable", "RecentFolders", TargetElementName: "ChkEnable"),
+        new("RecentFolders_Capacity", "RecentFolders", TargetElementName: "TxtCapacity"),
+        new("RecentFolders_MenuLimit", "RecentFolders", TargetElementName: "TxtMenuLimit"),
+        new("RecentFolders_Exclusions", "RecentFolders", vm => vm.RecentFolders.IsExclusionsExpanded = true, "TxtExclusions"),
+
         new("Settings_QuickPanel", "QuickPanel"),
         new("QuickPanel_Enabled", "QuickPanel", TargetElementName: "RowQuickPanelEnabled"),
         new("QuickPanel_Workspaces", "QuickPanel", vm => { vm.QuickPanel.SelectedSection = "Workspaces"; vm.QuickPanel.SelectedSubTab = "Sources"; }),

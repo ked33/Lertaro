@@ -66,6 +66,7 @@ public sealed class HookIpcClient : IDisposable
     public event Action<IntPtr, string, string, bool>? OnExplorerActivated;
     public event Action? OnExplorerDeactivated;
     public event Action<string, bool, bool>? OnPathCaptured;
+    public event Action<IntPtr, string, long>? OnRecentFolderVisited;
     public event Action<IReadOnlyList<string>>? OnOpenedFoldersCaptured;
     public event Action? OnActiveWindowMoved;
     public event Action<string>? OnError;
@@ -346,6 +347,9 @@ public sealed class HookIpcClient : IDisposable
                     OnExplorerActivated?.Invoke(new IntPtr(msg.Hwnd), msg.StringVal1 ?? string.Empty, msg.StringVal2 ?? string.Empty, msg.IsDesktop);
                     break;
 
+                case IpcMessageId.RecentFolderVisited:
+                    OnRecentFolderVisited?.Invoke(new IntPtr(msg.Hwnd), msg.StringVal1 ?? string.Empty, msg.ObservedUtcTicks);
+                    break;
                 case IpcMessageId.PathCaptured:
                     OnPathCaptured?.Invoke(msg.StringVal1 ?? string.Empty, msg.IsDesktop, msg.IsDialog);
                     break;
