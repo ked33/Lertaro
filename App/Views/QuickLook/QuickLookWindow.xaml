@@ -21,7 +21,7 @@
     
     <Border x:Name="WindowBorder" CornerRadius="{StaticResource CornerRadiusWindow}" BorderThickness="1.5"
             Margin="12"
-            Background="{DynamicResource CardBackground}" BorderBrush="{DynamicResource CardBorderBrush}">
+            Background="{DynamicResource CardBackground}" BorderBrush="{DynamicResource WindowBorderBrush}">
         <Grid Margin="16">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
