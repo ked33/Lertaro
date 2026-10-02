@@ -33,6 +33,7 @@ internal sealed class DeferredSettingsViewModels
     private ServiceLogViewModel? _log;
     private ThemeSettingsViewModel? _appearance;
     private HistorySettingsViewModel? _history;
+    private RecentFoldersSettingsViewModel? _recentFolders;
 
     internal DeferredSettingsViewModels(UserSettings userSettings, SearchService searchService)
     {
@@ -51,4 +52,6 @@ internal sealed class DeferredSettingsViewModels
     internal ServiceLogViewModel? ExistingLog => _log;
     internal ThemeSettingsViewModel? ExistingAppearance => _appearance;
     internal HistorySettingsViewModel? ExistingHistory => _history;
+    internal RecentFoldersSettingsViewModel RecentFolders => _recentFolders ??= new(_userSettings);
+    internal RecentFoldersSettingsViewModel? ExistingRecentFolders => _recentFolders;
 }

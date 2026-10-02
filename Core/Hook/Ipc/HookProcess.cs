@@ -280,6 +280,13 @@ public sealed class HookProcess : IDisposable
                         Id = IpcMessageId.Error,
                         StringVal1 = msg
                     });
+                    _explorerTracker.OnRecentFolderVisited += (hwnd, path, time) => _ipcServer.SendMessage(new IpcMessage
+                    {
+                        Id = IpcMessageId.RecentFolderVisited,
+                        Hwnd = hwnd.ToInt64(),
+                        StringVal1 = path,
+                        ObservedUtcTicks = time
+                    });
                     _explorerTracker.Start();
                     trackerStartedEvent.Set();
 

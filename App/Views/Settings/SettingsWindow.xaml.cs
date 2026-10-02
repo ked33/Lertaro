@@ -42,6 +42,7 @@ public partial class SettingsWindow : Window
     private HotkeySettingsPage? _pageHotkeys;
     private PluginManagementSettingsPage? _pagePlugins;
     private HistorySettingsPage? _pageHistory;
+    private RecentFoldersSettingsPage? _pageRecentFolders;
     private FavoritesSettingsPage? _pageFavorites;
     private Views.Settings.QuickLaunch.QuickLaunchSettingsPage? _pageQuickLaunch;
     private Views.Settings.QuickPanel.QuickPanelSettingsPage? _pageQuickPanel;
@@ -60,6 +61,7 @@ public partial class SettingsWindow : Window
     // Children.Add rather than markup.
     internal HotkeySettingsPage PageHotkeys => _pageHotkeys ??= AddPage(new HotkeySettingsPage { DataContext = ((SettingsViewModel)DataContext).Hotkeys });
     internal PluginManagementSettingsPage PagePlugins => _pagePlugins ??= AddPage(new PluginManagementSettingsPage { DataContext = ((SettingsViewModel)DataContext).Plugins });
+    internal RecentFoldersSettingsPage PageRecentFolders => _pageRecentFolders ??= AddPage(new RecentFoldersSettingsPage { DataContext = ((SettingsViewModel)DataContext).RecentFolders });
     internal HistorySettingsPage PageHistory => _pageHistory ??= AddPage(new HistorySettingsPage { DataContext = ((SettingsViewModel)DataContext).History });
     internal FavoritesSettingsPage PageFavorites => _pageFavorites ??= AddPage(new FavoritesSettingsPage { DataContext = ((SettingsViewModel)DataContext).Favorites });
     internal Views.Settings.QuickLaunch.QuickLaunchSettingsPage PageQuickLaunch => _pageQuickLaunch ??= AddPage(new Views.Settings.QuickLaunch.QuickLaunchSettingsPage { DataContext = ((SettingsViewModel)DataContext).QuickLaunch });

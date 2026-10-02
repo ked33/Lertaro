@@ -113,6 +113,12 @@ public static class PipeRequestBinarySerializer
                 writer.Write(msg.IsDesktop);
                 break;
 
+            case IpcMessageId.RecentFolderVisited:
+                writer.Write(msg.Hwnd);
+                writer.Write(msg.StringVal1 ?? string.Empty);
+                writer.Write(msg.ObservedUtcTicks);
+                break;
+
             case IpcMessageId.PathCaptured:
             case IpcMessageId.Error:
                 writer.Write(msg.StringVal1 ?? string.Empty);
@@ -235,6 +241,12 @@ public static class PipeRequestBinarySerializer
                 msg.StringVal1 = reader.ReadString();
                 msg.StringVal2 = reader.ReadString();
                 msg.IsDesktop = reader.ReadBoolean();
+                break;
+
+            case IpcMessageId.RecentFolderVisited:
+                msg.Hwnd = reader.ReadInt64();
+                msg.StringVal1 = reader.ReadString();
+                msg.ObservedUtcTicks = reader.ReadInt64();
                 break;
 
             case IpcMessageId.PathCaptured:

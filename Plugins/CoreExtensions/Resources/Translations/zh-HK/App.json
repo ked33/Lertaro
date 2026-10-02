@@ -711,5 +711,19 @@
   "About_TutorialTitle": "新手導覽教學",
   "About_TutorialHint": "透過一步步的互動導覽，快速掌握 Lertaro 的核心效率特性",
   "About_TutorialBtn": "開始導覽",
-  "Search_WelcomeTitle": "開始輸入以搜尋檔案"
+  "Search_WelcomeTitle": "開始輸入以搜尋檔案",
+  "Settings_RecentFolders": "最近開啟",
+  "RecentFolders_Hint": "自動記錄 Windows 檔案總管前景瀏覽的資料夾，與搜尋歷程記錄獨立。",
+  "RecentFolders_Enable": "記錄資料夾存取",
+  "RecentFolders_Capacity": "保留數量",
+  "RecentFolders_MenuLimit": "選單數量",
+  "RecentFolders_Exclusions": "不記錄這些目錄",
+  "RecentFolders_ExclusionsHint": "每行一個絕對目錄，支援環境變數，包含其子目錄。套用後也會刪除已有的相符記錄。",
+  "RecentFolders_Browse": "選擇目錄",
+  "RecentFolders_Search": "搜尋目錄名稱或路徑",
+  "RecentFolders_Remove": "刪除",
+  "RecentFolders_ImmediateHint": "刪除和清空立即生效；記錄開關、數量及排除目錄需按「套用」儲存。",
+  "RecentFolders_CapacityError": "請輸入 1–5000 之間的整數。",
+  "RecentFolders_MenuLimitError": "請輸入 1–100 之間的整數，且不超過保留數量。",
+  "RecentFolders_ExclusionError": "請每行填寫一個絕對目錄，不支援萬用字元。"
 }

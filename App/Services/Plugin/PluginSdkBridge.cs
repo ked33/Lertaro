@@ -109,6 +109,7 @@ internal static class PluginSdkBridge
 
         // Wire up the history service delegate for plugins using Core SearchHistoryStore
         PluginSdk.Services.HistoryService.GetHistoryEntriesFunc = SearchHistoryStore.GetEntries;
+        PluginSdk.Services.RecentFoldersService.GetSnapshotFunc = () => RecentFoldersStore.Instance.GetSnapshot();
 
         // Wire up the search query modification delegate for plugins
         PluginSdk.Services.SearchQueryService.ChangeQueryFunc = (query, requery) => System.Windows.Application.Current?.Dispatcher.Invoke(() =>

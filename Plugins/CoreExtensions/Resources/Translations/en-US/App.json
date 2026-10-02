@@ -711,5 +711,19 @@
   "About_TutorialTitle": "Interactive Tutorial",
   "About_TutorialHint": "Learn and master the core high-efficiency features of Lertaro step-by-step",
   "About_TutorialBtn": "Start Guide",
-  "Search_WelcomeTitle": "Start typing to search files"
+  "Search_WelcomeTitle": "Start typing to search files",
+  "Settings_RecentFolders": "Recently Opened",
+  "RecentFolders_Hint": "Folders visited in the foreground Windows File Explorer window. Search history is managed separately.",
+  "RecentFolders_Enable": "Record folder visits",
+  "RecentFolders_Capacity": "Keep entries",
+  "RecentFolders_MenuLimit": "Menu entries",
+  "RecentFolders_Exclusions": "Do not record these folders",
+  "RecentFolders_ExclusionsHint": "One absolute folder per line; environment variables are supported. Includes subfolders. Apply also removes matching saved entries.",
+  "RecentFolders_Browse": "Choose folders",
+  "RecentFolders_Search": "Search folder names or paths",
+  "RecentFolders_Remove": "Delete",
+  "RecentFolders_ImmediateHint": "Delete and clear take effect immediately. Recording, limits and exclusions are saved with Apply.",
+  "RecentFolders_CapacityError": "Enter a number from 1 to 5000.",
+  "RecentFolders_MenuLimitError": "Enter 1–100, no greater than the number of saved entries.",
+  "RecentFolders_ExclusionError": "Enter an absolute folder path on each line, without wildcards."
 }

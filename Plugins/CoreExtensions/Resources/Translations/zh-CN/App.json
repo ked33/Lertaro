@@ -711,5 +711,19 @@
   "About_TutorialTitle": "新手引导教程",
   "About_TutorialHint": "通过一步步的交互引导，快速掌握 Lertaro 的核心效率特性",
   "About_TutorialBtn": "开始引导",
-  "Search_WelcomeTitle": "开始输入以检索文件"
+  "Search_WelcomeTitle": "开始输入以检索文件",
+  "Settings_RecentFolders": "最近打开",
+  "RecentFolders_Hint": "自动记录 Windows 资源管理器前台浏览的文件夹，与搜索历史记录独立。",
+  "RecentFolders_Enable": "记录文件夹访问",
+  "RecentFolders_Capacity": "保存条数",
+  "RecentFolders_MenuLimit": "菜单条数",
+  "RecentFolders_Exclusions": "不记录这些目录",
+  "RecentFolders_ExclusionsHint": "每行一个绝对目录，支持环境变量，包含其子目录。应用后也会删除已有的匹配记录。",
+  "RecentFolders_Browse": "选择目录",
+  "RecentFolders_Search": "搜索目录名称或路径",
+  "RecentFolders_Remove": "删除",
+  "RecentFolders_ImmediateHint": "删除和清空立即生效；记录开关、数量及排除目录需点击“应用”保存。",
+  "RecentFolders_CapacityError": "请输入 1–5000 之间的整数。",
+  "RecentFolders_MenuLimitError": "请输入 1–100 之间的整数，且不超过保存条数。",
+  "RecentFolders_ExclusionError": "请每行填写一个绝对目录，不支持通配符。"
 }

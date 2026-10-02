@@ -26,5 +26,9 @@
   "FolderCascader_Group_Content": "Content Settings",
   "FolderCascader_PluginDesc": "Cascading folder browser plugin. Allows users to quickly browse, open, and favorite local and virtual system folders via hierarchical cascading menus using hotkeys or mouse clicks.",
   "Plugin_Comp_Desc_Provider": "Provides a hierarchical cascading folder browsing menu when right-clicking or middle-clicking on directories/results.",
-  "Plugin_Comp_Desc_TranslationProvider": "Provides UI localization and translation dictionary services for the Folder Cascader plugin."
+  "Plugin_Comp_Desc_TranslationProvider": "Provides UI localization and translation dictionary services for the Folder Cascader plugin.",
+  "FolderCascader_RecentFolders": "Recently Opened",
+  "FolderCascader_NoRecentFolders": "(No recently opened folders)",
+  "FolderCascader_ShowRecentFolders": "Show recently opened folders",
+  "FolderCascader_ShowRecentFoldersDesc": "Show folders visited in Windows File Explorer."
 }

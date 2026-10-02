@@ -31,6 +31,30 @@ jobs:
           path: ${{ github.workspace }}/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/*.slnx') }}
 
+      - name: Test recent folders and Explorer integration
+        shell: pwsh
+        env:
+          NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+        run: |
+          $projects = @(
+            "Tests/Core/Core.csproj",
+            "Tests/App/App.csproj",
+            "Tests/Plugins/FolderCascader/FolderCascader.csproj",
+            "Tests/Plugins/CoreExtensions/CoreExtensions.csproj"
+          )
+          foreach ($project in $projects) {
+            dotnet test $project -c Release --filter "FullyQualifiedName~RecentFolder|FullyQualifiedName~ExplorerInlineSearchAdapter|FullyQualifiedName~ExplorerHostReadFloor" --logger trx --results-directory TestResults
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Recent-folders-test-results
+          path: TestResults/
+          if-no-files-found: ignore
+
       - name: Publish
         shell: pwsh
         env:

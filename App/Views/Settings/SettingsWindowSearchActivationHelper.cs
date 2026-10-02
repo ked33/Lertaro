@@ -99,6 +99,7 @@ internal static class SettingsWindowSearchActivationHelper
         "Hotkeys" => window.PageHotkeys,
         "Plugins" => window.PagePlugins,
         "History" => window.PageHistory,
+        "RecentFolders" => window.PageRecentFolders,
         "Favorites" => window.PageFavorites,
         "QuickLaunch" => window.PageQuickLaunch,
         "QuickPanel" => window.PageQuickPanel,

@@ -26,5 +26,9 @@
   "FolderCascader_Group_Content": "Configuración de Contenido",
   "FolderCascader_PluginDesc": "Complemento de explorador de carpetas en cascada. Permite a los usuarios explorar, abrir y marcar como favoritas rápidamente las carpetas locales y virtuales del sistema mediante menús jerárquicos en cascada, usando atajos de teclado o clics del ratón.",
   "Plugin_Comp_Desc_Provider": "Ofrece un menú de exploración de carpetas jerárquico en cascada al hacer clic derecho o clic central sobre directorios/resultados.",
-  "Plugin_Comp_Desc_TranslationProvider": "Ofrece servicios de localización de la interfaz y diccionario de traducción para el complemento Cascada de Carpetas."
+  "Plugin_Comp_Desc_TranslationProvider": "Ofrece servicios de localización de la interfaz y diccionario de traducción para el complemento Cascada de Carpetas.",
+  "FolderCascader_RecentFolders": "Abiertos recientemente",
+  "FolderCascader_NoRecentFolders": "(No hay carpetas recientes)",
+  "FolderCascader_ShowRecentFolders": "Mostrar carpetas abiertas recientemente",
+  "FolderCascader_ShowRecentFoldersDesc": "Muestra las carpetas visitadas en el Explorador de archivos de Windows."
 }

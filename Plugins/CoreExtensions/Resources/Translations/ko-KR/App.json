@@ -711,5 +711,19 @@
   "About_TutorialTitle": "대화형 튜토리얼",
   "About_TutorialHint": "Lertaro의 핵심 고효율 기능을 단계별로 배우고 익히세요",
   "About_TutorialBtn": "가이드 시작",
-  "Search_WelcomeTitle": "파일을 검색하려면 입력을 시작하세요"
+  "Search_WelcomeTitle": "파일을 검색하려면 입력을 시작하세요",
+  "Settings_RecentFolders": "최근 연 폴더",
+  "RecentFolders_Hint": "전경 Windows 파일 탐색기에서 방문한 폴더를 기록합니다. 검색 기록과 별도로 관리됩니다.",
+  "RecentFolders_Enable": "폴더 방문 기록",
+  "RecentFolders_Capacity": "저장 개수",
+  "RecentFolders_MenuLimit": "메뉴 개수",
+  "RecentFolders_Exclusions": "기록하지 않을 폴더",
+  "RecentFolders_ExclusionsHint": "줄마다 절대 경로 하나를 입력하세요. 환경 변수와 하위 폴더를 지원합니다. 적용 시 일치하는 기존 기록도 삭제합니다.",
+  "RecentFolders_Browse": "폴더 선택",
+  "RecentFolders_Search": "폴더 이름 또는 경로 검색",
+  "RecentFolders_Remove": "삭제",
+  "RecentFolders_ImmediateHint": "삭제 및 전체 삭제는 즉시 적용됩니다. 기록 설정, 개수 및 제외 폴더는 적용 버튼으로 저장합니다.",
+  "RecentFolders_CapacityError": "1~5000 사이의 정수를 입력하세요.",
+  "RecentFolders_MenuLimitError": "1~100 사이이며 저장 개수 이하인 정수를 입력하세요.",
+  "RecentFolders_ExclusionError": "와일드카드 없이 줄마다 절대 폴더 경로를 입력하세요."
 }
