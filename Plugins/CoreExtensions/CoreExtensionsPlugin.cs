@@ -136,6 +136,14 @@ public class CoreExtensionsPlugin : IPlugin, IActionProvider, IConfigurable
                 {
                     new PluginConfigField
                     {
+                        Key = "InlineSearchDisableChineseInput",
+                        LabelKey = "CoreExtensions_Config_InlineSearchDisableChineseInputLabel",
+                        DescriptionKey = "CoreExtensions_Config_InlineSearchDisableChineseInputDesc",
+                        FieldType = ConfigFieldType.Boolean,
+                        DefaultValue = false
+                    },
+                    new PluginConfigField
+                    {
                         Key = "InlineSearchAlwaysOpen",
                         LabelKey = "CoreExtensions_Config_InlineSearchAlwaysOpenLabel",
                         DescriptionKey = "CoreExtensions_Config_InlineSearchAlwaysOpenDesc",

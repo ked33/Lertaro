@@ -24,6 +24,7 @@ public partial class InlineSearchWindow : Window, ISearchWindow
     private readonly ShellMenuPresenter _menuPresenter;
     private readonly InlineSearchWindowInputHandler _inputHandler;
     private bool _isImeComposing;
+    internal bool AsciiOnlyInput { get; } = InlineSearchAsciiInput.IsEnabled;
     private readonly InlineSearchWindowPositioner _positioner;
     private readonly DispatcherTimer _activeTimer;
     private string _searchText = string.Empty;
@@ -56,6 +57,7 @@ public partial class InlineSearchWindow : Window, ISearchWindow
         _viewModel = viewModel;
         _manager = manager;
         this.DataContext = _viewModel;
+        if (AsciiOnlyInput) InlineSearchAsciiInput.Attach(SearchBox.SearchTextBox);
         _menuPresenter = new ShellMenuPresenter(this);
         _inputHandler = new InlineSearchWindowInputHandler(this);
         TextCompositionManager.AddPreviewTextInputStartHandler(SearchBox.SearchTextBox, (_, _) => _isImeComposing = true);
@@ -234,6 +236,7 @@ public partial class InlineSearchWindow : Window, ISearchWindow
 
     public void UpdateSearchDisplay(string text)
     {
+        if (AsciiOnlyInput && !InlineSearchAsciiInput.IsAllowed(text)) return;
         _searchText = text;
         LstResults.SelectedIndex = -1;
         _inputHandler.ResetUserNavigation();
