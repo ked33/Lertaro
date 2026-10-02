@@ -6,6 +6,21 @@ namespace Lertaro.App.Tests.Views.InlineSearchWindow.Helpers;
 public sealed class InlineSearchWindowPositionerTests
 {
     [TestMethod]
+    [DataRow(0, 800.0, 1920.0, 800.0)]
+    [DataRow(-1, 800.0, 1920.0, 800.0)]
+    [DataRow(600, 800.0, 1920.0, 600.0)]
+    [DataRow(1, 800.0, 1920.0, 200.0)]
+    [DataRow(2000, 800.0, 1280.0, 1280.0)]
+    [DataRow(600, 800.0, 150.0, 150.0)]
+    [DataRow(600, 800.0, 0.0, 800.0)]
+    [DataRow(600, 800.0, double.NaN, 800.0)]
+    [DataRow(600, 800.0, double.PositiveInfinity, 800.0)]
+    public void ResolveWindowWidth_UsesCustomWidthWithinWorkingArea(
+        int customWidth, double automaticWidth, double availableWidth, double expected) =>
+        Assert.AreEqual(expected, InlineSearchWindowPositioner.ResolveWindowWidth(
+            customWidth, automaticWidth, availableWidth));
+
+    [TestMethod]
     public void CalculateDockedWidth_UsesTwoThirdsOfTargetWindow() => Assert.AreEqual(800, InlineSearchWindowPositioner.CalculateDockedWidth(1200));
 
     [TestMethod]

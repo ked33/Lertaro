@@ -7,6 +7,18 @@ namespace Lertaro.Plugins.CoreExtensions.Tests;
 public sealed class CoreExtensionsPluginTests
 {
     [TestMethod]
+    public void GetConfigSchema_InlineSearchGroup_HasAutomaticWidthByDefault()
+    {
+        var group = new CoreExtensionsPlugin().GetConfigSchema().Fields
+            .Single(field => field.Key == "InlineSearchGroup");
+        var field = group.SubFields!.Single(field => field.Key == "InlineSearchWindowWidth");
+        Assert.AreEqual(ConfigFieldType.Integer, field.FieldType);
+        Assert.AreEqual(0, field.DefaultValue);
+        Assert.IsNotNull(field.LabelKey);
+        Assert.IsNotNull(field.DescriptionKey);
+    }
+
+    [TestMethod]
     public void GetConfigSchema_InlineSearchGroup_HasAsciiInputToggleDisabledByDefault()
     {
         var group = new CoreExtensionsPlugin().GetConfigSchema().Fields

@@ -188,6 +188,8 @@
   "CoreExtensions_Config_InlineSearchGroupLabel": "内联搜索窗口",
   "CoreExtensions_Config_InlineSearchDisableChineseInputLabel": "禁用中文输入",
   "CoreExtensions_Config_InlineSearchDisableChineseInputDesc": "开启后，所有内联搜索框仅允许英文字母、数字、半角符号和空格，禁用输入法并拒绝包含中文、其他语言或 emoji 的输入和粘贴。下次打开内联窗口时生效。",
+  "CoreExtensions_Config_InlineSearchWindowWidthLabel": "窗口宽度",
+  "CoreExtensions_Config_InlineSearchWindowWidthDesc": "所有内联窗口的宽度（随系统缩放）。0 为自动；自定义最小 200，最大不超过当前屏幕可用宽度。下次打开内联窗口时生效。",
   "CoreExtensions_Config_InlineSearchAlwaysOpenLabel": "双击或回车时直接打开而非跳转",
   "CoreExtensions_Config_InlineSearchAlwaysOpenDesc": "开启后，在资源管理器中通过内联搜索窗口选择项目时，将直接启动文件或在独立窗口中打开文件夹，而非跳转当前资源管理器窗口。",
   "CoreExtensions_Config_InlineSearchSearchActionsLabel": "内联窗口显示快捷命令",

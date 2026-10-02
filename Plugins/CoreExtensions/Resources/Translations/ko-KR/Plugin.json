@@ -188,6 +188,8 @@
   "CoreExtensions_Config_InlineSearchGroupLabel": "인라인 검색 창",
   "CoreExtensions_Config_InlineSearchDisableChineseInputLabel": "중국어 입력 비활성화",
   "CoreExtensions_Config_InlineSearchDisableChineseInputDesc": "모든 인라인 검색창에서 영문자, 숫자, ASCII 기호 및 공백만 허용합니다. IME를 비활성화하고 중국어, 다른 언어 또는 이모지가 포함된 입력과 붙여넣기를 거부합니다. 다음에 인라인 창을 열 때 적용됩니다.",
+  "CoreExtensions_Config_InlineSearchWindowWidthLabel": "창 너비",
+  "CoreExtensions_Config_InlineSearchWindowWidthDesc": "모든 인라인 창의 너비이며 시스템 배율에 따라 조정됩니다. 0은 자동입니다. 사용자 지정 너비는 최소 200이며 현재 화면의 작업 영역 너비를 넘지 않습니다. 다음에 인라인 창을 열 때 적용됩니다.",
   "CoreExtensions_Config_InlineSearchAlwaysOpenLabel": "더블 클릭 또는 Enter 시 이동 대신 직접 열기",
   "CoreExtensions_Config_InlineSearchAlwaysOpenDesc": "활성화하면 탐색기 인라인 검색 창에서 항목을 선택할 때 현재 탐색기 창을 이동하는 대신 파일을 직접 실행하거나 새 창에서 폴더를 엽니다.",
   "CoreExtensions_Config_InlineSearchSearchActionsLabel": "인라인 창에 빠른 명령 표시",

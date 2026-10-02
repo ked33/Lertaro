@@ -144,6 +144,14 @@ public class CoreExtensionsPlugin : IPlugin, IActionProvider, IConfigurable
                     },
                     new PluginConfigField
                     {
+                        Key = "InlineSearchWindowWidth",
+                        LabelKey = "CoreExtensions_Config_InlineSearchWindowWidthLabel",
+                        DescriptionKey = "CoreExtensions_Config_InlineSearchWindowWidthDesc",
+                        FieldType = ConfigFieldType.Integer,
+                        DefaultValue = 0
+                    },
+                    new PluginConfigField
+                    {
                         Key = "InlineSearchAlwaysOpen",
                         LabelKey = "CoreExtensions_Config_InlineSearchAlwaysOpenLabel",
                         DescriptionKey = "CoreExtensions_Config_InlineSearchAlwaysOpenDesc",

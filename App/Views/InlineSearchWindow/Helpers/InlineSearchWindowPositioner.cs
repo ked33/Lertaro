@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using Lertaro.Core;
+using Lertaro.PluginSdk.Services;
 
 namespace Lertaro.App.Views.InlineSearchWindow.Helpers;
 
@@ -13,6 +14,8 @@ public class InlineSearchWindowPositioner
     private const double DesktopWidthRatio = 0.2;
 
     private readonly Lertaro.App.InlineSearchWindow _window;
+    private readonly int _customWidth = PluginSettingsService.GetSetting(
+        "Lertaro.Plugins.CoreExtensions", "InlineSearchWindowWidth", 0);
     private readonly InlineCardDragOffset _dragOffset;
     private readonly InlineDialogGeometryProbe _geometry;
     private int _positionUpdateQueued;
@@ -150,6 +153,8 @@ public class InlineSearchWindowPositioner
             : desktopWidth > 0
                 ? CalculateDesktopWidth(desktopWidth)
                 : DefaultWindowWidth;
+        var workingArea = InlineCardSpace.WorkingAreaFor(_window, mousePosition);
+        desiredWidth = ResolveWindowWidth(_customWidth, desiredWidth, workingArea.Width / targetDpiScaleX);
         if (Math.Abs(_window.Width - desiredWidth) > 0.5)
         {
             _window.Width = desiredWidth;
@@ -212,8 +217,6 @@ public class InlineSearchWindowPositioner
 
         double targetPhysLeft = 0;
         double targetPhysTop = 0;
-
-        var workingArea = InlineCardSpace.WorkingAreaFor(_window, mousePosition);
 
         if (tracker.IsDesktop)
         {
@@ -368,6 +371,13 @@ public class InlineSearchWindowPositioner
     public void RememberUserDrag() => _dragOffset.RememberDrag();
 
     internal static double CalculateDockedWidth(double targetWindowWidth) => targetWindowWidth * DockedWidthRatio;
+
+    // Zero (or invalid negative input) preserves automatic sizing. Clamp custom DIP widths to the
+    // target monitor, even when a tiny working area is narrower than the usual 200-DIP minimum.
+    internal static double ResolveWindowWidth(int customWidth, double automaticWidth, double availableWidth) =>
+        customWidth <= 0 || !double.IsFinite(availableWidth) || availableWidth <= 0
+            ? automaticWidth
+            : Math.Min(Math.Max(200, customWidth), availableWidth);
 
     /// <summary>
     /// Where the card's window starts horizontally, in physical pixels.
