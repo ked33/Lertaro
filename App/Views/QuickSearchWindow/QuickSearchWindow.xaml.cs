@@ -96,10 +96,13 @@ public partial class QuickSearchWindow : Window, ISearchWindow, IHasVisibleConte
     {
         try { KeywordHistoryStore.Record(_viewModel.SearchQuery); } catch { }
     }
-    // Runs the results-panel height computation synchronously instead of through the normal deferred
-    // QueueResultsLayoutUpdate -- see QuickSearchWindowController.ShowWindow's own comment on why it needs
-    // this rather than waiting for that callback's usual Send-priority-deferred pass.
-    public void ApplyResultsLayoutImmediate() => _layoutManager.ApplyResultsLayout();
+    // The initial show needs measured dimensions before positioning. Live result updates only queue
+    // height changes and leave layout to WPF; they must not enter this synchronous path.
+    public void ApplyResultsLayoutImmediate()
+    {
+        _layoutManager.ApplyResultsLayout();
+        UpdateLayout();
+    }
     public void FocusSearch()
     {
         TxtSearch.Focus();
@@ -139,18 +142,8 @@ public partial class QuickSearchWindow : Window, ISearchWindow, IHasVisibleConte
         LstResults.PreviewMouseRightButtonUp += (s, e) => _resultExecutor.HandlePreviewMouseRightButtonUp(e);
         LstResults.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler(OnResultsScrollChanged));
         LstActions.PreviewMouseLeftButtonUp += _menuPresenter.HandleActionsPreviewMouseLeftButtonUp;
-        // MUST stay deferred, never call ApplyResultsLayout synchronously from here: ReconcileTo can
-        // raise many CollectionChanged events in a row (a Replace per changed row, then a RemoveAt per
-        // trimmed tail row -- see SearchResultsReconciler/ObservableRangeCollection.ReconcileTo), and
-        // LstResults's own ItemContainerGenerator is ALSO a subscriber to this same event, updating its
-        // internal bookkeeping in response. Forcing a layout pass mid-batch (ApplyResultsLayout's forced
-        // layout does exactly that) before the generator finishes reconciling that same
-        // notification throws "ItemsControl inconsistent with its items source" -- confirmed by an actual
-        // crash log after trying exactly that. See QuickSearchWindowLayoutManager.QueueResultsLayoutUpdate
-        // for why Render priority isn't early enough either (real frame data caught a fully composited,
-        // wrong-height frame slipping through first) -- Send is used instead, still deferred past this
-        // synchronous call stack (and so past the generator's own reconciliation) but higher priority than
-        // the render/paint pass.
+        // ReconcileTo raises multiple notifications, also consumed by ItemContainerGenerator. Coalesce
+        // them after this batch, then set heights before Render without forcing a nested layout/UIA pass.
         _viewModel.Results.CollectionChanged += (s, e) => _layoutManager.QueueResultsLayoutUpdate();
         // Row/tab heights change in place when the search bar height setting changes live (see
         // QuickSearchViewModel's own UiMetrics.ScaleChanged subscription, which re-notifies each

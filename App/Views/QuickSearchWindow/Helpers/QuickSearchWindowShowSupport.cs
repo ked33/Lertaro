@@ -55,7 +55,6 @@ internal sealed class QuickSearchWindowShowSupport
         window.ViewModel.SearchQuery = searchQuery;
         window.ViewModel.RefreshEmptyState();
         window.ViewModel.RefreshLayoutSettings();
-        window.UpdateLayout();
         window.ApplyResultsLayoutImmediate();
         window.Topmost = false;
         window.Topmost = true;
