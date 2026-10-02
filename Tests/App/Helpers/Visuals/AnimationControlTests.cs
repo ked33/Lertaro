@@ -86,6 +86,25 @@ public sealed class AnimationControlTests
     });
 
     [TestMethod]
+    public void AnimationFiniteTransitionsKeepFinalValuesOnCompletion() => Sta(() =>
+    {
+        var border = new Border { Width = 20, Height = 20 };
+        WithWindow(border, () =>
+        {
+            Enable();
+            MotionTransition.Start(border, UIElement.OpacityProperty, 0.6, TimeSpan.FromMilliseconds(10));
+            for (var i = 0; i < 40 && border.HasAnimatedProperties; i++) Pump();
+            Assert.IsFalse(border.HasAnimatedProperties);
+            Assert.AreEqual(0.6, border.Opacity);
+
+            Motion.SetOpacity(border, 0.2);
+            for (var i = 0; i < 40 && border.HasAnimatedProperties; i++) Pump();
+            Assert.IsFalse(border.HasAnimatedProperties);
+            Assert.AreEqual(0.2, border.Opacity);
+        });
+    });
+
+    [TestMethod]
     public void AnimationLoopStopsOnDisableAndHideAndResumes() => Sta(() =>
     {
         var border = new Border { Width = 20, Height = 20, RenderTransform = new RotateTransform() };
@@ -132,6 +151,7 @@ public sealed class AnimationControlTests
             Pump();
             Assert.IsTrue(((RotateTransform)visual.RenderTransform).HasAnimatedProperties);
             Motion.SetIsBackgroundActive(root, false);
+            Assert.IsFalse(((RotateTransform)visual.RenderTransform).HasAnimatedProperties);
             Pump();
             Assert.IsFalse(((RotateTransform)visual.RenderTransform).HasAnimatedProperties);
             Motion.SetIsBackgroundActive(root, true);

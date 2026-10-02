@@ -42,6 +42,9 @@ internal static class MotionTransition
             target.IsVisibleChanged -= VisibilityChanged;
             if (target is FrameworkElement element) element.Unloaded -= Unloaded;
             target.BeginAnimation(property, null);
+            // Removing an animation invalidates SetCurrentValue's effective value. Restore the
+            // requested state after removal, before a completion callback can inspect/use it.
+            if (invoke) target.SetCurrentValue(property, to);
             if (invoke) completed?.Invoke();
         }
         void PolicyChanged(object? sender, PropertyChangedEventArgs e)
