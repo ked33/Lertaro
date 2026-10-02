@@ -95,6 +95,7 @@ public static class QuickNavigationMenu
 
         var dummyResult = new AppSearchResult { FullPath = path, Name = Path.GetFileName(path), IsDir = true };
         var contextMenu = new ContextMenu();
+        contextMenu.PreviewKeyDown += (_, e) => QuickNavigationMenuKeyHandler.HandleShortcutKeyDown(contextMenu, e);
         contextMenu.PreviewKeyDown += (s, e) => { if (e.Key == System.Windows.Input.Key.Escape) { contextMenu.IsOpen = false; e.Handled = true; } };
 
         foreach (var provider in PluginManager.Instance.QuickNavigationProviders)

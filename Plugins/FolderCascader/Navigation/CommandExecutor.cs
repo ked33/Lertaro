@@ -103,7 +103,7 @@ public static class CommandExecutor
     // hands that to NavigateOrOpen as a literal path *before* Provider.ExecuteCommand/this class ever
     // gets a look at it, so a CommandId here would have opened "the sentinel string" via the shell
     // instead of running this.
-    internal static void AddCurrentFolder(string folderPath, string subMenu, string name = "")
+    internal static void AddCurrentFolder(string folderPath, string subMenu, string name = "", string shortcutKey = "")
     {
         // Use the same resolver as configured folder entries so environment variables and Shell
         // namespace paths are validated without replacing the original value stored in settings.
@@ -116,7 +116,7 @@ public static class CommandExecutor
             new List<FolderCascaderPlugin.FolderConfigItem>());
         folders ??= new List<FolderCascaderPlugin.FolderConfigItem>();
 
-        folders.Add(new FolderCascaderPlugin.FolderConfigItem { Name = name, Path = folderPath, SubMenu = subMenu });
+        folders.Add(new FolderCascaderPlugin.FolderConfigItem { Name = name, Path = folderPath, SubMenu = subMenu, ShortcutKey = shortcutKey });
         PluginSettingsService.SetSetting("Lertaro.Plugins.FolderCascader", "Folders", folders);
     }
 }

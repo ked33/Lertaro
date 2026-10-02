@@ -81,9 +81,9 @@ public static class MenuBuilder
         });
     }
 
-    // Asks for Name/Path/SubMenu (pre-filled from what was clicked) before adding, reusing the exact
-    // same fields -- key, label, description -- the real Configure dialog's Folders array uses for
-    // these three, via PluginPromptService rather than a bespoke input dialog. All three stay editable
+    // Asks for Name/Path/SubMenu/ShortcutKey before adding, reusing the exact
+    // same fields -- key, label, description -- as the real Configure dialog's Folders array,
+    // via PluginPromptService rather than a bespoke input dialog. All fields stay editable
     // (not just Name): the user might want to add a sibling path, or file it under a different
     // category than the one they happened to click "Add" from. A null result means the prompt was
     // cancelled or the host hasn't wired PluginPromptService up (an older host build) -- either way,
@@ -115,13 +115,15 @@ public static class MenuBuilder
 
         var values = PluginPromptService.Prompt(
             TranslationService.Get("FolderCascader_AddCurrentFolder"),
-            new[] { nameField, pathField, subMenuField });
+            new[] { nameField, pathField, subMenuField, FolderCascaderPlugin.CreateShortcutField() });
         if (values == null) return;
 
         var name = values.TryGetValue("Name", out var n) ? n as string ?? "" : "";
         var path = values.TryGetValue("Path", out var p) ? p as string ?? "" : "";
         var editedSubMenu = values.TryGetValue("SubMenu", out var s) ? s as string ?? "" : "";
-        CommandExecutor.AddCurrentFolder(string.IsNullOrWhiteSpace(path) ? folderPath : path, editedSubMenu, name);
+        var shortcut = values.TryGetValue("ShortcutKey", out var k) ? k as string ?? "" : "";
+        CommandExecutor.AddCurrentFolder(string.IsNullOrWhiteSpace(path) ? folderPath : path, editedSubMenu, name, shortcut);
+        FolderCascaderPlugin.WarnShortcutProblems();
     }
 
     // Groups configured folders by their SubMenu field and appends the items belonging at exactly
@@ -180,6 +182,7 @@ public static class MenuBuilder
             items.Add(new DynamicMenuItem
             {
                 Text = GetDisplayName(folder.Path, folder.Name),
+                ShortcutHint = FolderCascaderPlugin.NormalizeShortcut(folder.ShortcutKey),
                 HasSubMenu = pathExists,
                 SubMenuHandle = pathExists ? provider.AllocateHandle(browsePath) : IntPtr.Zero,
                 HBitmapItem = IntPtr.Zero,

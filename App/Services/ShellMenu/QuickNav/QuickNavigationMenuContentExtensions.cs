@@ -247,6 +247,8 @@ internal static class QuickNavigationMenuContentExtensions
             }), System.Windows.Threading.DispatcherPriority.Background);
         };
 
+        QuickNavigationMenuKeyHandler.AttachShortcut(menuItem, item, triggerAction);
+
         AttachMiddleClick(menuItem, item, canNavigate, () =>
         {
             contextMenu.IsOpen = false;

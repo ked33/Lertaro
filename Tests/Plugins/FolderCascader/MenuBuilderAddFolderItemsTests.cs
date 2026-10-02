@@ -8,6 +8,25 @@ namespace Lertaro.Plugins.FolderCascader.Tests;
 public sealed class MenuBuilderAddFolderItemsTests
 {
     [TestMethod]
+    public void AddFolderItems_ShortcutBelongsToConfiguredFolderNotItsCategoryOrName()
+    {
+        using var dir = new TempDirectory();
+        var folder = Folder("Projects", dir.Path, "Tools");
+        folder.ShortcutKey = "e";
+        var provider = new Provider();
+        var root = new List<DynamicMenuItem>();
+        var children = new List<DynamicMenuItem>();
+
+        MenuBuilder.AddFolderItems(root, [folder], [], provider);
+        MenuBuilder.AddFolderItems(children, [folder], ["Tools"], provider);
+
+        Assert.AreEqual("", root.Single().ShortcutHint);
+        Assert.AreEqual("E", children.Single().ShortcutHint);
+        Assert.AreEqual("Projects", children.Single().Text);
+        Assert.AreEqual("Projects", folder.Name);
+    }
+
+    [TestMethod]
     public void AddFolderItems_TopLevelFolder_AddsLeafItem()
     {
         var provider = new Provider();

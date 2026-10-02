@@ -16,10 +16,53 @@ public class FolderCascaderPlugin : IPlugin, IConfigurable
         public string Name { get; set; } = string.Empty;
         public string Path { get; set; } = string.Empty;
         public string SubMenu { get; set; } = string.Empty;
+        public string ShortcutKey { get; set; } = string.Empty;
+    }
+
+    internal static string NormalizeShortcut(string? value)
+    {
+        var key = value?.Trim().ToUpperInvariant() ?? "";
+        return key.Length == 1 && key[0] is >= 'A' and <= 'Z' ? key : "";
+    }
+
+    internal static PluginConfigField CreateShortcutField() => new()
+    {
+        Key = "ShortcutKey",
+        LabelKey = "FolderCascader_Config_ShortcutKey",
+        DescriptionKey = "FolderCascader_Config_ShortcutKeyDesc",
+        FieldType = ConfigFieldType.Text,
+        MaxLength = 1,
+        DefaultValue = ""
+    };
+
+    internal static List<string> FindShortcutProblems(IEnumerable<FolderConfigItem> folders)
+    {
+        var entries = folders.Where(f => !string.IsNullOrWhiteSpace(f.Path) && f.Path != "-" && f.Name != "-").ToList();
+        var problems = entries.Where(f => !string.IsNullOrWhiteSpace(f.ShortcutKey) && NormalizeShortcut(f.ShortcutKey) == "")
+            .Select(f => $"{(string.IsNullOrWhiteSpace(f.Name) ? f.Path : f.Name)} ({f.ShortcutKey})").ToList();
+        foreach (var group in entries.Where(f => NormalizeShortcut(f.ShortcutKey) != "").GroupBy(f => (
+                     Level: string.Join("/", Navigation.MenuBuilder.SplitSubMenuPath(f.SubMenu)),
+                     Key: NormalizeShortcut(f.ShortcutKey))))
+        {
+            if (group.Count() > 1)
+                problems.Add($"({group.Key.Key}): {string.Join(", ", group.Select(f => string.IsNullOrWhiteSpace(f.Name) ? f.Path : f.Name))}");
+        }
+        return problems;
+    }
+
+    internal static void WarnShortcutProblems()
+    {
+        var folders = PluginSettingsService.GetSetting("Lertaro.Plugins.FolderCascader", "Folders", new List<FolderConfigItem>());
+        var problems = FindShortcutProblems(folders ?? []);
+        if (problems.Count > 0)
+            PluginMessageBoxService.Show(
+                string.Format(TranslationService.Get("FolderCascader_Config_ShortcutKeyWarning"), string.Join("\n", problems)),
+                TranslationService.Get("FolderCascader_PluginName"), icon: System.Windows.MessageBoxImage.Warning);
     }
 
     public PluginConfigSchema GetConfigSchema() => new PluginConfigSchema
     {
+        OnSave = WarnShortcutProblems,
         Fields = new List<PluginConfigField>
         {
             new PluginConfigField
@@ -112,7 +155,8 @@ public class FolderCascaderPlugin : IPlugin, IConfigurable
                                 DescriptionKey = "FolderCascader_Config_SubMenuDesc",
                                 FieldType = ConfigFieldType.Text,
                                 DefaultValue = ""
-                            }
+                            },
+                            CreateShortcutField()
                         }
                     }
                 }
