@@ -124,7 +124,7 @@ public partial class ResultsControl : System.Windows.Controls.UserControl
             ActionsClippingBorder.CornerRadius = new CornerRadius(8);
             ActionsFlyoutBorder.BorderThickness = new Thickness(1);
             ActionsFlyoutBorder.SetResourceReference(Border.BackgroundProperty, "CardBackground");
-            ActionsFlyoutBorder.SetResourceReference(Border.BorderBrushProperty, "CardBorderBrush");
+            ActionsFlyoutBorder.SetResourceReference(Border.BorderBrushProperty, "MenuBorderBrush");
         }
         else
         {
