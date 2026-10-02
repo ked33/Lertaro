@@ -31,7 +31,7 @@ jobs:
           path: ${{ github.workspace }}/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/*.slnx') }}
 
-      - name: Test recent folders and Explorer integration
+      - name: Test recent folders, quick navigation and Explorer integration
         shell: pwsh
         env:
           NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
@@ -43,7 +43,7 @@ jobs:
             "Tests/Plugins/CoreExtensions/CoreExtensions.csproj"
           )
           foreach ($project in $projects) {
-            dotnet test $project -c Release --filter "FullyQualifiedName~RecentFolder|FullyQualifiedName~ExplorerInlineSearchAdapter|FullyQualifiedName~ExplorerHostReadFloor" --logger trx --results-directory TestResults
+            dotnet test $project -c Release --filter "FullyQualifiedName~RecentFolder|FullyQualifiedName~ExplorerInlineSearchAdapter|FullyQualifiedName~ExplorerHostReadFloor|FullyQualifiedName~QuickNavigation|FullyQualifiedName~ExplorerTabLocator|FullyQualifiedName~BuildStartInfo" --logger trx --results-directory TestResults
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 

@@ -23,7 +23,8 @@ internal static class ExplorerTabLocator
         return !string.IsNullOrWhiteSpace(targetFolder) && TryOpenInNewTab(targetFolder, Path.GetFileName(path), path, preferredExplorerWindow);
     }
 
-    public static bool TryOpenFolderInNewTab(string path) => TryOpenInNewTab(path, string.Empty, path, IntPtr.Zero);
+    public static bool TryOpenFolderInNewTab(string path, IntPtr preferredExplorerWindow = default) =>
+        TryOpenInNewTab(path, string.Empty, path, preferredExplorerWindow);
 
     private static bool TryOpenInNewTab(string targetFolder, string itemName, string sourcePath, IntPtr preferredExplorerWindow)
     {

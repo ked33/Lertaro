@@ -59,6 +59,8 @@ You can also assign an optional global keyboard shortcut under [**Settings → H
 - **Third-party File Managers**: Middle-click file list areas in Directory Opus, Total Commander, XYplorer, Files, and One Commander (see [**Supported File Managers**](./file-manager-support)).
 - **File Dialogs**: Middle-click or click the embedded logo inside Open/Save/Browse dialogs to jump instantly to the target folder without accidentally triggering confirmation.
 
+**Middle-click a folder inside the menu** to open it in a new File Explorer tab. This works for favorites, history, Recently Opened, and cascading subfolders, preferring the Explorer window that opened the menu. If no window is available, a new window opens. This gesture is independent of the normal folder-opening settings; from a file dialog it opens Explorer without navigating the dialog. If tabs are unsupported or cannot be created, it falls back to a normal folder open; virtual Shell locations use the system open action. Files, category headings, and unavailable entries do not respond.
+
 ### Cascading Menu Structure
 
 Powered by the **Folder Cascader** plugin:
