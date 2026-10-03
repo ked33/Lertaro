@@ -12,6 +12,7 @@ internal static class QuickNavigationDeferredItems
     internal static void Attach(ContextMenu menu, MenuItem row, DynamicMenuItem item,
         Func<DynamicMenuItem, MenuItem> createRow, Func<bool> isCurrent, FrameworkElement? separator = null)
     {
+        if (separator != null) separator.Visibility = row.Visibility;
         var cancellation = new CancellationTokenSource();
         DynamicMenuItem? pending = null;
         var ready = false;
@@ -58,7 +59,11 @@ internal static class QuickNavigationDeferredItems
                 if (row.ActualWidth > 0) replacement.Width = row.ActualWidth;
             }
             menu.Items.RemoveAt(index);
-            if (replacement != null) menu.Items.Insert(index, replacement);
+            if (replacement != null)
+            {
+                menu.Items.Insert(index, replacement);
+                if (separator != null) separator.Visibility = Visibility.Visible;
+            }
             else if (separator != null) menu.Items.Remove(separator);
             Detach();
         }

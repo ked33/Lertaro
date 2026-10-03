@@ -97,7 +97,8 @@ public sealed class QuickNavigationHoveredFolderMenuTests
         Assert.IsTrue(items[0].IsPinnedToTop);
         Assert.IsFalse(hover.Task.IsCompleted);
         Assert.IsFalse(opened.Task.IsCompleted);
-        Assert.IsTrue(items[0].IsDisabled, "Reserve a non-actionable slot so asynchronous completion cannot move other rows.");
+        Assert.IsTrue(items[0].IsDisabled);
+        Assert.AreEqual(string.Empty, items[0].Text, "Unconfirmed hover must use a collapsed insertion marker.");
 
         var pendingHover = items[0].LoadDeferredItem!(CancellationToken.None);
         Assert.IsFalse(pendingHover.IsCompleted);
