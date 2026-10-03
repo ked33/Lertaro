@@ -16,7 +16,6 @@ internal static class QuickNavigationDeferredItems
         DynamicMenuItem? pending = null;
         var ready = false;
         var detached = false;
-        RoutedEventHandler submenuClosed = Retry;
 
         void Detach()
         {
@@ -28,7 +27,7 @@ internal static class QuickNavigationDeferredItems
             menu.MouseLeave -= Retry;
             menu.PreviewMouseUp -= Retry;
             menu.PreviewKeyUp -= Retry;
-            menu.RemoveHandler(MenuItem.SubmenuClosedEvent, submenuClosed);
+            menu.RemoveHandler(MenuItem.SubmenuClosedEvent, new RoutedEventHandler(Retry));
             cancellation.Cancel();
             cancellation.Dispose();
         }
@@ -98,7 +97,7 @@ internal static class QuickNavigationDeferredItems
         menu.MouseLeave += Retry;
         menu.PreviewMouseUp += Retry;
         menu.PreviewKeyUp += Retry;
-        menu.AddHandler(MenuItem.SubmenuClosedEvent, submenuClosed);
+        menu.AddHandler(MenuItem.SubmenuClosedEvent, new RoutedEventHandler(Retry));
     }
 
     // Growing a popup near a screen edge can reposition the whole popup, not just its tail.
