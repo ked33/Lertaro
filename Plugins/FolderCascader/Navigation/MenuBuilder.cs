@@ -13,7 +13,7 @@ public static class MenuBuilder
         IconBitmapCache.EnsureIcons();
 
         if (hMenu == IntPtr.Zero)
-            return MenuBuilderContentExtensions.BuildRootMenu(provider, result.HoveredFolderPath);
+            return MenuBuilderContentExtensions.BuildRootMenu(provider, result);
 
         if (provider.TryGetFolderPage(hMenu, out var folderPage) && folderPage != null)
             return FolderBrowseMenuBuilder.Build(folderPage.Path, folderPage.Offset, provider);
@@ -31,7 +31,9 @@ public static class MenuBuilder
             return MenuBuilderContentExtensions.BuildFavoritesMenu(provider);
 
         if (path == "foldercascader://opened-folders")
-            return MenuBuilderContentExtensions.BuildOpenedFoldersMenu(ExplorerPathService.GetOpenedFolderPaths(), provider);
+            // Submenus load on a background worker. Only this submenu waits for its fresh snapshot.
+            return MenuBuilderContentExtensions.BuildOpenedFoldersMenu(
+                provider.OpenedFolderPathsTask?.GetAwaiter().GetResult() ?? ExplorerPathService.GetOpenedFolderPaths(), provider);
 
         if (TryDecodeCategoryPath(path, out var categoryPrefix))
             return MenuBuilderContentExtensions.BuildCategoryMenu(result, categoryPrefix, provider);

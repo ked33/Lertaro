@@ -17,6 +17,10 @@ public interface ISearchResult
     /// <summary>Physical folder under the middle-click that opened Quick Navigation; otherwise null.</summary>
     string? HoveredFolderPath => null;
 
+    /// <summary>Click-scoped reads that may complete after Quick Navigation is already visible.</summary>
+    Task<string?>? HoveredFolderPathTask => null;
+    Task<IReadOnlyList<string>>? OpenedFolderPathsTask => null;
+
     /// <summary>True if this is a directory, false if a file.</summary>
     bool IsDir { get; }
 

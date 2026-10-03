@@ -67,36 +67,35 @@ public static class QuickNavigationMenu
     private static void ShowCore(int mouseX, int mouseY, QuickNavTriggerContext trigger, string path, Task<string?>? hoveredFolder = null)
     {
         var generation = ++_sessionGeneration;
-        _ = ShowAsync(mouseX, mouseY, generation, trigger, path, hoveredFolder);
+        ShowMenu(mouseX, mouseY, generation, trigger, path, hoveredFolder);
     }
 
-    private static async Task ShowAsync(int mouseX, int mouseY, int generation, QuickNavTriggerContext trigger, string path, Task<string?>? hoveredFolder)
+    private static async Task<IReadOnlyList<string>> CaptureOpenedFoldersAsync()
     {
         var hookClient = App.HookClient;
-        if (hookClient?.IsConnected == true)
+        if (hookClient?.IsConnected != true)
+            return PluginSdk.Services.ExplorerPathService.GetOpenedFolderPaths();
+        var completion = new TaskCompletionSource<IReadOnlyList<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Action<IReadOnlyList<string>> handler = _ => completion.TrySetResult(PluginSdk.Services.ExplorerPathService.GetOpenedFolderPaths());
+        hookClient.OnOpenedFoldersCaptured += handler;
+        try
         {
-            var snapshotArrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            Action<IReadOnlyList<string>> snapshotHandler = _ => snapshotArrived.TrySetResult();
-            hookClient.OnOpenedFoldersCaptured += snapshotHandler;
-
-            // The Explorer collector itself has a two-second COM safety cap. Waiting slightly longer
-            // keeps every menu entry point consistent while still falling back if its response is lost.
-            try
-            {
-                hookClient.SendMessage(new Core.Wire.IpcMessage { Id = Core.Wire.IpcMessageId.RequestOpenedFolders });
-                await Task.WhenAny(snapshotArrived.Task, Task.Delay(2100));
-            }
-            finally
-            {
-                hookClient.OnOpenedFoldersCaptured -= snapshotHandler;
-            }
+            hookClient.SendMessage(new Core.Wire.IpcMessage { Id = Core.Wire.IpcMessageId.RequestOpenedFolders });
+            return await completion.Task.WaitAsync(TimeSpan.FromMilliseconds(2100)).ConfigureAwait(false);
         }
+        catch (TimeoutException) { }
+        finally { hookClient.OnOpenedFoldersCaptured -= handler; }
+        return PluginSdk.Services.ExplorerPathService.GetOpenedFolderPaths();
+    }
 
-        var hoveredPath = hoveredFolder == null ? null : await hoveredFolder;
-        if (generation != _sessionGeneration)
-            return;
-
-        var dummyResult = new AppSearchResult { FullPath = path, Name = Path.GetFileName(path), IsDir = true, HoveredFolderPath = hoveredPath };
+    private static void ShowMenu(int mouseX, int mouseY, int generation, QuickNavTriggerContext trigger, string path, Task<string?>? hoveredFolder)
+    {
+        // Neither capture gates the popup: the opened-folder submenu and the deferred hover row consume them.
+        var dummyResult = new AppSearchResult
+        {
+            FullPath = path, Name = Path.GetFileName(path), IsDir = true,
+            HoveredFolderPathTask = hoveredFolder, OpenedFolderPathsTask = CaptureOpenedFoldersAsync()
+        };
         var contextMenu = new ContextMenu();
         contextMenu.PreviewKeyDown += (_, e) => QuickNavigationMenuKeyHandler.HandleShortcutKeyDown(contextMenu, e);
         contextMenu.PreviewKeyDown += (s, e) => { if (e.Key == System.Windows.Input.Key.Escape) { contextMenu.IsOpen = false; e.Handled = true; } };
@@ -109,19 +108,34 @@ public static class QuickNavigationMenu
                 () => provider.GetMenuItems(dummyResult, IntPtr.Zero)?.ToList() ?? new List<DynamicMenuItem>());
             if (providerItems.Count == 0) continue;
 
-            // Shown even when this is the only active provider (by request) -- same "always label the
-            // group, not just when there's more than one" convention the actions menu already follows.
-            var headerAction = provider.HeaderAction;
-            contextMenu.Items.Add(CreateGroupHeader(
-                provider.GroupName,
-                headerAction != null ? () => headerAction(dummyResult) : null,
-                provider.HeaderActionTooltip,
-                contextMenu));
+            if (provider.ShowGroupHeader)
+            {
+                var headerAction = provider.HeaderAction;
+                contextMenu.Items.Add(CreateGroupHeader(
+                    provider.GroupName,
+                    headerAction != null ? () => headerAction(dummyResult) : null,
+                    provider.HeaderActionTooltip,
+                    contextMenu));
+            }
 
             foreach (var item in providerItems)
-                // Root entries never get the right-click action flyout. Pure categories mark themselves
-                // non-actionable, while actionable real directories can now use their normal click path.
-                contextMenu.Items.Add(item.IsSeparator ? CreateSeparator() : CreateMenuItem(item, dummyResult, provider, contextMenu, trigger, enableRightClick: false));
+            {
+                if (item.IsSeparator) { contextMenu.Items.Add(CreateSeparator()); continue; }
+                var row = item.LoadDeferredItem != null && string.IsNullOrEmpty(item.Text)
+                    ? new MenuItem { Visibility = Visibility.Collapsed, IsEnabled = false, Focusable = false }
+                    : CreateMenuItem(item, dummyResult, provider, contextMenu, trigger, enableRightClick: false);
+                var separator = item.IsPinnedToTop ? CreateSeparator() : null;
+                if (separator != null)
+                {
+                    contextMenu.Items.Insert(0, row);
+                    contextMenu.Items.Insert(1, separator);
+                }
+                else contextMenu.Items.Add(row);
+                if (item.LoadDeferredItem != null)
+                    QuickNavigationDeferredItems.Attach(contextMenu, row, item,
+                        resolved => CreateMenuItem(resolved, dummyResult, provider, contextMenu, trigger, enableRightClick: false),
+                        () => generation == _sessionGeneration, separator);
+            }
         }
 
         if (contextMenu.Items.Count == 0) return;
