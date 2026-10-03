@@ -6,7 +6,8 @@ internal sealed record WalkOptions(
     IReadOnlyList<string> IgnoredPathRegexes,
     int MaxDepth,
     int WorkerCount,
-    bool UseIgnoreFiles);
+    bool UseIgnoreFiles,
+    IReadOnlyList<string>? WhitelistedPaths = null);
 
 internal readonly record struct NetworkDriveWalkStats(
     int Skipped,

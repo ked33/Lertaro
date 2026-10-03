@@ -10,7 +10,7 @@ namespace Lertaro.Core.Services.Search;
 public class SearchService : IDisposable
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Task<List<SearchResult>>> _sessionDirectoryCache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ScopeLiveSearchCache _scopeLiveSearchCache = new();
+    private volatile ScopeLiveSearchCache _scopeLiveSearchCache = new();
     private readonly CancellationTokenSource _cacheFillCts = new();
     private readonly SearchPipeClient _pipeClient = new();
     private int _disposed;
@@ -49,6 +49,11 @@ public class SearchService : IDisposable
     {
         var settings = UserSettings.Load();
         var exclusionRules = ExclusionRuleSet.From(settings);
+        // Keep a query-local reference: concurrent searches using old/new rules must not share
+        // live-scan eligibility decisions. Normal searches reuse the same cache without a lock.
+        var scopeCache = _scopeLiveSearchCache;
+        if (!ReferenceEquals(scopeCache.Rules, exclusionRules))
+            _scopeLiveSearchCache = scopeCache = new ScopeLiveSearchCache(exclusionRules);
         // No longer clamped to 2000. The service returns everything that matches and the caller decides
         // what to do with it; asking for a multiple of maxResults existed only to leave headroom for the
         // exclusion filtering below, which is pointless once maxResults is itself unbounded.
@@ -165,7 +170,7 @@ public class SearchService : IDisposable
                 liveScanFilter = resolved.FilterQuery;
             }
         }
-        else if (!string.IsNullOrEmpty(directoryFilter) && _scopeLiveSearchCache.GetOrAdd(directoryFilter,
+        else if (!string.IsNullOrEmpty(directoryFilter) && scopeCache.GetOrAdd(directoryFilter,
             dir => SearchServiceHelper.CheckNeedsLiveSearch(dir, exclusionRules) && Directory.Exists(dir)))
         {
             needsLiveSearch = true;

@@ -32,6 +32,7 @@ public class SettingsViewModel : ViewModelBase
         NetworkDrive = new NetworkDriveSettingsViewModel(_searchService, RefreshLists);
         General = new GeneralSettingsViewModel(_userSettings);
         Exclusions = new ExclusionSettingsViewModel(_userSettings);
+        Whitelist = new WhitelistSettingsViewModel(_userSettings);
         Blacklist = new BlacklistSettingsViewModel(_userSettings);
         Hotkeys = new HotkeySettingsViewModel(_userSettings, Blacklist);
         Favorites = new FavoritesSettingsViewModel(_userSettings);
@@ -70,6 +71,7 @@ public class SettingsViewModel : ViewModelBase
     public NetworkDriveSettingsViewModel NetworkDrive { get; }
     public GeneralSettingsViewModel General { get; }
     public ExclusionSettingsViewModel Exclusions { get; }
+    public WhitelistSettingsViewModel Whitelist { get; }
 
     // Lazy, not built alongside the other sub-VMs above -- issue #186: PluginManagementViewModel's ctor
     // runs PluginLoaderHelper.BuildPluginList, which does genuine reflection (AppDomain.GetAssemblies,
@@ -142,7 +144,7 @@ public class SettingsViewModel : ViewModelBase
 
     public void Apply()
     {
-        if (!CanApply)
+        if (!CanApply || !Whitelist.IsValid)
             return;
 
         _isSaved = true;
@@ -188,6 +190,7 @@ public class SettingsViewModel : ViewModelBase
         _userSettings.WslSettings = newWslDrives;
         _userSettings.FolderIndexes = newFolderIndexes;
         Exclusions.Save();
+        Whitelist.Save();
         General.Apply();
         // _plugins, not the Plugins property: an untouched Plugins tab was never constructed, so it has
         // nothing dirty to save -- going through the property here would force that reflection scan
@@ -215,6 +218,7 @@ public class SettingsViewModel : ViewModelBase
         // keeps the rows the previous query read -- see OpenSearchWindowRefresher.
         OpenSearchWindowRefresher.AfterSettingsSaved();
         var exclusionsChanged = SettingsChangeSnapshot.ExclusionsChanged(previousExclusions, SettingsChangeSnapshot.CaptureExclusions(_userSettings));
+        var whitelistChanged = SettingsChangeSnapshot.StringListChanged(previousExclusions.Whitelist, _userSettings.WhitelistedPaths);
         var newDisabledAliases = _userSettings.DisabledPluginComponents
             .Where(c => c.Contains("::AliasProvider::", StringComparison.OrdinalIgnoreCase))
             .ToList();
@@ -255,6 +259,9 @@ public class SettingsViewModel : ViewModelBase
                         _searchService.RefreshNetworkDriveIndex(folder.Path);
                 }
             }
+
+            if (whitelistChanged)
+                _searchService.RefreshWhitelistIndexes(previousExclusions.Whitelist, _userSettings.WhitelistedPaths);
 
             if (exclusionsChanged)
                 await SettingsApplyHelpers.RebuildScanBasedLocalDrivesAsync(_searchService, localDriveSnapshots, machineSettings.LocalDrives);

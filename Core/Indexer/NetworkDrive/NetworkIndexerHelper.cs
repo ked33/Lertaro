@@ -21,6 +21,21 @@ internal static class NetworkIndexerHelper
         return previousRoots.OrderBy(root => root, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    public static List<string> FindWhitelistChangedRoots(IEnumerable<string> sources, IReadOnlyList<string> previous, IReadOnlyList<string> current)
+    {
+        var oldRoots = new PathWhitelist(previous).Roots;
+        var newRoots = new PathWhitelist(current).Roots;
+        var changed = new PathWhitelist(oldRoots.Except(newRoots, StringComparer.OrdinalIgnoreCase)
+            .Concat(newRoots.Except(oldRoots, StringComparer.OrdinalIgnoreCase)));
+        if (changed.IsEmpty)
+            return new();
+        return sources.Where(source =>
+        {
+            var root = Walk.PathHelpers.BuildSourceRoot(source);
+            return changed.Contains(root) || changed.HasDescendant(root);
+        }).ToList();
+    }
+
     public static string ResolveDriveFromId(string id)
     {
         if (string.IsNullOrWhiteSpace(id))

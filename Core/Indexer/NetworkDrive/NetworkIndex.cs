@@ -107,7 +107,11 @@ internal sealed class NetworkIndex : IDisposable
         // Setting this on the store itself (not just on `index` after the walk finishes) means every
         // mid-walk checkpoint -- which serializes this same store, see TreeBuilder.CloneStore -- already
         // carries the right fingerprint too, not just the final save.
-        var fingerprint = IndexerHelper.ComputeExclusionFingerprint(options.ExcludedPaths, options.IgnoredPathGlobs, options.IgnoredPathRegexes);
+        var whitelist = new PathWhitelist(options.WhitelistedPaths ?? Array.Empty<string>());
+        var relevantWhitelist = whitelist.Roots.Where(path =>
+            PathWhitelist.IsWithin(root, path) || PathWhitelist.IsWithin(path, root));
+        var fingerprint = IndexerHelper.ComputeExclusionFingerprint(
+            options.ExcludedPaths, options.IgnoredPathGlobs, options.IgnoredPathRegexes, relevantWhitelist);
         var store = new FileRecordStore
         {
             SourceKey = drive,
