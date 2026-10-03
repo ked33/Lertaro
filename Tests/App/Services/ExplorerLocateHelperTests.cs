@@ -8,14 +8,14 @@ namespace Lertaro.App.Tests.Services;
 public sealed class ExplorerLocateHelperTests
 {
     [TestMethod]
-    public void ResolveContainingFolder_Folder_IsItsOwnTarget() =>
-        Assert.AreEqual(
-            @"C:\folder\sub",
-            ExplorerLocateHelper.ResolveContainingFolder(@"C:\folder\sub", path => path == @"C:\folder\sub"));
-
-    [TestMethod]
-    public void ResolveContainingFolder_File_ResolvesToItsParent() =>
-        Assert.AreEqual(@"C:\folder", ExplorerLocateHelper.ResolveContainingFolder(@"C:\folder\file.txt", _ => false));
+    [DataRow(@"C:\folder\file.txt", @"C:\folder")]
+    [DataRow(@"C:\folder\sub", @"C:\folder")]
+    [DataRow(@"C:\folder\sub\", @"C:\folder")]
+    [DataRow(@"C:\folder\sub/", @"C:\folder")]
+    [DataRow(@"C:\脚本", @"C:\")]
+    [DataRow(@"\\server\share\sub\", @"\\server\share")]
+    public void ResolveContainingFolder_FilesAndFoldersResolveToTheirParent(string path, string expected) =>
+        Assert.AreEqual(expected, ExplorerLocateHelper.ResolveContainingFolder(path));
 
     [TestMethod]
     [DataRow(@"C:\")]
@@ -26,6 +26,6 @@ public sealed class ExplorerLocateHelperTests
         // the shell-locate fallback instead of pretending there was one to open. Null or empty, exactly:
         // only "no folder" is promised, not which spelling of it comes back.
         Assert.IsTrue(
-            string.IsNullOrEmpty(ExplorerLocateHelper.ResolveContainingFolder(path, _ => false)),
+            string.IsNullOrEmpty(ExplorerLocateHelper.ResolveContainingFolder(path)),
             $"'{path}' resolved to a containing folder");
 }

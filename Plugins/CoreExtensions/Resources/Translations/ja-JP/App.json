@@ -375,7 +375,7 @@
   "General_DefaultFileManagerEnabled": "サードパーティ製ファイルマネージャーでフォルダーを開く",
   "General_ShowOpenedFoldersInInlineSearch": "インライン検索に現在開いているフォルダーを表示",
   "General_ShowOpenedFoldersInInlineSearchDesc": "インラインウィンドウをファイル選択画面にドッキングしたとき、その画面で現在開いているフォルダーを表示します。",
-  "General_DefaultFileManagerHint": "フォルダーを開く操作（「フォルダーの場所を開く」を含む）を、システム既定の代わりに以下のプログラムにリダイレクトします。",
+  "General_DefaultFileManagerHint": "フォルダーを開く際に下記のプログラムを使用します。ファイルやショートカットのリンク先の場所を表示する際は Windows エクスプローラーを使用します。",
   "General_DefaultFileManagerPath": "パス（プログラム）",
   "General_DefaultFileManagerBrowseTooltip": "プログラムを参照",
   "General_DefaultFileManagerBrowseFilter": "プログラム",

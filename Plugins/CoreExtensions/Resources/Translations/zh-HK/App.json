@@ -375,7 +375,7 @@
   "General_DefaultFileManagerEnabled": "使用第三方檔案總管開啟資料夾",
   "General_ShowOpenedFoldersInInlineSearch": "在內嵌搜尋中顯示目前開啟的資料夾",
   "General_ShowOpenedFoldersInInlineSearchDesc": "內嵌視窗停靠在檔案選擇器時，顯示該選擇器目前開啟的資料夾。",
-  "General_DefaultFileManagerHint": "開啟資料夾(包括「開啟所在資料夾」)時改用下面設定的程式，而不是系統預設關聯。",
+  "General_DefaultFileManagerHint": "開啟資料夾時使用下方設定的程式；檔案定位和捷徑定位使用 Windows 檔案總管。",
   "General_DefaultFileManagerPath": "路徑(程式)",
   "General_DefaultFileManagerBrowseTooltip": "瀏覽選擇程式",
   "General_DefaultFileManagerBrowseFilter": "程式",
