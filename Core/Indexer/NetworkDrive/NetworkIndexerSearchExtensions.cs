@@ -14,7 +14,7 @@ public static class NetworkIndexerSearchExtensions
         string? fileNameFilter = null)
     {
         indexer.EnsureConfigured();
-        if (limit <= 0 || string.IsNullOrWhiteSpace(query))
+        if (limit <= 0 || (string.IsNullOrWhiteSpace(query) && SearchContext.FileTypeFilter == null))
             return;
 
         NetworkIndex[] snapshots;

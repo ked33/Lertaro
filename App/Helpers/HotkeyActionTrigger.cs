@@ -111,7 +111,7 @@ public static class HotkeyActionTrigger
         return false;
     }
 
-    private static string ResolveEffectiveHotkey(ISearchResultAction action, IPlugin plugin, Dictionary<string, Dictionary<string, string>> pluginActionHotkeys)
+    internal static string ResolveEffectiveHotkey(ISearchResultAction action, IPlugin plugin, Dictionary<string, Dictionary<string, string>> pluginActionHotkeys)
     {
         var effectiveHotkey = action.Hotkey;
         // Matches the plugin ID convention used by PluginSettings: the DLL file name without its extension.
@@ -134,47 +134,6 @@ public static class HotkeyActionTrigger
         return SearchWindowType.Main;
     }
 
-    private static bool ParseHotkey(string hotkey, out Key key, out ModifierKeys modifiers)
-    {
-        key = Key.None;
-        modifiers = ModifierKeys.None;
-
-        if (string.IsNullOrWhiteSpace(hotkey))
-            return false;
-
-        var parts = hotkey.Split('+', StringSplitOptions.RemoveEmptyEntries);
-        foreach (var part in parts)
-        {
-            var cleanPart = part.Trim().ToUpperInvariant();
-            if (cleanPart == "CTRL" || cleanPart == "CONTROL")
-            {
-                modifiers |= ModifierKeys.Control;
-            }
-            else if (cleanPart == "ALT")
-            {
-                modifiers |= ModifierKeys.Alt;
-            }
-            else if (cleanPart == "SHIFT")
-            {
-                modifiers |= ModifierKeys.Shift;
-            }
-            else if (cleanPart == "WIN" || cleanPart == "WINDOWS")
-            {
-                modifiers |= ModifierKeys.Windows;
-            }
-            else
-            {
-                if (Enum.TryParse<Key>(cleanPart, true, out var parsedKey))
-                {
-                    key = parsedKey;
-                }
-                else if (cleanPart.Length == 1 && char.IsDigit(cleanPart[0]))
-                {
-                    Enum.TryParse("D" + cleanPart, true, out key);
-                }
-            }
-        }
-
-        return key != Key.None;
-    }
+    private static bool ParseHotkey(string hotkey, out Key key, out ModifierKeys modifiers) =>
+        WpfUiHelper.TryParseHotkey(hotkey, out key, out modifiers);
 }

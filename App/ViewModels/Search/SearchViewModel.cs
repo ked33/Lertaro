@@ -83,6 +83,7 @@ public class SearchViewModel : ViewModelBase, IDisposable
                 OnPropertyChanged(nameof(ShowWelcomeHint));
             });
 
+        FilterSession = new SearchFilterSession(RefreshFilterSearch);
         _dispatcher = new SearchQueryDispatchController(
             _searchEngine,
             _serviceStatus,
@@ -103,7 +104,8 @@ public class SearchViewModel : ViewModelBase, IDisposable
             updateSidebarCounts: (batch, final) => _sidebarCountHelper?.Update(batch, final),
             replaceSidebarCounts: results => _sidebarCountHelper?.Replace(results),
             applyFiltersAndRender: ApplyFiltersAndRender,
-            isTypeFilterSelected: () => IsTypeFilterSelected);
+            isTypeFilterSelected: () => IsTypeFilterSelected,
+            filterSession: FilterSession);
 
         // Initialize dynamic plugin sidebar groups -- PluginManager.SidebarFilterProviders already
         // applies the user's saved order (falling back to each provider's own SortOrder).
@@ -175,6 +177,14 @@ public class SearchViewModel : ViewModelBase, IDisposable
     // means the user asked for exactly that type, so the extra content rows are excluded.
     internal bool IsTypeFilterSelected =>
         DynamicSidebarGroups.Any(g => string.Equals(g.Id, "Type", StringComparison.OrdinalIgnoreCase) && g.HasSelection);
+    private void RefreshFilterSearch()
+    {
+        _searchEngine.CancelPendingSearch();
+        _dispatcher.OnAdvancedQueryChanged(AdvancedQuery);
+        OnPropertyChanged(nameof(ShowWelcomeHint));
+        OnPropertyChanged(nameof(ShowNoResultsHint));
+    }
+    public SearchFilterSession FilterSession { get; }
     public string AdvancedQuery
     {
         get => _advancedQuery;
@@ -183,7 +193,7 @@ public class SearchViewModel : ViewModelBase, IDisposable
             if (SetProperty(ref _advancedQuery, value))
             {
                 _sidebarCountHelper?.Reset();
-                if (string.IsNullOrWhiteSpace(value))
+                if (string.IsNullOrWhiteSpace(value) && !FilterSession.IsActive)
                 {
                     _searchEngine.CancelPendingSearch();
                     _dispatcher.PerformSearch(value);
@@ -329,10 +339,14 @@ public class SearchViewModel : ViewModelBase, IDisposable
 
     // False while a search is still running: an empty list then means "nothing has arrived yet", not
     // "there is nothing to find", and the window reads as blank either way.
-    public bool ShowNoResultsHint => !IsActionsMode && !IsSearching && FilteredResults.Count == 0 && !string.IsNullOrWhiteSpace(AdvancedQuery);
-    public bool ShowWelcomeHint => !IsActionsMode && string.IsNullOrWhiteSpace(AdvancedQuery);
+    public bool ShowNoResultsHint => !IsActionsMode && !IsSearching && FilteredResults.Count == 0 && (!string.IsNullOrWhiteSpace(AdvancedQuery) || FilterSession.IsActive);
+    public bool ShowWelcomeHint => !IsActionsMode && !FilterSession.IsActive && string.IsNullOrWhiteSpace(AdvancedQuery);
 
-    internal void PerformSearch(string query) => _dispatcher.PerformSearch(query);
+    internal void PerformSearch(string query)
+    {
+        _searchEngine.CancelPendingSearch();
+        _dispatcher.PerformSearch(query);
+    }
 
     public void Dispose()
     {

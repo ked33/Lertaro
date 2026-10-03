@@ -26,6 +26,33 @@ public class CustomFilterQueryTokenProviderTests
     }
 
     [TestMethod]
+    public void FilterShortcuts_ExpandReferencesAndIgnoreDisabledOrUnboundRows()
+    {
+        var filters = new List<CustomFilterItem>
+        {
+            new() { Keyword = "base", Rule = "*.lnk" },
+            new() { Keyword = "lnk", Rule = "@base", Hotkey = "Ctrl+D1" },
+            new() { Keyword = "off", Rule = "*.pdf", Hotkey = "Ctrl+D2", Enabled = false },
+            new() { Keyword = "empty", Rule = "@missing", Hotkey = "Ctrl+D3" }
+        };
+        PluginSettingsService.GetSettingFunc = (_, key, fallback) => key == CustomFilterQueryTokenProvider.SettingKey ? filters : fallback;
+
+        var shortcut = new CustomFilterQueryTokenProvider().GetFilterShortcuts().Single();
+
+        Assert.AreEqual("lnk", shortcut.Keyword);
+        Assert.AreEqual("Ctrl+D1", shortcut.Hotkey);
+        Assert.AreEqual("@lnk", shortcut.Token);
+        Assert.AreEqual("*.lnk", shortcut.Rule);
+    }
+
+    [TestMethod]
+    public void OldFilterConfiguration_DefaultsToNoHotkey()
+    {
+        var filter = System.Text.Json.JsonSerializer.Deserialize<CustomFilterItem>("{\"Keyword\":\"lnk\",\"Rule\":\"*.lnk\"}");
+        Assert.AreEqual(string.Empty, filter!.Hotkey);
+    }
+
+    [TestMethod]
     public void CanHandle_TokenStartsWithAt_ReturnsTrue()
     {
         var provider = new CustomFilterQueryTokenProvider();

@@ -45,8 +45,9 @@ public class SearchService : IDisposable
     // covers results that are already indexed -- content that was never indexed in the first place (an
     // excluded/unconfigured network or WSL root, or a local drive not enabled for indexing) has nothing
     // to unfilter here; recovering that is CheckNeedsLiveSearch's live-scan fallback's job instead.
-    public async Task<bool> SearchStreamingAsync(string query, int maxResults, int maxAppResults, string? directoryFilter, Action<SearchResult> onResult, CancellationToken token = default, Action? onLocalSearchFailed = null, bool bypassExclusions = false, string? fileNameFilter = null)
+    public async Task<bool> SearchStreamingAsync(string query, int maxResults, int maxAppResults, string? directoryFilter, Action<SearchResult> onResult, CancellationToken token = default, Action? onLocalSearchFailed = null, bool bypassExclusions = false, string? fileNameFilter = null, string? fileTypeRule = null)
     {
+        SearchContext.FileTypeFilter = fileTypeRule == null ? null : new Lertaro.PluginSdk.Helpers.FileTypeFilter(fileTypeRule);
         var settings = UserSettings.Load();
         var exclusionRules = ExclusionRuleSet.From(settings);
         // Keep a query-local reference: concurrent searches using old/new rules must not share
@@ -72,6 +73,7 @@ public class SearchService : IDisposable
             DisabledAliasComponents = settings.DisabledPluginComponents
                 .Where(c => c.Contains("::AliasProvider::", StringComparison.OrdinalIgnoreCase))
                 .ToList(),
+            FileTypeRule = fileTypeRule,
             FileNameFilter = fileNameFilter
         };
 
@@ -105,6 +107,8 @@ public class SearchService : IDisposable
             // Unconditional, even in bypass mode: "*" only opts out of the user's own
             // ExcludedPaths/Globs/Regexes configuration, not hidden/system attributes -- those are a
             // separate, always-on filter.
+            if (SearchContext.FileTypeFilter is { } filter && !filter.Matches(result.Name, result.IsDir))
+                return;
             if (FileSystemItemFilter.IsHiddenOrSystem(result))
                 return;
 

@@ -9,6 +9,8 @@ namespace Lertaro.PluginSdk.Abstractions.Plugins;
 /// </summary>
 public interface IQueryTokenProvider : IPluginComponent
 {
+    /// <summary>Optional window-local shortcuts. Rules must already have references expanded.</summary>
+    IEnumerable<SearchFilterShortcut> GetFilterShortcuts() => Array.Empty<SearchFilterShortcut>();
 
     /// <summary>
     /// Returns true if this provider understands the given token (e.g. "s", ".txt.doc", or any
@@ -39,3 +41,5 @@ public interface IQueryTokenProvider : IPluginComponent
     /// </summary>
     string? GetHighlightText(string token) => null;
 }
+
+public sealed record SearchFilterShortcut(string Keyword, string Hotkey, string Token, string Rule);

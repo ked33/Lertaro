@@ -61,15 +61,10 @@ public sealed class WpfUiHelperTests
     }
 
     [TestMethod]
-    public void TryParseHotkey_BareDigit_ParsesAsNumericEnumOrdinalNotDKey()
+    public void TryParseHotkey_BareDigit_ParsesAsTopRowDigit()
     {
-        // Enum.TryParse("5", ...) succeeds by interpreting "5" as the raw underlying int value (Key.Clear = 5)
-        // rather than falling through to the "D"-prefix fallback branch, which is effectively dead code for
-        // any digit whose ordinal happens to name a real Key member.
-        var ok = WpfUiHelper.TryParseHotkey("Ctrl+5", out var key, out _);
-
-        Assert.IsTrue(ok);
-        Assert.AreEqual(Key.Clear, key);
+        Assert.IsTrue(WpfUiHelper.TryParseHotkey("Ctrl+5", out var key, out _));
+        Assert.AreEqual(Key.D5, key);
     }
 
     [TestMethod]

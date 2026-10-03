@@ -60,6 +60,9 @@ public struct SearchRequestMessage
     public List<string>? Directories { get; set; }
     // Search/SearchDir: optional FILE-name wildcard filtering for index-backed scoped searches.
     public string? FileNameFilter { get; set; }
+    // Expanded custom-filter rules. Separate from FileNameFilter, whose directory-scope semantics
+    // deliberately admit folders and use Win32 wildcards rather than custom-filter simple expressions.
+    public string? FileTypeRule { get; set; }
     // GetRecentFiles' max-age cutoff, in minutes.
     public int MaxAgeMinutes { get; set; }
     // LaunchHook: whether the caller wants the hook elevated (only honored if that session's user is

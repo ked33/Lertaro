@@ -37,6 +37,7 @@ internal sealed class SearchQueryDispatchController
     // screen. See StreamingResultAccumulator.FirstChangedIndex.
     private readonly Action<bool, int> _applyFiltersAndRender;
 
+    private readonly SearchFilterSession _filterSession;
     private IReadOnlyList<string> _queryTokens = Array.Empty<string>();
 
     // Bumped per query so an append that lands after the user typed again cannot paint stale rows.
@@ -68,8 +69,10 @@ internal sealed class SearchQueryDispatchController
         Action<IReadOnlyList<AppSearchResult>, bool> updateSidebarCounts,
         Action<IReadOnlyList<AppSearchResult>> replaceSidebarCounts,
         Action<bool, int> applyFiltersAndRender,
-        Func<bool> isTypeFilterSelected)
+        Func<bool> isTypeFilterSelected,
+        SearchFilterSession filterSession)
     {
+        _filterSession = filterSession;
         _searchEngine = searchEngine;
         _serviceStatus = serviceStatus;
         _getAllResults = getAllResults;
@@ -88,7 +91,7 @@ internal sealed class SearchQueryDispatchController
     {
         var globalPrefixChar = GetGlobalTokenPrefixChar();
         var strippedTrailing = SearchQuerySortParser.Strip(query, out var tokens, globalPrefixChar);
-        _queryTokens = tokens;
+        _queryTokens = _filterSession.WithTokens(tokens);
         var cleanQuery = SearchQuerySortParser.StripExclusionBypass(strippedTrailing, out var bypassExclusions);
         // A file-filter scope keyword ("tf report" -> search "report" only inside the tf filter's folders)
         // resolves first, in the same order SearchDispatchController applies it: the scope is the more
@@ -105,7 +108,7 @@ internal sealed class SearchQueryDispatchController
             ? scopedQuery
             : PluginTriggerQuery.Strip(cleanQuery, SearchWindowType.Main);
 
-        if (string.IsNullOrWhiteSpace(cleanQuery))
+        if (string.IsNullOrWhiteSpace(cleanQuery) && !_filterSession.IsActive)
         {
             ClearResults();
             return;
@@ -260,7 +263,8 @@ internal sealed class SearchQueryDispatchController
                 if (_queryTokens.Count == 0)
                     _setReceivedCount(count);
             },
-            beforeSearch: StartContentRowAppend
+            beforeSearch: StartContentRowAppend,
+            fileTypeRule: _filterSession.Active?.Rule
         );
     }
 
@@ -401,7 +405,7 @@ internal sealed class SearchQueryDispatchController
 
     public void PerformSearch(string query)
     {
-        if (string.IsNullOrWhiteSpace(query))
+        if (string.IsNullOrWhiteSpace(query) && !_filterSession.IsActive)
         {
             ClearResults();
             return;
@@ -412,6 +416,7 @@ internal sealed class SearchQueryDispatchController
 
     private void ClearResults()
     {
+        _queryTokens = Array.Empty<string>();
         // Supersedes any content append still in flight, exactly as a new query does.
         Interlocked.Increment(ref _contentAppendGeneration);
         _searchEngine.CancelPendingSearch();

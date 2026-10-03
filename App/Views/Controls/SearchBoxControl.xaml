@@ -14,6 +14,7 @@
                 <ColumnDefinition Width="Auto"/><!-- Left Icon Column -->
                 <ColumnDefinition Width="Auto"/><!-- Actions Label Column -->
                 <ColumnDefinition Width="*"/><!-- TextBox Column -->
+                <ColumnDefinition Width="Auto"/><!-- Filter badge -->
                 <ColumnDefinition Width="Auto"/><!-- Right Icon Column -->
             </Grid.ColumnDefinitions>
 
@@ -164,11 +165,42 @@
                 </TextBlock.Style>
             </TextBlock>
 
+            <Button Grid.Column="3" Margin="11,0,0,0" VerticalAlignment="Center"
+                    Focusable="False" Cursor="Hand" Command="{Binding FilterSession.ClearCommand}"
+                    ToolTip="{Binding FilterSession.Hint}" AutomationProperties.Name="{Binding FilterSession.Hint}">
+                <Button.Style>
+                    <Style TargetType="Button">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding FilterSession.IsActive, FallbackValue=False}" Value="True">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsInActionsMode, ElementName=root}" Value="True">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border CornerRadius="4" BorderThickness="1" BorderBrush="Transparent">
+                            <Grid>
+                                <Border CornerRadius="4" Background="{DynamicResource HoverBackground}" Opacity="0.5"/>
+                                <TextBlock Text="{Binding FilterSession.Keyword}" Padding="7,3,7,3"
+                                           MaxWidth="140" TextTrimming="CharacterEllipsis"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource ShortcutColor}"/>
+                            </Grid>
+                        </Border>
+                    </ControlTemplate>
+                </Button.Template>
+            </Button>
+
             <!-- Right Icon Grid (Visible only when IsIconOnLeft is False) -->
             <!-- MouseUp rather than a middle-specific event, because WPF has none: the handler checks
                  ChangedButton itself. Only this icon carries it, matching the indicator above: Stay Open
                  is a quick-window feature and this is the logo that window shows. -->
-            <Grid Grid.Column="3" Margin="11,0,0,0" VerticalAlignment="Center"
+            <Grid Grid.Column="4" Margin="11,0,0,0" VerticalAlignment="Center"
                   MouseRightButtonUp="Icon_MouseRightButtonUp"
                   MouseLeftButtonDown="Icon_MouseLeftButtonDown" MouseLeftButtonUp="Icon_MouseLeftButtonUp" MouseMove="Icon_MouseMove"
                   MouseUp="Icon_MouseUp"

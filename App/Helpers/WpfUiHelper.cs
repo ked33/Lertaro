@@ -61,8 +61,10 @@ public static class WpfUiHelper
                     modifiers |= ModifierKeys.Windows;
                     break;
                 default:
-                    if (!Enum.TryParse(clean, true, out key) && clean.Length == 1 && char.IsDigit(clean[0]))
-                        Enum.TryParse("D" + clean, true, out key);
+                    if (key != Key.None) return false;
+                    if (clean.Length == 1 && clean[0] is >= '0' and <= '9') clean = "D" + clean;
+                    if (int.TryParse(clean, out _) || !Enum.TryParse(clean, true, out key) || !Enum.IsDefined(key))
+                        return false;
                     break;
             }
         }

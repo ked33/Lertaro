@@ -33,7 +33,7 @@ internal static class PathSearch
 
         // See NameSearch: bounded by the index, and widened so a large limit cannot overflow.
         var keep = (int)Math.Min((long)Math.Max(limit, 8) * 8, snapshot.Count + delta.Added.Count);
-        var matches = new FzfTopN(keep);
+        var matches = new FzfTopN(keep, IndexFileTypeFilter.Create(snapshot, delta));
 
         if (childPrefix.Length == 0 && !DirectoryFilterResolver.IsVisiblyDeleted(snapshot, delta, current))
         {

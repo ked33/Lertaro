@@ -66,7 +66,7 @@ internal sealed class SearchDispatchController
     {
         var globalPrefixChar = GetGlobalTokenPrefixChar();
         var strippedTrailing = SearchQuerySortParser.Strip(value, out var tokens, globalPrefixChar);
-        _queryTokens = tokens;
+        _queryTokens = _mainVm.FilterSession.WithTokens(tokens);
         var cleanQuery = SearchQuerySortParser.StripExclusionBypass(strippedTrailing, out var bypassExclusions);
         _bypassExclusions = bypassExclusions;
         var (strippedClean, triggeredTypeId) = _resultTypeTrigger.StripTrigger(value, cleanQuery);
@@ -86,7 +86,7 @@ internal sealed class SearchDispatchController
         // scope is the more specific feature. Instant providers still receive the raw text (instantQuery).
         if (scopeDirective == null)
             searchQuery = PluginTriggerQuery.Strip(searchQuery, ActionWindowType);
-        if (string.IsNullOrWhiteSpace(cleanQuery))
+        if (string.IsNullOrWhiteSpace(cleanQuery) && !_mainVm.FilterSession.IsActive)
         {
             _engine.CancelPendingSearch();
             if (triggeredTypeId != null)
@@ -100,7 +100,7 @@ internal sealed class SearchDispatchController
         // A scope keyword typed with no term after it ("tf ") has nothing to search against yet --
         // the same "keep typing" situation as a token-only query, and preferable to both an
         // unprompted global result set and a silent no-op.
-        if (scopeDirective != null && searchQuery.Length == 0)
+        if (scopeDirective != null && searchQuery.Length == 0 && !_mainVm.FilterSession.IsActive)
         {
             ClearForTokenOnlyQuery();
             return;
@@ -148,7 +148,8 @@ internal sealed class SearchDispatchController
         FileFilterScopeDirective? scopeDirective,
         string? instantQuery,
         bool emitInstantResults,
-        Action? beforeSearch);
+        Action? beforeSearch,
+        string? fileTypeRule);
 
     private void RunEngineSearch(
         EngineSearchCall engineCall,
@@ -204,16 +205,20 @@ internal sealed class SearchDispatchController
             // The quick window does show instant rows; the late shouldEmitInstantResults above is its only
             // gate, and it has to stay late because "is the list still empty?" is only answerable once the
             // rows land.
-            true,
+            !_mainVm.FilterSession.IsActive,
             // Nothing to start alongside a quick-window search: the rows this window can show all come from
             // the one search already, and its instant providers are folded into the mapper above.
-            null
+            null,
+            _mainVm.FilterSession.Active?.Rule
         );
     }
     public void PerformSearch(string query)
     {
-        if (string.IsNullOrWhiteSpace(query))
+        if (string.IsNullOrWhiteSpace(query) && !_mainVm.FilterSession.IsActive)
         {
+            // Invalidate an in-flight token provider even when toggling off leaves the box text empty.
+            _queryTokens = Array.Empty<string>();
+            _bypassExclusions = false;
             _engine.CancelPendingSearch();
             _setIsSearching(false);
             var suggestion = ExplorerJumpSuggestionHelper.TryBuildSuggestion(_getIsInlineSearchContext(), _getSearchScope());
@@ -250,7 +255,7 @@ internal sealed class SearchDispatchController
         }
         var globalPrefixChar = GetGlobalTokenPrefixChar();
         var strippedTrailing = SearchQuerySortParser.Strip(query, out var tokens, globalPrefixChar);
-        _queryTokens = tokens;
+        _queryTokens = _mainVm.FilterSession.WithTokens(tokens);
         var cleanQuery = SearchQuerySortParser.StripExclusionBypass(strippedTrailing, out var bypassExclusions);
         _bypassExclusions = bypassExclusions;
         var (strippedClean, triggeredTypeId) = _resultTypeTrigger.StripTrigger(query, cleanQuery);
@@ -267,7 +272,7 @@ internal sealed class SearchDispatchController
         // scope is the more specific feature. Instant providers still receive the raw text (instantQuery).
         if (scopeDirective == null)
             searchQuery = PluginTriggerQuery.Strip(searchQuery, ActionWindowType);
-        if (string.IsNullOrWhiteSpace(cleanQuery))
+        if (string.IsNullOrWhiteSpace(cleanQuery) && !_mainVm.FilterSession.IsActive)
         {
             if (triggeredTypeId != null)
                 _resultTypeTrigger.ShowPrompt(triggeredTypeId);
@@ -275,7 +280,7 @@ internal sealed class SearchDispatchController
                 ClearForTokenOnlyQuery();
             return;
         }
-        if (scopeDirective != null && searchQuery.Length == 0)
+        if (scopeDirective != null && searchQuery.Length == 0 && !_mainVm.FilterSession.IsActive)
         {
             ClearForTokenOnlyQuery();
             return;
@@ -357,7 +362,7 @@ internal sealed class SearchDispatchController
         // File/Directory/Application, per the SDK's own documented default. A catalog shortcut has
         // nothing to do with a query token's file filter either, so only rows from a genuine
         // IInstantResultProvider (a per-query computed answer, e.g. a calculator result) survive here.
-        var instantRows = uiResults.Where(IsGenuineInstantResult).ToList();
+        var instantRows = _mainVm.FilterSession.IsActive ? new List<AppSearchResult>() : uiResults.Where(IsGenuineInstantResult).ToList();
 
         var processedFileRows = await QueryTokenDispatcher.ApplyAsync(fileRows, tokensSnapshot);
         if (_getSearchQuery() != query || !ReferenceEquals(_queryTokens, tokensSnapshot))

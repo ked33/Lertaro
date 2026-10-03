@@ -232,10 +232,15 @@ public class HotkeySettingsViewModel : ViewModelBase
         set => SetProperty(ref _localSendSendWindowHotkey, value);
     }
 
-    public void Apply()
+    internal HotkeyPageSettings GetPendingSettings()
     {
-        var hotkeys = _userSettings.Hotkeys;
+        var hotkeys = new HotkeyPageSettings();
+        CopyTo(hotkeys);
+        return hotkeys;
+    }
 
+    private void CopyTo(HotkeyPageSettings hotkeys)
+    {
         hotkeys.ToggleWindowHotkey = ToggleHotkeyValue;
         hotkeys.AllowHotkeysInFullscreen = AllowHotkeysInFullscreen;
         hotkeys.OpenFullWindowByDefault = OpenFullWindowByDefault;
@@ -274,7 +279,11 @@ public class HotkeySettingsViewModel : ViewModelBase
             }
         }
         hotkeys.PluginActionHotkeys = pluginActionHotkeys;
+    }
 
+    public void Apply()
+    {
+        CopyTo(_userSettings.Hotkeys);
         _userSettings.Save();
 
         // Notify hook service process via IPC to reload settings!

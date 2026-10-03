@@ -18,6 +18,11 @@ internal static class OpenSearchWindowRefresher
     {
         foreach (Window window in System.Windows.Application.Current.Windows)
         {
+            var session = SearchFilterHotkeySupport.GetSession(window.DataContext);
+            var hadFilter = session?.IsActive == true;
+            session?.Reconcile();
+            if (window.DataContext is SearchViewModel full && hadFilter)
+                full.PerformSearch(full.AdvancedQuery);
             if (window.DataContext is not QuickSearchViewModel quickVm)
                 continue;
 
@@ -26,7 +31,7 @@ internal static class OpenSearchWindowRefresher
             // Re-run the live query so favorite/history-weighted rows re-read the saved settings.
             // An empty box has nothing to re-run: its empty state contains no favorites content.
             var currentQuery = quickVm.SearchQuery;
-            if (!string.IsNullOrWhiteSpace(currentQuery))
+            if (!quickVm.Search.IsActionsMode && (hadFilter || !string.IsNullOrWhiteSpace(currentQuery)))
                 quickVm.Search.PerformSearch(currentQuery);
         }
     }

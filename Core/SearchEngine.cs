@@ -164,7 +164,7 @@ public class SearchEngine : IDisposable
         CancellationToken requestToken,
         string? fileNameFilter)
     {
-        if (string.IsNullOrWhiteSpace(query))
+        if (string.IsNullOrWhiteSpace(query) && SearchContext.FileTypeFilter == null)
             return true;
 
         // Supersedes only an earlier search of the same filter -- a multi-folder scope issues one request

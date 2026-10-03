@@ -8,13 +8,13 @@ public static class SearchRequestBinarySerializer
 {
     private const int Magic = 0x51504C53; // SLPQ
     // v5: Search/SearchDir gained ExactMatch; v6: EnumerateDir; v7: in-memory space entries; v8: file-name filtering.
-    // v9: Search/SearchDir gained OrFirstPrecedence. v10: ApplyUpdate.
+    // v9: Search/SearchDir gained OrFirstPrecedence. v10: ApplyUpdate. v11: FileTypeRule.
     // Bumped for a new request id too, not only for a changed payload layout: the set of ids IS part of
     // this contract, and the version is what makes an App/Service pair that disagree about it fail
     // loudly and at once, in both directions, instead of one side quietly answering "Unknown command"
     // to a request the other believes is supported. App and Service always ship and restart together,
     // so a mismatch is an install-time transient, not a state worth degrading gracefully into.
-    private const int VersionSearchRequest = 10;
+    private const int VersionSearchRequest = 11;
 
     public static async Task WriteSearchRequestAsync(Stream stream, SearchRequestMessage msg, CancellationToken token = default)
     {
@@ -31,10 +31,10 @@ public static class SearchRequestBinarySerializer
                 payloadSize += GetStringByteCount(msg.Drive) + 5;
                 break;
             case SearchRequestId.Search:
-                payloadSize += 8 + GetStringByteCount(msg.Query) + 5 + SearchRequestValueCodec.CalculateStringListSize(msg.DisabledAliasComponents) + 5 + GetStringByteCount(msg.FileNameFilter) + 2;
+                payloadSize += 8 + GetStringByteCount(msg.Query) + 5 + SearchRequestValueCodec.CalculateStringListSize(msg.DisabledAliasComponents) + 5 + GetStringByteCount(msg.FileNameFilter) + 2 + 5 + GetStringByteCount(msg.FileTypeRule);
                 break;
             case SearchRequestId.SearchDir:
-                payloadSize += 8 + GetStringByteCount(msg.DirectoryFilter) + 5 + GetStringByteCount(msg.Query) + 5 + SearchRequestValueCodec.CalculateStringListSize(msg.DisabledAliasComponents) + 5 + GetStringByteCount(msg.FileNameFilter) + 2;
+                payloadSize += 8 + GetStringByteCount(msg.DirectoryFilter) + 5 + GetStringByteCount(msg.Query) + 5 + SearchRequestValueCodec.CalculateStringListSize(msg.DisabledAliasComponents) + 5 + GetStringByteCount(msg.FileNameFilter) + 2 + 5 + GetStringByteCount(msg.FileTypeRule);
                 break;
             case SearchRequestId.EnumerateDir:
                 payloadSize += 4 + GetStringByteCount(msg.DirectoryFilter) + 5 + GetStringByteCount(msg.Query) + 5 + 1;
@@ -85,6 +85,7 @@ public static class SearchRequestBinarySerializer
                     WriteString(span, ref offset, msg.FileNameFilter);
                     span[offset++] = (byte)(msg.ExactMatch ? 1 : 0);
                     span[offset++] = (byte)(msg.OrFirstPrecedence ? 1 : 0);
+                    WriteString(span, ref offset, msg.FileTypeRule);
                     break;
                 case SearchRequestId.SearchDir:
                     BinaryPrimitives.WriteInt32LittleEndian(span.Slice(offset), msg.Limit);
@@ -97,6 +98,7 @@ public static class SearchRequestBinarySerializer
                     WriteString(span, ref offset, msg.FileNameFilter);
                     span[offset++] = (byte)(msg.ExactMatch ? 1 : 0);
                     span[offset++] = (byte)(msg.OrFirstPrecedence ? 1 : 0);
+                    WriteString(span, ref offset, msg.FileTypeRule);
                     break;
                 case SearchRequestId.EnumerateDir:
                     BinaryPrimitives.WriteInt32LittleEndian(span.Slice(offset), msg.Limit);
@@ -181,6 +183,7 @@ public static class SearchRequestBinarySerializer
                 msg.FileNameFilter = ReadString(payload, ref offset);
                 msg.ExactMatch = payload[offset++] != 0;
                 msg.OrFirstPrecedence = payload[offset++] != 0;
+                msg.FileTypeRule = ReadString(payload, ref offset);
                 break;
             case SearchRequestId.SearchDir:
                 msg.Limit = BinaryPrimitives.ReadInt32LittleEndian(payload.AsSpan(offset));
@@ -193,6 +196,7 @@ public static class SearchRequestBinarySerializer
                 msg.FileNameFilter = ReadString(payload, ref offset);
                 msg.ExactMatch = payload[offset++] != 0;
                 msg.OrFirstPrecedence = payload[offset++] != 0;
+                msg.FileTypeRule = ReadString(payload, ref offset);
                 break;
             case SearchRequestId.EnumerateDir:
                 msg.Limit = BinaryPrimitives.ReadInt32LittleEndian(payload.AsSpan(offset));

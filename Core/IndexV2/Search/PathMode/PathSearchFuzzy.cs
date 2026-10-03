@@ -35,7 +35,7 @@ internal static class PathSearchFuzzy
         // "returns everything that matches", and with the unbounded limit its callers use, the
         // emitted >= limit break below could never fire to notice the shortfall.
         var scanKeep = (int)Math.Min((long)keep * RefinementHeadroomFactor, snapshot.Count + delta.Added.Count);
-        var topN = new FzfTopN(scanKeep);
+        var topN = new FzfTopN(scanKeep, IndexFileTypeFilter.Create(snapshot, delta));
 
         var lastSep = pathQuery.LastIndexOf(Path.DirectorySeparatorChar);
         var dirQuery = lastSep >= 0 ? pathQuery[..lastSep] : string.Empty;
@@ -138,7 +138,7 @@ internal static class PathSearchFuzzy
                 0,
                 chunkCount,
                 new ParallelOptions { CancellationToken = token },
-                () => (Worker: SearchMatcher.RentWorker(), TopN: new FzfTopN(keep), Membership: directoryContext.FilterLower != null ? new Dictionary<int, bool>() : null),
+                () => (Worker: SearchMatcher.RentWorker(), TopN: new FzfTopN(keep, IndexFileTypeFilter.Create(snapshot, delta)), Membership: directoryContext.FilterLower != null ? new Dictionary<int, bool>() : null),
                 (chunk, _, state) =>
                 {
                     var start = chunk * FanoutChunk;

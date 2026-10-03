@@ -1,4 +1,3 @@
-using System.IO.Enumeration;
 using Lertaro.Plugins.CoreExtensions.Models;
 using Lertaro.PluginSdk.Abstractions;
 using Lertaro.PluginSdk.Abstractions.Plugins;
@@ -13,6 +12,21 @@ public class CustomFilterQueryTokenProvider : IQueryTokenProvider
     public const string PrefixSettingKey = "CustomFilterPrefix";
 
     public string Name => TranslationService.Get("CoreExtensions_CustomFilterProvider_Name");
+
+    public IEnumerable<SearchFilterShortcut> GetFilterShortcuts()
+    {
+        var filters = GetConfiguredFilters();
+        var prefix = GetConfiguredPrefix();
+        foreach (var filter in filters)
+        {
+            var keyword = filter.Keyword?.Trim();
+            if (!filter.Enabled || string.IsNullOrWhiteSpace(keyword) || string.IsNullOrWhiteSpace(filter.Hotkey))
+                continue;
+            var rule = ExpandRule(filter.Rule, filters, prefix);
+            if (!string.IsNullOrWhiteSpace(rule))
+                yield return new SearchFilterShortcut(keyword, filter.Hotkey, prefix + keyword, rule);
+        }
+    }
 
     public bool CanHandle(string token)
     {
@@ -84,35 +98,8 @@ public class CustomFilterQueryTokenProvider : IQueryTokenProvider
         bool allowDisabledReferences = false)
     {
         var expandedRule = ExpandRule(rule, filters, prefix, allowDisabledReferences);
-        var rawTokens = expandedRule.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (rawTokens.Length == 0)
-            return _ => false;
-
-        var subRules = new List<Func<ISearchResult, bool>>();
-        foreach (var t in rawTokens)
-        {
-            var lower = t.ToLowerInvariant();
-            if (lower == ":f" || lower == "folder" || lower == "dir")
-            {
-                subRules.Add(r => r.IsDir);
-            }
-            else if (lower == ":-f" || lower == "file")
-            {
-                subRules.Add(r => !r.IsDir);
-            }
-            else
-            {
-                var pattern = lower;
-                if (!pattern.Contains('*') && !pattern.Contains('?'))
-                {
-                    var cleanExt = pattern.TrimStart('.');
-                    pattern = $"*.{cleanExt}";
-                }
-                subRules.Add(r => FileSystemName.MatchesSimpleExpression(pattern, r.Name, ignoreCase: true));
-            }
-        }
-
-        return result => subRules.Any(ruleFunc => ruleFunc(result));
+        var filter = new Lertaro.PluginSdk.Helpers.FileTypeFilter(expandedRule);
+        return result => filter.Matches(result.Name, result.IsDir);
     }
 
     public static IReadOnlyList<ISearchResult> ApplyRule(

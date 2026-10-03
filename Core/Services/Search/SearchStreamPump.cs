@@ -58,6 +58,7 @@ public static class SearchStreamPump
         // so this preference only exists here as whatever the request carried over the pipe.
         SearchContext.FuzzyMatchEnabled = !msg.ExactMatch;
         SearchContext.AndFirstPrecedence = !msg.OrFirstPrecedence;
+        SearchContext.FileTypeFilter = msg.FileTypeRule == null ? null : new Lertaro.PluginSdk.Helpers.FileTypeFilter(msg.FileTypeRule);
 
         var bufferedStream = new BufferedStream(stream, 8192);
         try

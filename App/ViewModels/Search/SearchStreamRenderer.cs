@@ -56,7 +56,7 @@ internal sealed class SearchStreamRenderer
         bool resultMapperConsumesBatches = false,
         Action<int>? onReceivedCountUpdated = null,
         FileFilterScopeDirective? scopeDirective = null,
-        bool foldersOnly = false)
+        bool foldersOnly = false, string? fileTypeRule = null)
     {
         var streamedResponse = new List<SearchResult>();
         object responseLock = new();
@@ -217,7 +217,7 @@ internal sealed class SearchStreamRenderer
                     {
                         if (!token.IsCancellationRequested && searchVersion == _getSearchVersion())
                             onLocalServiceUnavailable?.Invoke();
-                    })), bypassExclusions, token).ConfigureAwait(false);
+                    })), bypassExclusions, token, fileTypeRule).ConfigureAwait(false);
             }
             else
             {
@@ -225,7 +225,7 @@ internal sealed class SearchStreamRenderer
                 {
                     if (!token.IsCancellationRequested && searchVersion == _getSearchVersion())
                         onLocalServiceUnavailable?.Invoke();
-                })), bypassExclusions).ConfigureAwait(false);
+                })), bypassExclusions, fileTypeRule: fileTypeRule).ConfigureAwait(false);
             }
 
             token.ThrowIfCancellationRequested();

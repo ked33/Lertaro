@@ -44,7 +44,7 @@ internal static class NameSearch
         var scanKeep = matchAll || pattern.IsEmpty
             ? keep
             : (int)Math.Min((long)keep * RefinementHeadroomFactor, everything);
-        var topN = new FzfTopN(Math.Max(scanKeep, 1));
+        var topN = new FzfTopN(Math.Max(scanKeep, 1), IndexFileTypeFilter.Create(snapshot, delta));
         CollectRanks(snapshot, delta, pattern, matchAll, directoryContext, topN, token, fileNamePatterns);
 
         var ranks = topN.Finish(scanKeep);
@@ -138,7 +138,7 @@ internal static class NameSearch
             return false;
         if (pattern.IsEmpty)
         {
-            if (pattern.TargetDrive == null)
+            if (pattern.TargetDrive == null && SearchContext.FileTypeFilter == null)
                 return false;
             matchAll = true;
         }

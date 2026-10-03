@@ -21,6 +21,7 @@ internal sealed class FzfTopN
 {
     private const int InitialBufferedCapacity = 4_096;
 
+    private readonly Predicate<int>? _acceptEntry;
     private readonly int _capacity;
     private readonly int _maximumBufferedLength;
     private ulong[] _sortKeys;
@@ -33,8 +34,9 @@ internal sealed class FzfTopN
     private ulong _threshold;
     private bool _trimmed;
 
-    public FzfTopN(int capacity)
+    public FzfTopN(int capacity, Predicate<int>? acceptEntry = null)
     {
+        _acceptEntry = acceptEntry;
         _capacity = Math.Max(capacity, 1);
         _maximumBufferedLength = _capacity > int.MaxValue / 2 ? int.MaxValue : _capacity * 2;
         var initialLength = Math.Min(_maximumBufferedLength, InitialBufferedCapacity);
@@ -59,6 +61,7 @@ internal sealed class FzfTopN
 
     public void Add(FzfRank rank)
     {
+        if (_acceptEntry != null && !_acceptEntry(rank.EntryIndex)) return;
         if (_trimmed && rank.SortKey >= _threshold)
             return;
 

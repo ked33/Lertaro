@@ -2,6 +2,13 @@ namespace Lertaro.Core;
 
 public static class SearchContext
 {
+    private static readonly AsyncLocal<Lertaro.PluginSdk.Helpers.FileTypeFilter?> _fileTypeFilter = new();
+    public static Lertaro.PluginSdk.Helpers.FileTypeFilter? FileTypeFilter
+    {
+        get => _fileTypeFilter.Value;
+        set => _fileTypeFilter.Value = value;
+    }
+
     private static readonly AsyncLocal<HashSet<byte>?> _disabledAliasIds = new();
 
     public static HashSet<byte>? DisabledAliasIds
