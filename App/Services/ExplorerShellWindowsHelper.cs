@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using Lertaro.Core;
 
 namespace Lertaro.App.Services;
 
@@ -115,23 +116,7 @@ internal static class ExplorerShellWindowsHelper
         {
             try
             {
-                dynamic document = window.Document;
-                dynamic shellFolder = document.Folder;
-                // Navigate2 may still expose the old folder, including an unrelated item of the same name.
-                if (PathsEqual(shellFolder.Self.Path as string, folder))
-                {
-                    if (string.IsNullOrEmpty(itemName)) return true;
-                    var item = shellFolder.ParseName(itemName);
-                    if (item != null)
-                    {
-                        const int select = 0x1;
-                        const int deselectOthers = 0x4;
-                        const int ensureVisible = 0x8;
-                        const int focused = 0x10;
-                        document.SelectItem(item, select | deselectOthers | ensureVisible | focused);
-                        return true;
-                    }
-                }
+                if (TrySelectInFolder(shellWindow, folder, itemName)) return true;
             }
             catch
             {
@@ -142,6 +127,61 @@ internal static class ExplorerShellWindowsHelper
         }
 
         return false;
+    }
+
+    // Folder opening is asynchronous, and QTTabBar can replace the active view while creating its tab.
+    // Reacquire that view each time instead of holding the old tab or issuing another navigation.
+    public static bool TrySelectInOpenedFolder(string folder, string itemName)
+    {
+        var started = Stopwatch.GetTimestamp();
+        Exception? lastError = null;
+        // This includes launching a first Explorer window, not just matching an existing tab.
+        while (Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(5))
+        {
+            object? window = null;
+            try
+            {
+                var hwnd = FindExplorerWindowHandle(IntPtr.Zero);
+                if (hwnd != IntPtr.Zero)
+                {
+                    window = FindShellWindowForTab(GetActiveTabHandle(hwnd), hwnd);
+                    if (window != null && TrySelectInFolder(window, folder, itemName)) return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                // The shell may still be creating or switching the folder view; retry until ready.
+                lastError = ex;
+            }
+            finally
+            {
+                ReleaseComObject(window);
+            }
+
+            Thread.Sleep(MatchPollMs);
+        }
+
+        Logger.Log($"[ExplorerShellWindowsHelper] Selection in the opened folder timed out for '{Path.Combine(folder, itemName)}'; falling back to Explorer /select. Last error: {lastError?.Message ?? "none"}", LogLevel.Warn);
+        return false;
+    }
+
+    internal static bool TrySelectInFolder(object shellWindow, string folder, string? itemName)
+    {
+        dynamic window = shellWindow;
+        dynamic document = window.Document;
+        dynamic shellFolder = document.Folder;
+        // A tab still loading may expose the old folder, including an unrelated item of the same name.
+        if (!PathsEqual(shellFolder.Self.Path as string, folder)) return false;
+        if (string.IsNullOrEmpty(itemName)) return true;
+        var item = shellFolder.ParseName(itemName);
+        if (item == null) return false;
+
+        const int select = 0x1;
+        const int deselectOthers = 0x4;
+        const int ensureVisible = 0x8;
+        const int focused = 0x10;
+        document.SelectItem(item, select | deselectOthers | ensureVisible | focused);
+        return true;
     }
 
     public static void ReleaseComObject(object? comObject)

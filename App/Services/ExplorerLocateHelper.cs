@@ -10,6 +10,10 @@ namespace Lertaro.App.Services;
 // Locating always selects the item in its parent. Custom folder-open commands cannot promise selection.
 internal static class ExplorerLocateHelper
 {
+    // ponytail: QTTabBar reuses the active Shell view across tabs. Serialize locate requests until
+    // selection finishes; an API that identifies each extension-owned tab would remove this limit.
+    private static readonly SemaphoreSlim LocateGate = new(1, 1);
+
     /// <summary>
     /// Opens the folder holding <paramref name="path"/> with that item selected. Returns immediately;
     /// the shell work runs on a ShellThread, which is where the reasoning for that lives.
@@ -19,13 +23,21 @@ internal static class ExplorerLocateHelper
 
     private static void LocateInExplorerCore(string path)
     {
-        path = Path.TrimEndingDirectorySeparator(UserPathResolver.Expand(path));
-        var fileManager = UserSettings.Load().DefaultFileManager;
+        LocateGate.Wait();
+        try
+        {
+            path = Path.TrimEndingDirectorySeparator(UserPathResolver.Expand(path));
+            var fileManager = UserSettings.Load().DefaultFileManager;
 
-        if (fileManager.OpenFoldersInNewExplorerTabs && FileExecutor.TryLocateInNewExplorerTab(path, () => ShellOpenHelper.TryRevealInFolder(path)))
-            return;
+            if (fileManager.OpenFoldersInNewExplorerTabs && FileExecutor.TryLocateInNewExplorerTab(path, () => ShellOpenHelper.TryRevealInFolder(path)))
+                return;
 
-        RevealWithShell(path);
+            RevealWithShell(path);
+        }
+        finally
+        {
+            LocateGate.Release();
+        }
     }
 
     // Trim a folder's trailing separator so its parent is returned, just as for a file.
@@ -79,6 +91,15 @@ internal static class ExplorerLocateHelper
 
     private static void RevealWithShell(string path)
     {
+        // Open the parent normally so shell extensions such as QTTabBar can put it in an existing
+        // window's new tab. Then select in that view without navigating it again. Direct /select
+        // bypasses that folder-open interception and can force a separate Explorer window.
+        var parent = ResolveContainingFolder(path);
+        if (!string.IsNullOrWhiteSpace(parent) && (File.Exists(path) || Directory.Exists(path))
+            && ShellOpenHelper.TryOpenFolder(parent)
+            && ExplorerShellWindowsHelper.TrySelectInOpenedFolder(parent, Path.GetFileName(path)))
+            return;
+
         if (ShellOpenHelper.TryRevealInFolder(path)) return;
 
         Logger.Log($"[FileExecutor] Locate failed for '{path}': the shell could not select the item in its parent folder.", LogLevel.Error);

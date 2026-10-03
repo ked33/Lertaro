@@ -6,6 +6,44 @@ namespace Lertaro.App.Tests.Services;
 public sealed class ExplorerShellWindowsHelperTests
 {
     [TestMethod]
+    public void TrySelectInFolder_SelectsInTheOpenedTabWithoutNavigatingAgain()
+    {
+        var folder = new FakeFolder { Self = new FakeItem { Path = @"C:\target" } };
+        var window = new FakeWindow(new FakeDocument(folder, folder));
+
+        Assert.IsTrue(ExplorerShellWindowsHelper.TrySelectInFolder(window, @"C:\target", "item"));
+
+        Assert.IsNull(window.NavigatedTo);
+        Assert.AreSame(folder.Item, window.Document.SelectedItem);
+        Assert.AreEqual(0x1 | 0x4 | 0x8 | 0x10, window.Document.SelectionFlags);
+    }
+
+    [TestMethod]
+    public void TrySelectInFolder_TabStillShowsOldFolder_DoesNotSelectSameNamedItem()
+    {
+        var oldFolder = new FakeFolder { Self = new FakeItem { Path = @"C:\old" } };
+        var targetFolder = new FakeFolder { Self = new FakeItem { Path = @"C:\target" } };
+        var window = new FakeWindow(new FakeDocument(oldFolder, targetFolder));
+
+        Assert.IsFalse(ExplorerShellWindowsHelper.TrySelectInFolder(window, @"C:\target", "same-name"));
+        Assert.IsNull(window.Document.SelectedItem);
+        Assert.IsTrue(ExplorerShellWindowsHelper.TrySelectInFolder(window, @"C:\target", "same-name"));
+        Assert.AreSame(targetFolder.Item, window.Document.SelectedItem);
+        Assert.IsNull(window.NavigatedTo);
+    }
+
+    [TestMethod]
+    public void TrySelectInFolder_ItemNotReady_ReportsFailureWithoutNavigating()
+    {
+        var folder = new FakeFolder { Self = new FakeItem { Path = @"C:\target" }, Item = null };
+        var window = new FakeWindow(new FakeDocument(folder, folder));
+
+        Assert.IsFalse(ExplorerShellWindowsHelper.TrySelectInFolder(window, @"C:\target", "missing"));
+        Assert.IsNull(window.Document.SelectedItem);
+        Assert.IsNull(window.NavigatedTo);
+    }
+
+    [TestMethod]
     public void NavigateAndSelect_WaitsForTheRequestedFolderBeforeSelecting()
     {
         var oldFolder = new FakeFolder { Self = new FakeItem { Path = @"C:\old" } };
