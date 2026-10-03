@@ -19,7 +19,8 @@ internal static class ExplorerTabLocator
 
     public static bool TryLocateInNewTab(string path, IntPtr preferredExplorerWindow)
     {
-        var targetFolder = Path.GetDirectoryName(path);
+        path = Path.TrimEndingDirectorySeparator(UserPathResolver.Expand(path));
+        var targetFolder = ExplorerLocateHelper.ResolveContainingFolder(path);
         return !string.IsNullOrWhiteSpace(targetFolder) && TryOpenInNewTab(targetFolder, Path.GetFileName(path), path, preferredExplorerWindow);
     }
 
@@ -45,8 +46,7 @@ internal static class ExplorerTabLocator
 
             try
             {
-                ExplorerShellWindowsHelper.NavigateAndSelect(tabExplorer, targetFolder, itemName);
-                return true;
+                return ExplorerShellWindowsHelper.NavigateAndSelect(tabExplorer, targetFolder, itemName);
             }
             finally
             {

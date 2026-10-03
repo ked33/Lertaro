@@ -15,6 +15,7 @@ public class CoreExtensionsPlugin : IPlugin, IActionProvider, IConfigurable
             new OpenResultAction(),
             new OpenResultAsAdminAction(),
             new LocateInExplorerAction(),
+            new LocateShortcutTargetAction(),
             new CopyNameAction(),
             new CopyNameWithoutExtensionAction(),
             new CopyPathAction(),

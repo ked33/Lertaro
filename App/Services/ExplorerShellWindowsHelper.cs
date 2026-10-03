@@ -105,7 +105,7 @@ internal static class ExplorerShellWindowsHelper
     /// ShellThread, a thread-per-call worker built for exactly this kind of shell work, which also keeps
     /// every COM call on the STA the objects were created on.
     /// </remarks>
-    public static void NavigateAndSelect(object shellWindow, string folder, string? itemName)
+    public static bool NavigateAndSelect(object shellWindow, string folder, string? itemName)
     {
         dynamic window = shellWindow;
         window.Navigate2(folder);
@@ -117,20 +117,19 @@ internal static class ExplorerShellWindowsHelper
             {
                 dynamic document = window.Document;
                 dynamic shellFolder = document.Folder;
-                if (string.IsNullOrEmpty(itemName))
+                // Navigate2 may still expose the old folder, including an unrelated item of the same name.
+                if (PathsEqual(shellFolder.Self.Path as string, folder))
                 {
-                    if (PathsEqual(shellFolder.Self.Path as string, folder)) return;
-                }
-                else
-                {
+                    if (string.IsNullOrEmpty(itemName)) return true;
                     var item = shellFolder.ParseName(itemName);
                     if (item != null)
                     {
                         const int select = 0x1;
                         const int deselectOthers = 0x4;
                         const int ensureVisible = 0x8;
-                        document.SelectItem(item, select | deselectOthers | ensureVisible);
-                        return;
+                        const int focused = 0x10;
+                        document.SelectItem(item, select | deselectOthers | ensureVisible | focused);
+                        return true;
                     }
                 }
             }
@@ -141,6 +140,8 @@ internal static class ExplorerShellWindowsHelper
 
             Thread.Sleep(MatchPollMs);
         }
+
+        return false;
     }
 
     public static void ReleaseComObject(object? comObject)

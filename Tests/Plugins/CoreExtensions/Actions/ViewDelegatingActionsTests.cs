@@ -72,11 +72,12 @@ public sealed class ViewDelegatingActionsTests
         {
             new FakeResult { FullPath = @"C:\a.txt" },
             new FakeResult { FullPath = @"C:\sub\b.txt" },
+            new FakeResult { FullPath = @"C:\sub\folder\", IsDir = true },
         };
 
         new LocateInExplorerAction().Execute(results, view);
 
-        CollectionAssert.AreEqual(new[] { @"C:\a.txt", @"C:\sub\b.txt" }, view.LocatedPaths);
+        CollectionAssert.AreEqual(new[] { @"C:\a.txt", @"C:\sub\b.txt", @"C:\sub\folder\" }, view.LocatedPaths);
         Assert.IsEmpty(view.OpenedPaths);
         Assert.IsEmpty(view.OpenedAsAdminPaths);
     }

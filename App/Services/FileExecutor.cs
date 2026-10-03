@@ -243,9 +243,8 @@ public static class FileExecutor
     }
 
     // Null when no custom manager is configured, so a disabled/empty setting never accidentally
-    // launches anything -- callers keep whatever their own default behavior already is. Used both here
-    // (plain "open a folder") and by ExplorerLocateHelper ("open containing folder"/Ctrl+Enter), per
-    // GitHub issue #180: one generic method rather than teaching each caller about the setting itself.
+    // launches anything -- callers keep whatever their own default behavior already is.
+    // Applies to opening folders; locating an item uses the shell's selection API instead.
     internal static ProcessStartInfo? TryBuildDefaultFileManagerStartInfo(string folderPath, DefaultFileManagerSetting? setting)
     {
         if (setting is not { Enabled: true } || string.IsNullOrWhiteSpace(setting.Path)) return null;

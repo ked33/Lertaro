@@ -78,28 +78,22 @@ internal static class PluginSdkBridge
             return true;
         };
 
-        // Wire up directory opening and file locating to respect configured file managers.
+        // Folder opens use the configured manager; naming an existing item requests selection instead.
         PluginSdk.Services.ExplorerService.OpenDirectoryFunc = (directoryPath, fileNameOrFilePath) =>
         {
-            string target;
             if (!string.IsNullOrWhiteSpace(fileNameOrFilePath))
             {
                 var combined = System.IO.Path.IsPathRooted(fileNameOrFilePath)
                     ? fileNameOrFilePath
                     : System.IO.Path.Combine(directoryPath ?? string.Empty, fileNameOrFilePath);
-                target = System.IO.File.Exists(combined) || System.IO.Directory.Exists(combined)
-                    ? combined
-                    : (directoryPath ?? fileNameOrFilePath);
-            }
-            else
-            {
-                target = directoryPath ?? string.Empty;
+                if (System.IO.File.Exists(combined) || System.IO.Directory.Exists(combined))
+                {
+                    FileExecutor.LocateInExplorer(combined);
+                    return;
+                }
             }
 
-            if (!string.IsNullOrWhiteSpace(target))
-            {
-                FileExecutor.LocateInExplorer(target);
-            }
+            PluginSdk.Services.ExplorerService.OpenFolder(directoryPath);
         };
 
         // Plugins that open a folder (a favorites menu, a directory hotlist) get the app's own folder

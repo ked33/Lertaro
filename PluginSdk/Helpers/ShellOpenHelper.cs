@@ -71,6 +71,16 @@ public static class ShellOpenHelper
     [DllImport("shell32.dll")]
     private static extern int SHOpenFolderAndSelectItems(IntPtr pidlFolder, uint cidl, IntPtr[]? apidl, uint dwFlags);
 
+    [DllImport("shell32.dll")]
+    private static extern IntPtr ILClone(IntPtr pidl);
+
+    [DllImport("shell32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ILRemoveLastID(IntPtr pidl);
+
+    [DllImport("shell32.dll")]
+    private static extern IntPtr ILFindLastID(IntPtr pidl);
+
     /// <summary>
     /// Opens <paramref name="folderPath"/> the way a double-click would: whatever the user has registered
     /// for folders (Explorer, or a replacement file manager) decides what happens.
@@ -100,15 +110,20 @@ public static class ShellOpenHelper
         if (string.IsNullOrWhiteSpace(itemPath)) return false;
 
         var pidl = IntPtr.Zero;
+        var parentPidl = IntPtr.Zero;
         try
         {
             if (SHParseDisplayName(itemPath, IntPtr.Zero, out pidl, 0, out _) != 0 || pidl == IntPtr.Zero)
                 return false;
 
-            // Selecting the item itself (cidl 0, apidl null) is the "open the parent and highlight me"
-            // call; the shell reuses an existing Explorer window on the matching monitor when it can.
+            // Explicit parent + child works for directories too; do not ask the shell to open the item.
+            parentPidl = ILClone(pidl);
+            if (parentPidl == IntPtr.Zero || !ILRemoveLastID(parentPidl)) return false;
+            var childPidl = ILFindLastID(pidl);
+            if (childPidl == IntPtr.Zero) return false;
+
             AllowExplorerForeground();
-            return SHOpenFolderAndSelectItems(pidl, 0, null, 0) == 0;
+            return SHOpenFolderAndSelectItems(parentPidl, 1, new[] { childPidl }, 0) == 0;
         }
         catch
         {
@@ -116,6 +131,7 @@ public static class ShellOpenHelper
         }
         finally
         {
+            if (parentPidl != IntPtr.Zero) Marshal.FreeCoTaskMem(parentPidl);
             if (pidl != IntPtr.Zero) Marshal.FreeCoTaskMem(pidl);
         }
     }

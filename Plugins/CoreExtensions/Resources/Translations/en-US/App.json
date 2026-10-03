@@ -375,7 +375,7 @@
   "General_DefaultFileManagerEnabled": "Open folders with a third-party file manager",
   "General_ShowOpenedFoldersInInlineSearch": "Show currently open folders in inline search",
   "General_ShowOpenedFoldersInInlineSearchDesc": "When the inline window is docked in a file picker, show the folders currently open in that picker.",
-  "General_DefaultFileManagerHint": "Redirects opening a folder (including \"Open Folder Location\") to the program below instead of the shell's own default.",
+  "General_DefaultFileManagerHint": "Uses the program below to open folders. Locate File and Locate Shortcut Target use Windows File Explorer.",
   "General_DefaultFileManagerPath": "Path (program)",
   "General_DefaultFileManagerBrowseTooltip": "Browse for a program",
   "General_DefaultFileManagerBrowseFilter": "Programs",
