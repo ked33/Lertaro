@@ -118,6 +118,12 @@ public class AppSearchResult : System.ComponentModel.INotifyPropertyChanged, Plu
         set => Extras.HoveredFolderPath = value;
     }
 
+    public bool DeferNavigationPreparation
+    {
+        get => _extras?.DeferNavigationPreparation ?? false;
+        set => Extras.DeferNavigationPreparation = value;
+    }
+
     public Task<string?>? HoveredFolderPathTask
     {
         get => _extras?.HoveredFolderPathTask;

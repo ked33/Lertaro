@@ -22,7 +22,9 @@ public static class MenuBuilder
             return Enumerable.Empty<DynamicMenuItem>();
 
         if (path == RecentFoldersMenu.HandlePath)
-            return provider.RecentFolderSubmenu;
+            return provider.RecentFolderSnapshotTask is { } recent
+                ? RecentFoldersMenu.BuildPreparedSubmenu(provider, recent.GetAwaiter().GetResult())
+                : provider.RecentFolderSubmenu;
 
         if (path == "foldercascader://history")
             return MenuBuilderContentExtensions.BuildHistoryMenu(provider);
@@ -133,11 +135,13 @@ public static class MenuBuilder
     // (at most once per distinct next segment) a HasSubMenu category entry for folders nested deeper.
     // Same re-partition-a-flat-list-on-every-expansion technique CustomCommandsQuickNavProvider uses
     // for its own SubMenu field, rather than building a tree once up front.
-    internal static void AddFolderItems(List<DynamicMenuItem> items, List<FolderCascaderPlugin.FolderConfigItem> folders, string[] prefix, Provider provider)
+    internal static void AddFolderItems(List<DynamicMenuItem> items, List<FolderCascaderPlugin.FolderConfigItem> folders, string[] prefix, Provider provider, bool deferPreparation = false)
     {
+        var preparation = deferPreparation ? provider.Preparation.Folders(folders) : null;
         var seenCategories = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var folder in folders)
+        for (var folderIndex = 0; folderIndex < folders.Count; folderIndex++)
         {
+            var folder = folders[folderIndex];
             var segments = SplitSubMenuPath(folder.SubMenu);
             if (!StartsWithPrefix(segments, prefix)) continue;
 
@@ -162,7 +166,7 @@ public static class MenuBuilder
                     // QuickNavigationSubMenuLoader, which never passes isRootItem: true. IsActionable is
                     // the only gate that reaches those, so it has to be set explicitly here regardless of
                     // depth, not just relied on implicitly like the root case.
-                    IsActionable = false
+                    IsActionable = false, IsPathAvailable = false
                 });
                 continue;
             }
@@ -174,24 +178,41 @@ public static class MenuBuilder
                 continue;
             }
             if (string.IsNullOrWhiteSpace(folder.Path)) continue;
-            // Resolved, not just expanded: a configured entry may be a virtual folder ("shell:Downloads"),
-            // and the handle allocated here is what a later submenu expansion (FolderBrowseMenuBuilder)
-            // walks -- which needs the physical folder behind it.
-            var expandedPath = UserPathResolver.Expand(folder.Path);
-            var resolvedPath = UserPathResolver.Resolve(folder.Path);
-            var pathExists = PathAvailability.IsFolderAvailable(resolvedPath);
-            var browsePath = UserPathResolver.ResolveForNavigation(folder.Path);
-            items.Add(new DynamicMenuItem
+            if (preparation != null)
             {
-                Text = GetDisplayName(folder.Path, folder.Name),
-                ShortcutHint = FolderCascaderPlugin.NormalizeShortcut(folder.ShortcutKey),
-                HasSubMenu = pathExists,
-                SubMenuHandle = pathExists ? provider.AllocateHandle(browsePath) : IntPtr.Zero,
-                HBitmapItem = IntPtr.Zero,
-                IsDisabled = !pathExists
-            });
+                var index = folderIndex;
+                if (preparation.IsCompletedSuccessfully)
+                    items.Add(CreatePreparedFolder(provider, preparation.Result[index]));
+                else
+                    items.Add(new DynamicMenuItem
+                    {
+                        Text = !string.IsNullOrWhiteSpace(folder.Name) ? folder.Name
+                            : UserPathResolver.IsVirtualPath(UserPathResolver.Expand(folder.Path)) ? string.Empty
+                            : GetDisplayName(folder.Path, ""),
+                        IsDisabled = true,
+                        LoadDeferredItem = async cancellation =>
+                        {
+                            var prepared = await preparation.WaitAsync(cancellation);
+                            cancellation.ThrowIfCancellationRequested();
+                            return CreatePreparedFolder(provider, prepared[index]);
+                        }
+                    });
+                continue;
+            }
+            var resolvedPath = UserPathResolver.Resolve(folder.Path);
+            items.Add(CreatePreparedFolder(provider, new RootMenuPreparation.Folder(
+                UserPathResolver.IsVirtualPath(resolvedPath) ? UserPathResolver.Expand(folder.Path) : resolvedPath,
+                GetDisplayName(folder.Path, folder.Name), FolderCascaderPlugin.NormalizeShortcut(folder.ShortcutKey),
+                PathAvailability.IsFolderAvailable(resolvedPath))));
         }
     }
+
+    private static DynamicMenuItem CreatePreparedFolder(Provider provider, RootMenuPreparation.Folder folder) => new()
+    {
+        Text = folder.Name, ShortcutHint = folder.Shortcut, HasSubMenu = folder.Available,
+        SubMenuHandle = folder.Available ? provider.AllocateHandle(folder.Path) : IntPtr.Zero,
+        IsDisabled = !folder.Available, IsPathAvailable = folder.Available
+    };
 
     // Empty segments (e.g. "a//b", "a/", "/a") are dropped rather than producing an empty-named
     // category or erroring -- a stray typo in the config shouldn't break navigation.

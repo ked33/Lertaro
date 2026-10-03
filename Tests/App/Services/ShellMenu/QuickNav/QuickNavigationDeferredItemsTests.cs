@@ -13,6 +13,28 @@ namespace Lertaro.App.Tests.Services.ShellMenu.QuickNav;
 public sealed class QuickNavigationDeferredItemsTests
 {
     [StaTestMethod]
+    public void HiddenOptionalRowsDoNotLeaveVisibleSeparators()
+    {
+        var menu = Menu();
+        var leading = new Separator();
+        var between = new Separator();
+        var trailing = new Separator();
+        var optional = new MenuItem { Visibility = Visibility.Collapsed };
+        menu.Items.Add(leading);
+        menu.Items.Add(new MenuItem { Header = "Configured" });
+        menu.Items.Add(between);
+        menu.Items.Add(optional);
+        menu.Items.Add(trailing);
+        QuickNavigationDeferredItems.UpdateSeparators(menu);
+        Assert.IsTrue(new[] { leading, between, trailing }.All(item => item.Visibility == Visibility.Collapsed));
+        optional.Visibility = Visibility.Visible;
+        QuickNavigationDeferredItems.UpdateSeparators(menu);
+        Assert.AreEqual(Visibility.Visible, between.Visibility);
+        Assert.AreEqual(Visibility.Collapsed, leading.Visibility);
+        Assert.AreEqual(Visibility.Collapsed, trailing.Visibility);
+    }
+
+    [StaTestMethod]
     public void ConfirmedHoverRevealsItsRowAndSeparatorAfterOpening()
     {
         var completion = new TaskCompletionSource<DynamicMenuItem?>();

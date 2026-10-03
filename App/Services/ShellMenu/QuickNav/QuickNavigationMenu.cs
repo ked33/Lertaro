@@ -93,7 +93,7 @@ public static class QuickNavigationMenu
         // Neither capture gates the popup: the opened-folder submenu and the deferred hover row consume them.
         var dummyResult = new AppSearchResult
         {
-            FullPath = path, Name = Path.GetFileName(path), IsDir = true,
+            FullPath = path, Name = Path.GetFileName(path), IsDir = true, DeferNavigationPreparation = true,
             HoveredFolderPathTask = hoveredFolder, OpenedFolderPathsTask = CaptureOpenedFoldersAsync()
         };
         var contextMenu = new ContextMenu();
@@ -138,6 +138,7 @@ public static class QuickNavigationMenu
             }
         }
 
+        QuickNavigationDeferredItems.UpdateSeparators(contextMenu);
         if (contextMenu.Items.Count == 0) return;
 
         double dpiScaleX = 1.0, dpiScaleY = 1.0;

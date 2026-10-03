@@ -29,7 +29,7 @@ internal static class MenuBuilderContentExtensions
 
         if (folders != null)
         {
-            MenuBuilder.AddFolderItems(items, folders, Array.Empty<string>(), provider);
+            MenuBuilder.AddFolderItems(items, folders, Array.Empty<string>(), provider, context?.DeferNavigationPreparation == true);
         }
 
         var hasSupplementalMenu = false;
@@ -49,7 +49,7 @@ internal static class MenuBuilderContentExtensions
             {
                 Text = TranslationService.Get("FolderCascader_OpenedFolders"),
                 HasSubMenu = true,
-                SubMenuHandle = provider.AllocateHandle("foldercascader://opened-folders"),
+                SubMenuHandle = provider.AllocateHandle("foldercascader://opened-folders"), IsPathAvailable = false,
                 HBitmapItem = IconBitmapCache.OpenedFoldersHBitmap
             };
             if (context?.OpenedFolderPathsTask is { } openedTask)
@@ -69,19 +69,36 @@ internal static class MenuBuilderContentExtensions
             "ShowHistory",
             true);
 
-        if (showFavorites && HasAvailableFavorites(FavoritesService.GetFavorites(), File.Exists, Directory.Exists))
+        var favoritePreparation = showFavorites && context?.DeferNavigationPreparation == true
+            ? provider.Preparation.FavoriteAvailability() : null;
+        var hasFavorites = showFavorites && (favoritePreparation != null
+            ? !favoritePreparation.IsCompletedSuccessfully || favoritePreparation.Result.Available
+            : HasAvailableFavorites(FavoritesService.GetFavorites(), File.Exists, Directory.Exists));
+        if (hasFavorites)
         {
             if (!hasSupplementalMenu && items.Count > 0 && !items.Last().IsSeparator)
             {
                 items.Add(new DynamicMenuItem { IsSeparator = true });
             }
-            items.Add(new DynamicMenuItem
+            DynamicMenuItem FavoriteItem() => new()
             {
                 Text = TranslationService.Get("FolderCascader_Favorites"),
                 HasSubMenu = true,
-                SubMenuHandle = provider.AllocateHandle("foldercascader://favorites"),
+                SubMenuHandle = provider.AllocateHandle("foldercascader://favorites"), IsPathAvailable = false,
                 HBitmapItem = IconBitmapCache.FavoritesHBitmap
-            });
+            };
+            if (favoritePreparation != null && !favoritePreparation.IsCompletedSuccessfully)
+                items.Add(new DynamicMenuItem
+                {
+                    IsDisabled = true,
+                    LoadDeferredItem = async cancellation =>
+                    {
+                        var prepared = await favoritePreparation.WaitAsync(cancellation);
+                        cancellation.ThrowIfCancellationRequested();
+                        return prepared.Available ? FavoriteItem() : null;
+                    }
+                });
+            else items.Add(FavoriteItem());
             hasSupplementalMenu = true;
         }
 
@@ -96,13 +113,17 @@ internal static class MenuBuilderContentExtensions
             {
                 Text = TranslationService.Get("FolderCascader_History"),
                 HasSubMenu = true,
-                SubMenuHandle = provider.AllocateHandle("foldercascader://history"),
+                SubMenuHandle = provider.AllocateHandle("foldercascader://history"), IsPathAvailable = false,
                 HBitmapItem = IconBitmapCache.HistoryHBitmap
             });
         }
 
         if (PluginSettingsService.GetSetting("Lertaro.Plugins.FolderCascader", "ShowRecentFolders", true))
-            RecentFoldersMenu.AppendRoot(items, provider, historyShown);
+        {
+            if (context?.DeferNavigationPreparation == true)
+                RecentFoldersMenu.AppendDeferred(items, provider, historyShown);
+            else RecentFoldersMenu.AppendRoot(items, provider, historyShown);
+        }
 
         while (items.Count > 0 && items.Last().IsSeparator)
         {
@@ -127,7 +148,7 @@ internal static class MenuBuilderContentExtensions
                         IsPinnedToTop = true,
                         Text = TranslationService.Get("FolderCascader_HoveredFolder"),
                         HasSubMenu = true,
-                        SubMenuHandle = provider.AllocateHandle(path)
+                        SubMenuHandle = provider.AllocateHandle(path), IsPathAvailable = true
                     };
                 }
             });
@@ -139,7 +160,7 @@ internal static class MenuBuilderContentExtensions
                 IsPinnedToTop = true,
                 Text = TranslationService.Get("FolderCascader_HoveredFolder"),
                 HasSubMenu = true,
-                SubMenuHandle = provider.AllocateHandle(hoveredFolder)
+                SubMenuHandle = provider.AllocateHandle(hoveredFolder), IsPathAvailable = true
             });
         }
 
@@ -177,7 +198,7 @@ internal static class MenuBuilderContentExtensions
                 {
                     Text = MenuBuilder.GetDisplayName(rpath, ""),
                     HasSubMenu = true,
-                    SubMenuHandle = provider.AllocateHandle(rpath),
+                    SubMenuHandle = provider.AllocateHandle(rpath), IsPathAvailable = true,
                     HBitmapItem = IntPtr.Zero
                 });
             }
@@ -209,7 +230,7 @@ internal static class MenuBuilderContentExtensions
             {
                 Text = MenuBuilder.GetDisplayName(path, ""),
                 HasSubMenu = true,
-                SubMenuHandle = provider.AllocateHandle(path)
+                SubMenuHandle = provider.AllocateHandle(path), IsPathAvailable = true
             });
         }
         return items;
@@ -267,7 +288,7 @@ internal static class MenuBuilderContentExtensions
                 {
                     Text = MenuBuilder.GetDisplayName(rawPath, favItem.Name),
                     HasSubMenu = true,
-                    SubMenuHandle = provider.AllocateHandle(favPath),
+                    SubMenuHandle = provider.AllocateHandle(favPath), IsPathAvailable = true,
                     HBitmapItem = IntPtr.Zero
                 });
             }

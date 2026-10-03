@@ -42,6 +42,7 @@ internal static class QuickNavigationDeferredItems
             {
                 menu.Items.RemoveAt(index);
                 if (separator != null) menu.Items.Remove(separator);
+                UpdateSeparators(menu);
                 Detach();
                 return;
             }
@@ -65,6 +66,7 @@ internal static class QuickNavigationDeferredItems
                 if (separator != null) separator.Visibility = Visibility.Visible;
             }
             else if (separator != null) menu.Items.Remove(separator);
+            UpdateSeparators(menu);
             Detach();
         }
 
@@ -103,6 +105,26 @@ internal static class QuickNavigationDeferredItems
         menu.PreviewMouseUp += Retry;
         menu.PreviewKeyUp += Retry;
         menu.AddHandler(MenuItem.SubmenuClosedEvent, new RoutedEventHandler(Retry));
+    }
+
+    // Optional rows do not leave leading, trailing or duplicate separators while they are hidden.
+    internal static void UpdateSeparators(ContextMenu menu)
+    {
+        var remaining = menu.Items.OfType<MenuItem>().Count(row => row.Visibility == Visibility.Visible);
+        var hasRow = false;
+        foreach (var entry in menu.Items)
+        {
+            if (entry is MenuItem { Visibility: Visibility.Visible })
+            {
+                remaining--;
+                hasRow = true;
+            }
+            else if (entry is System.Windows.Controls.Separator divider)
+            {
+                divider.Visibility = hasRow && remaining > 0 ? Visibility.Visible : Visibility.Collapsed;
+                if (divider.Visibility == Visibility.Visible) hasRow = false;
+            }
+        }
     }
 
     // Growing a popup near a screen edge can reposition the whole popup, not just its tail.
