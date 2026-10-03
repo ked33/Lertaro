@@ -112,6 +112,12 @@ public class AppSearchResult : System.ComponentModel.INotifyPropertyChanged, Plu
         set => Extras.ContextDirectory = value;
     }
 
+    public string? HoveredFolderPath
+    {
+        get => _extras?.HoveredFolderPath;
+        set => Extras.HoveredFolderPath = value;
+    }
+
     public bool IsDir
     {
         get => _extras?.IsDir ?? _source?.IsDir ?? false;

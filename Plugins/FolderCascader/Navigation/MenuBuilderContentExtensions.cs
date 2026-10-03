@@ -13,7 +13,7 @@ namespace Lertaro.Plugins.FolderCascader.Navigation;
 // file has no surface any test calls directly, only what GetMenuItems' own dispatch delegates into.
 internal static class MenuBuilderContentExtensions
 {
-    internal static List<DynamicMenuItem> BuildRootMenu(Provider provider)
+    internal static List<DynamicMenuItem> BuildRootMenu(Provider provider, string? hoveredFolder = null)
     {
         provider.ClearSession();
         var items = new List<DynamicMenuItem>();
@@ -49,6 +49,19 @@ internal static class MenuBuilderContentExtensions
                 HasSubMenu = true,
                 SubMenuHandle = provider.AllocateHandle("foldercascader://opened-folders"),
                 HBitmapItem = IconBitmapCache.OpenedFoldersHBitmap
+            });
+            hasSupplementalMenu = true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(hoveredFolder) && Path.IsPathFullyQualified(hoveredFolder) && Directory.Exists(hoveredFolder))
+        {
+            if (!hasSupplementalMenu && items.Count > 0 && !items.Last().IsSeparator)
+                items.Add(new DynamicMenuItem { IsSeparator = true });
+            items.Add(new DynamicMenuItem
+            {
+                Text = TranslationService.Get("FolderCascader_HoveredFolder"),
+                HasSubMenu = true,
+                SubMenuHandle = provider.AllocateHandle(hoveredFolder)
             });
             hasSupplementalMenu = true;
         }

@@ -1,4 +1,5 @@
 using System.IO;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -21,7 +22,10 @@ public static class ExplorerFolderPathReader
         return tab;
     }
 
-    public static string? Read(IntPtr target, IntPtr activeTab)
+    public static string? Read(IntPtr target, IntPtr activeTab) => Read(target, activeTab, null);
+
+    /// <summary>Resolves an exact displayed item name in the specified tab; ambiguous names are rejected.</summary>
+    public static string? Read(IntPtr target, IntPtr activeTab, string? itemName)
     {
         object? windows = null;
         try
@@ -39,6 +43,8 @@ public static class ExplorerFolderPathReader
                     if (activeTab != IntPtr.Zero && !MatchesTab(window, activeTab)) continue;
                     document = ((dynamic)window).Document;
                     folder = ((dynamic)document!).Folder;
+                    if (itemName != null)
+                        return ResolveUniqueFolder(ReadMatchingItems(folder!, itemName));
                     item = ((dynamic)folder!).Self;
                     string? path = ((dynamic)item!).Path;
                     if (!string.IsNullOrWhiteSpace(path) && Path.IsPathFullyQualified(path)
@@ -53,6 +59,46 @@ public static class ExplorerFolderPathReader
         catch { }
         finally { Release(windows); }
         return null;
+    }
+
+    private static IEnumerable<(string Path, bool IsFolder)> ReadMatchingItems(object folder, string name)
+    {
+        object? items = null;
+        try
+        {
+            items = ((dynamic)folder).Items();
+            var count = (int)((dynamic)items!).Count;
+            var timer = Stopwatch.StartNew();
+            // ponytail: a bounded display-name scan avoids relying on undocumented UIA item indexes.
+            // For very large views, omit the optional hover entry; use native item identity if needed later.
+            for (var i = 0; i < count; i++)
+            {
+                if (timer.ElapsedMilliseconds > 250) throw new TimeoutException();
+                object? item = null;
+                try
+                {
+                    item = ((dynamic)items!).Item(i);
+                    // Column zero matches Explorer's displayed name, including localized folder names
+                    // and hidden file extensions. Inspect files too, to reject file/folder name collisions.
+                    var displayName = (string)((dynamic)folder).GetDetailsOf(item, 0);
+                    if (string.Equals(displayName, name, StringComparison.Ordinal))
+                        yield return ((string)((dynamic)item!).Path, (bool)((dynamic)item!).IsFolder);
+                }
+                finally { Release(item); }
+            }
+        }
+        finally { Release(items); }
+    }
+
+    internal static string? ResolveUniqueFolder(IEnumerable<(string Path, bool IsFolder)> matches,
+        Func<string, bool>? directoryExists = null)
+    {
+        var candidates = matches.Take(2).ToArray();
+        if (candidates.Length != 1 || !candidates[0].IsFolder) return null;
+        var path = candidates[0].Path;
+        return !string.IsNullOrWhiteSpace(path) && Path.IsPathFullyQualified(path)
+            && !UserPathResolver.IsVirtualPath(path) && !path.Contains("::{", StringComparison.Ordinal)
+            && (directoryExists ?? Directory.Exists)(path) ? path : null;
     }
 
     private static bool MatchesTab(object window, IntPtr activeTab)

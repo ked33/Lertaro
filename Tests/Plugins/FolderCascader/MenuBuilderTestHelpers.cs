@@ -12,6 +12,7 @@ internal static class MenuBuilderTestHelpers
         public string Name { get; init; } = "";
         public string FullPath { get; init; } = "";
         public string ContextDirectory { get; init; } = "";
+        public string? HoveredFolderPath { get; init; }
         public bool IsDir { get; init; }
         public bool IsApplication { get; init; }
     }

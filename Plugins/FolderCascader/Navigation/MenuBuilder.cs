@@ -13,7 +13,7 @@ public static class MenuBuilder
         IconBitmapCache.EnsureIcons();
 
         if (hMenu == IntPtr.Zero)
-            return MenuBuilderContentExtensions.BuildRootMenu(provider);
+            return MenuBuilderContentExtensions.BuildRootMenu(provider, result.HoveredFolderPath);
 
         if (provider.TryGetFolderPage(hMenu, out var folderPage) && folderPage != null)
             return FolderBrowseMenuBuilder.Build(folderPage.Path, folderPage.Offset, provider);
