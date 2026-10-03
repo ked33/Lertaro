@@ -65,19 +65,26 @@ internal static class UsnIndexerDurabilityExtensions
     // Folds each journal drive's accumulated delta into its cache file, stamped with the live watermark.
     // Returns how many drives were written. Cheap to call often: drives below IdleCompactPendingThreshold
     // are skipped outright and Compact's own force:false path skips one whose delta emptied meanwhile.
-    public static int CompactIdleDeltas(this UsnIndexer indexer, string cacheDir)
+    public static int CompactIdleDeltas(this UsnIndexer indexer, string cacheDir, CancellationToken token = default)
     {
+        token.ThrowIfCancellationRequested();
         var targets = new List<(string Drive, LiveIndex Live, CompactionStamp Stamp)>();
         lock (indexer.LockObj)
         {
             foreach (var (drive, live) in indexer._recordIndexes)
             {
+                token.ThrowIfCancellationRequested();
                 if (!indexer._driveMetadata.TryGetValue(drive, out var metadata))
                     continue;
 
                 // Journal drives only. A folder/watcher drive already debounces its own persist from
                 // ApplyFolderChange, and its metadata carries no live journal position to stamp with.
                 if (!VolumeHelper.IsJournalCapableFileSystem(metadata.FileSystemType))
+                    continue;
+
+                // A per-drive rebuild owns the replacement cache even while its old index is readable.
+                if (indexer.Status.Drives.Any(d => d.Drive.Equals(drive, StringComparison.OrdinalIgnoreCase)
+                        && d.State == "indexing"))
                     continue;
 
                 if (live.PendingChangeCount < IdleCompactPendingThreshold)
@@ -94,6 +101,9 @@ internal static class UsnIndexerDurabilityExtensions
         var written = 0;
         foreach (var (drive, live, stamp) in targets)
         {
+            // A snapshot rewrite already in progress must finish atomically; stop before starting
+            // another drive so shutdown does not queue every remaining full-index rewrite.
+            token.ThrowIfCancellationRequested();
             try
             {
                 // Outside LockObj on purpose: this holds the LiveIndex write lock across a full merge and

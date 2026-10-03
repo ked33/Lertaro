@@ -29,8 +29,10 @@ public static class UsnIndexerExtensions
     public static bool ApplyUsnRecord(this UsnIndexer indexer, string drive, ParsedUsnRecord record)
         => indexer.ApplyUsnRecords(drive, new[] { record });
 
-    public static bool ApplyUsnRecords(this UsnIndexer indexer, string drive, IReadOnlyList<ParsedUsnRecord> records)
+    public static bool ApplyUsnRecords(this UsnIndexer indexer, string drive, IReadOnlyList<ParsedUsnRecord> records,
+        CancellationToken token = default)
     {
+        token.ThrowIfCancellationRequested();
         Logger.Log($"[UsnIndexer] Applying {records.Count} USN records to drive {drive}", LogLevel.Debug);
 
         LiveIndex? live;
@@ -68,6 +70,9 @@ public static class UsnIndexerExtensions
         {
             foreach (var record in records)
             {
+                // Stop/rebuild must be able to release this write lock in the middle of a large batch.
+                // The caller advances the journal watermark only after the entire apply succeeds.
+                token.ThrowIfCancellationRequested();
                 // One-to-many: operate on the exact link the record names (FRN, parent, name), so
                 // renaming/deleting/creating one hard link never disturbs the file's other links.
                 var frn = record.FileReferenceNumber;
@@ -119,13 +124,13 @@ public static class UsnIndexerExtensions
         if (unmatchedRemovals > 0)
             Logger.Log($"[UsnIndexer] {drive}: {unmatchedRemovals} of {records.Count} USN removal record(s) matched no indexed link (harmless for a replayed delete; otherwise the rows they named stay visible until a rebuild)", LogLevel.Warn);
 
-        UsnHardLinkReconciler.Apply(live, hardLinks);
+        UsnHardLinkReconciler.Apply(live, hardLinks, token);
         // Child changes also update parent directory metadata without a separate parent USN record.
         pendingMetadataFrns.UnionWith(changedParentFrns);
 
         // Resolved before taking LockObj, never inside it: reading a path takes the LiveIndex's own
         // lock, and taking the two in this order here and the other order anywhere else is a deadlock.
-        var changedDirectories = UsnIndexerChangedDirectories.Resolve(live, changedParentFrns, drive);
+        var changedDirectories = UsnIndexerChangedDirectories.Resolve(live, changedParentFrns, drive, token);
 
         lock (indexer.LockObj)
         {
@@ -144,8 +149,9 @@ public static class UsnIndexerExtensions
         // files in one 64KB journal buffer, and holding a lock for that many disk stats would serialize
         // this drive's searches/updates behind the whole batch.
         if (pendingMetadataFrns.Count > 0)
-            UsnMetadataReader.Refresh(live, pendingMetadataFrns);
+            UsnMetadataReader.Refresh(live, pendingMetadataFrns, token);
 
+        token.ThrowIfCancellationRequested();
         indexer.PublishStatusChanged();
         return true;
     }

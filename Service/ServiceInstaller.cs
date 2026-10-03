@@ -32,12 +32,12 @@ static class ServiceInstaller
             if (!configure.IsSuccess(0))
             {
                 if (!configure.IsSuccess(1060))
-                    throw new InvalidOperationException("sc config failed. See service.log for details.");
+                    throw new InvalidOperationException("sc config failed. See service-install.log for details.");
 
                 Logger.Log($"Installing service: sc.exe create LertaroService {serviceArguments}");
                 var create = ServiceControlRunner.Run($"create LertaroService {serviceArguments}");
                 if (!create.IsSuccess(0))
-                    throw new InvalidOperationException("sc create failed. See service.log for details.");
+                    throw new InvalidOperationException("sc create failed. See service-install.log for details.");
             }
 
             // Grant all authenticated users START/STOP/QUERY on the service so the non-elevated app can
@@ -52,7 +52,7 @@ static class ServiceInstaller
             Logger.Log("Starting service: sc.exe start LertaroService");
             var start = ServiceControlRunner.Run("start LertaroService", 0, 1056);
             if (!start.IsSuccess(0, 1056))
-                throw new InvalidOperationException("sc start failed. See service.log for details.");
+                throw new InvalidOperationException("sc start failed. See service-install.log for details.");
 
             Console.WriteLine("Service installed and started successfully!");
         }
@@ -78,7 +78,7 @@ static class ServiceInstaller
             Logger.Log("Deleting service: sc.exe delete LertaroService");
             var delete = ServiceControlRunner.Run("delete LertaroService", 0, 1060);
             if (!delete.IsSuccess(0, 1060))
-                throw new InvalidOperationException("sc delete failed. See service.log for details.");
+                throw new InvalidOperationException("sc delete failed. See service-install.log for details.");
             if (!ServiceControlRunner.WaitForDeleted("LertaroService"))
                 throw new InvalidOperationException("sc delete timed out before the service was removed.");
 

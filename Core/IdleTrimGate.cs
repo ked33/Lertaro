@@ -31,11 +31,14 @@ internal sealed class IdleTrimGate
     // the arming decision, or a SearchStarted squeezing between them gets its trim granted anyway.
     private long _inFlight;
     private bool _armed;
+    private long _lastCompactionTicks;
+    internal const long CompactionIntervalMs = 60_000;
 
     public IdleTrimGate(long idleMs, long nowTicks)
     {
         _idleMs = idleMs;
         _lastActivityTicks = nowTicks;
+        _lastCompactionTicks = nowTicks;
     }
 
     /// <summary>Something happened worth eventually reclaiming after.</summary>
@@ -78,6 +81,20 @@ internal sealed class IdleTrimGate
     public bool HasSearchInFlight
     {
         get { lock (_armLock) return _inFlight > 0; }
+    }
+
+    // Journal churn does not arm the one-shot GC trim. Check its persistence independently, including
+    // in a service that has never served a search, and cap full snapshot rewrites to once a minute.
+    public bool ShouldCompact(long nowTicks)
+    {
+        lock (_armLock)
+        {
+            if (_inFlight > 0 || nowTicks - Interlocked.Read(ref _lastActivityTicks) <= _idleMs
+                || nowTicks - _lastCompactionTicks < CompactionIntervalMs)
+                return false;
+            _lastCompactionTicks = nowTicks;
+            return true;
+        }
     }
 
     /// <summary>

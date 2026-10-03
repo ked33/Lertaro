@@ -6,11 +6,15 @@ namespace Lertaro.Core.Indexer.Usn;
 
 internal static class UsnHardLinkReconciler
 {
-    internal static void Apply(LiveIndex live, List<ParsedUsnRecord> records)
+    internal static void Apply(LiveIndex live, List<ParsedUsnRecord> records, CancellationToken token = default)
     {
+        token.ThrowIfCancellationRequested();
+        if (records.Count == 0)
+            return;
         var isNtfs = live.Read((snapshot, _) => snapshot.FileSystemType.Equals("NTFS", StringComparison.OrdinalIgnoreCase));
         foreach (var record in records)
         {
+            token.ThrowIfCancellationRequested();
             var path = live.Read((snapshot, delta) => delta.TryGetPathForFrn(record.ParentFileReferenceNumber, out var parent)
                 ? Path.Combine(parent, record.FileName) : null);
             if (isNtfs && path != null && UsnMetadataReader.IsNtfsInternalPath(path))

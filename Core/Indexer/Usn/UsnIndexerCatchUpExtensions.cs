@@ -28,7 +28,7 @@ public static class UsnIndexerCatchUpExtensions
         }
 
         if (nextUsn >= 0 && changes.Count > 0)
-            indexer.ApplyUsnRecords(drive, changes);
+            indexer.ApplyUsnRecords(drive, changes, token);
 
         return nextUsn;
     }

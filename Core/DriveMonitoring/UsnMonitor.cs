@@ -178,7 +178,7 @@ public class UsnMonitor : IDisposable
             // return (this drive's LiveIndex was gone) still moves _startUsn on, because replaying a batch
             // nothing can accept would wedge this loop, but ApplyUsnRecords pins the drive's DURABLE
             // watermark in that case, so the next cold start replays it from the cache file instead.
-            if (records.Count > 0 && _indexer.ApplyUsnRecords(_drive, records))
+            if (records.Count > 0 && _indexer.ApplyUsnRecords(_drive, records, _token))
                 _indexer.AdvanceJournalWatermark(_drive, _journalId, nextUsn);
 
             if (failedRecords > 0)

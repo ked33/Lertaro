@@ -26,6 +26,8 @@ public class SearchEngine : IDisposable
     private const long IdleTrimAfterMs = 3000;
     private readonly IdleTrimGate _idleTrim = new(IdleTrimAfterMs, Environment.TickCount64);
     private readonly Timer? _idleTimer;
+    private int _idleMaintenanceRunning;
+    private int _disposed;
 
     public SearchEngine()
     {
@@ -53,20 +55,35 @@ public class SearchEngine : IDisposable
 
     private void OnIdleTimerTick(object? state)
     {
-        if (!_idleTrim.ShouldTrim(Environment.TickCount64))
+        // A full snapshot write can outlive the timer period. Do not queue more writers or GC passes
+        // behind it, and do not compact while startup is loading/catching up the indexes.
+        if (Interlocked.CompareExchange(ref _idleMaintenanceRunning, 1, 0) != 0)
             return;
+        try
+        {
+            if (Volatile.Read(ref _disposed) != 0 || _isRebuilding)
+                return;
+            var now = Environment.TickCount64;
+            var trim = _idleTrim.ShouldTrim(now);
+            var compacted = _idleTrim.ShouldCompact(now)
+                ? _indexer.CompactIdleDeltas(IndexCacheDir, _cts?.Token ?? CancellationToken.None) : 0;
+            if ((!trim && compacted == 0) || Volatile.Read(ref _disposed) != 0
+                || _idleTrim.HasSearchInFlight || _isRebuilding)
+                return;
 
-        // Persist each journal drive's accumulated delta first, so a restart replays from here instead of
-        // from the last cold-start catch-up point. Deliberately before the memory hand-back below: the
-        // merge this does is the biggest allocation of the two, and the trim that follows reclaims it.
-        _indexer.CompactIdleDeltas(IndexCacheDir);
-
-        Logger.Log("[SearchEngine] Service has been idle for 3s. Trimming working set...", LogLevel.Debug);
-        _indexer.ClearCaches();
-        // No compaction: the working-set trim below is what hands memory back to the OS, and compacting
-        // the large-object heap only lengthens the pause the next query pays.
-        GC.Collect(2, GCCollectionMode.Forced, blocking: true);
-        Win32Api.TrimWorkingSet();
+            Logger.Log("[SearchEngine] Releasing idle search/compaction memory...", LogLevel.Debug);
+            _indexer.ClearCaches();
+            GC.Collect(2, GCCollectionMode.Forced, blocking: true);
+            Win32Api.TrimWorkingSet();
+        }
+        catch (OperationCanceledException)
+        {
+            // Stop/rebuild cancelled maintenance before the next drive's snapshot write.
+        }
+        finally
+        {
+            Volatile.Write(ref _idleMaintenanceRunning, 0);
+        }
     }
 
     public Dictionary<string, FileMetadataEntry> GetFileMetadataBatch(IReadOnlyList<string> paths) => _indexer.GetFileMetadataBatch(paths);
@@ -256,13 +273,17 @@ public class SearchEngine : IDisposable
 
     public void Dispose()
     {
-        _idleTimer?.Dispose();
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
         _initializationReady.Set();
         // Cancel without Dispose (see the restart path above): in-flight loops still reference
         // these tokens while unwinding.
         _cts?.Cancel();
-        _indexer.DisposeAllDriveMonitors();
         _searchCancellations.CancelAll();
+        // Dispose alone only prevents future timer ticks. Drain an in-flight snapshot write before
+        // disposing its index, after cancellation has let USN/search holders release their locks.
+        _idleTimer?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _indexer.DisposeAllDriveMonitors();
         _indexer.Dispose();
         GC.SuppressFinalize(this);
     }

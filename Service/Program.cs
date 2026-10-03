@@ -24,7 +24,10 @@ static class Program
         }
         else
         {
-            Logger.Initialize("service.log", Logger.SharedDataDir, overwrite: true);
+            // Install/uninstall can run while the service still owns its log handle. Truncating that
+            // same file erases the stop diagnostics and leaves holes when the old writer resumes.
+            var isInstaller = args.Length > 0 && (args[0].ToLowerInvariant() is "--install" or "-i" or "--uninstall" or "-u");
+            Logger.Initialize(isInstaller ? "service-install.log" : "service.log", Logger.SharedDataDir, overwrite: true);
             // Before the first line, so the level applies to everything this run writes. The service is
             // the one process that cannot read the per-user log-level setting -- it runs as LocalSystem
             // and that setting lives under the interactive user's %LocalAppData% -- so it had none at
