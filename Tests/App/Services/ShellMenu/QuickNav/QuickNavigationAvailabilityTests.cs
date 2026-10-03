@@ -1,3 +1,4 @@
+using System.IO;
 using Lertaro.App.Services.ShellMenu.QuickNav;
 using Lertaro.PluginSdk.Abstractions.Plugins;
 
