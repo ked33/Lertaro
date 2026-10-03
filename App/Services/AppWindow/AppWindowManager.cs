@@ -177,18 +177,23 @@ public static class AppWindowManager
         {
             var current = System.Windows.Application.Current;
             var seedRows = ReadQuickSearchRows(query);
+            var filter = current.Windows.OfType<QuickSearchWindow>().FirstOrDefault(w => w.IsVisible)?.ViewModel.FilterSession.Active;
             var existing = UserSettings.Load().MainWindow.SingleInstance
                 ? current.Windows.OfType<SearchWindow>().FirstOrDefault()
                 : null;
             if (existing == null)
             {
-                ShowAndActivateSearchWindow(new SearchWindow(query, restorePreview, seedRows), bringToFront: false);
+                var opened = new SearchWindow(query, restorePreview, seedRows);
+                if (opened.DataContext is Lertaro.App.ViewModels.Search.SearchViewModel openedModel) openedModel.FilterSession.Set(filter);
+                ShowAndActivateSearchWindow(opened, bringToFront: false);
                 return;
             }
 
             if (seedRows != null)
                 existing.HandOffQuickSearchResults(seedRows);
+            if (existing.DataContext is Lertaro.App.ViewModels.Search.SearchViewModel model) model.FilterSession.Set(filter, refresh: false);
             existing.SearchTextBox.Text = query;
+            if (existing.DataContext is Lertaro.App.ViewModels.Search.SearchViewModel refreshed) refreshed.PerformSearch(query);
             existing.SearchTextBox.SelectionStart = query.Length;
             ShowAndActivateSearchWindow(existing, bringToFront: false);
         });

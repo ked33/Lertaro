@@ -139,6 +139,8 @@ public static class HotkeyStringFormat
     {
         if (string.IsNullOrEmpty(value)) return value;
         var parts = value.Split('+');
+        if (parts[^1].Length == 2 && parts[^1][0] == 'D' && parts[^1][1] is >= '0' and <= '9')
+            parts[^1] = parts[^1][1..];
         if (OemDisplaySymbols.TryGetValue(parts[^1], out var symbol))
             parts[^1] = symbol;
         return string.Join("+", parts);

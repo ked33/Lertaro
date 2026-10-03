@@ -142,11 +142,18 @@ public class SettingsViewModel : ViewModelBase
 
     public void RefreshLists() => _statusMonitor.RefreshLists();
 
+    internal bool LastApplySucceeded { get; private set; }
+
     public void Apply()
     {
-        if (!CanApply || !Whitelist.IsValid)
+        LastApplySucceeded = false;
+        if (!CanApply || !Whitelist.IsValid) return;
+        if (Lertaro.App.Helpers.SearchFilterShortcutValidation.ValidatePending(_plugins?.Plugins, Hotkeys.GetPendingSettings()) is { } shortcutError)
+        {
+            Lertaro.App.Views.Controls.Dialogs.CustomMessageBox.Show(shortcutError,
+                TranslationManager.Instance["Service_Error"], System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
             return;
-
+        }
         _isSaved = true;
 
         var previousNetworkDrives = _userSettings.NetworkDrives
@@ -208,6 +215,7 @@ public class SettingsViewModel : ViewModelBase
         QuickPanel.Save();
         LocalSend.Apply();
         _userSettings.Save();
+        LastApplySucceeded = true;
         Core.Services.LocalSend.LocalSendServiceManager.Instance.ApplySettings(_userSettings);
         App.HookClient?.SendMessage(new IpcMessage { Id = IpcMessageId.ReloadSettings });
         PluginManager.Instance.RefreshDisabledComponents();

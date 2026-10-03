@@ -63,6 +63,22 @@ jobs:
           dotnet test Tests/App/App.csproj -c Release --filter "FullyQualifiedName~AnimationControlTests|FullyQualifiedName~SmoothWheelScrollBehaviorTests|FullyQualifiedName~MarqueeBehaviorTests|FullyQualifiedName~SettingsSearchIndexTests" --logger trx --results-directory TestResults
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test custom filter shortcuts
+        shell: pwsh
+        env:
+          NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+        run: |
+          $checks = @{
+            "Tests/Core/Core.csproj" = "FullyQualifiedName~FileTypeFilterSearchTests|FullyQualifiedName~SearchRequestBinarySerializerTests|FullyQualifiedName~HotkeyStringFormatTests|FullyQualifiedName~FzfTopNTests"
+            "Tests/App/App.csproj" = "FullyQualifiedName~SearchFilterShortcutTests|FullyQualifiedName~WpfUiHelperTests|FullyQualifiedName~PluginConfig|FullyQualifiedName~QueryTokenResultComposerTests"
+            "Tests/PluginSdk/PluginSdk.csproj" = "FullyQualifiedName~FileTypeFilterTests"
+            "Tests/Plugins/CoreExtensions/CoreExtensions.csproj" = "FullyQualifiedName~CustomFilterQueryTokenProviderTests"
+          }
+          foreach ($check in $checks.GetEnumerator()) {
+            dotnet test $check.Key -c Release --filter $check.Value --logger trx --results-directory TestResults
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
       - name: Publish
         shell: pwsh
         env:

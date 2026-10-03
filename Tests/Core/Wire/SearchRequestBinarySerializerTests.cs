@@ -26,6 +26,7 @@ public sealed class SearchRequestBinarySerializerTests
                 Limit = 51,
                 AppLimit = 51,
                 ExactMatch = true,
+                FileTypeRule = "*.lnk",
                 FileNameFilter = "*.exe;*.lnk"
             });
 
@@ -35,6 +36,7 @@ public sealed class SearchRequestBinarySerializerTests
             Assert.AreEqual("report", result.Query);
             Assert.AreEqual(51, result.Limit);
             Assert.AreEqual("*.exe;*.lnk", result.FileNameFilter);
+            Assert.AreEqual("*.lnk", result.FileTypeRule);
         }
     }
 
@@ -61,6 +63,7 @@ public sealed class SearchRequestBinarySerializerTests
                 Limit = 51,
                 AppLimit = 51,
                 OrFirstPrecedence = true,
+                FileTypeRule = "*.lnk",
                 FileNameFilter = "*.exe;*.lnk"
             });
 
@@ -68,6 +71,7 @@ public sealed class SearchRequestBinarySerializerTests
             Assert.AreEqual("report", result.Query);
             Assert.AreEqual(51, result.Limit);
             Assert.AreEqual("*.exe;*.lnk", result.FileNameFilter);
+            Assert.AreEqual("*.lnk", result.FileTypeRule);
         }
     }
 

@@ -53,7 +53,7 @@ internal sealed class SearchExecutionEngine : IDisposable
         // Invoked on the UI thread at the moment the search itself is issued -- so after the debounce,
         // once per settled query rather than once per keystroke. For work that must overlap the search
         // but must not be repeated for characters the user typed and then replaced.
-        Action? beforeSearch = null)
+        Action? beforeSearch = null, string? fileTypeRule = null)
     {
         _debounceCts?.Cancel();
         _debounceCts?.Dispose();
@@ -63,7 +63,7 @@ internal sealed class SearchExecutionEngine : IDisposable
         var delay = string.IsNullOrEmpty(query) || query.Length <= 1 ? 0 : (fileLimit > 100 ? 150 : 30);
         if (delay == 0)
         {
-            PerformSearch(query, searchScope, isInlineSearchContext, fileLimit, appLimit, resultMapper, onSearchStateChanged, onResultsUpdated, onLocalServiceUnavailable, shouldEmitInstantResults, bypassExclusions, resultMapperConsumesBatches, onReceivedCountUpdated, scopeDirective, instantQuery, emitInstantResults, beforeSearch);
+            PerformSearch(query, searchScope, isInlineSearchContext, fileLimit, appLimit, resultMapper, onSearchStateChanged, onResultsUpdated, onLocalServiceUnavailable, shouldEmitInstantResults, bypassExclusions, resultMapperConsumesBatches, onReceivedCountUpdated, scopeDirective, instantQuery, emitInstantResults, beforeSearch, fileTypeRule);
             return;
         }
 
@@ -72,7 +72,11 @@ internal sealed class SearchExecutionEngine : IDisposable
             if (t.IsCanceled)
                 return;
             _ = System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
-                PerformSearch(query, searchScope, isInlineSearchContext, fileLimit, appLimit, resultMapper, onSearchStateChanged, onResultsUpdated, onLocalServiceUnavailable, shouldEmitInstantResults, bypassExclusions, resultMapperConsumesBatches, onReceivedCountUpdated, scopeDirective, instantQuery, emitInstantResults, beforeSearch)));
+            {
+                // Cancellation can happen after the timer fired but before this queued UI callback runs.
+                if (!cts.IsCancellationRequested)
+                    PerformSearch(query, searchScope, isInlineSearchContext, fileLimit, appLimit, resultMapper, onSearchStateChanged, onResultsUpdated, onLocalServiceUnavailable, shouldEmitInstantResults, bypassExclusions, resultMapperConsumesBatches, onReceivedCountUpdated, scopeDirective, instantQuery, emitInstantResults, beforeSearch, fileTypeRule);
+            }));
         }, cts.Token);
     }
 
@@ -103,11 +107,11 @@ internal sealed class SearchExecutionEngine : IDisposable
         // whether it was issued directly or waited out QueueSearch's keystroke debounce, so a caller with
         // work that should overlap the search -- and must not be repeated for every character typed --
         // hangs it here rather than reimplementing the delay.
-        Action? beforeSearch = null)
+        Action? beforeSearch = null, string? fileTypeRule = null)
     {
         Logger.Log($"[SearchExecutionEngine] Performing search: '{query}', scope: '{searchScope}'", LogLevel.Debug);
         CancelPendingSearch();
-        if (string.IsNullOrWhiteSpace(query))
+        if (string.IsNullOrWhiteSpace(query) && fileTypeRule == null)
         {
             onSearchStateChanged(false);
             onResultsUpdated(new List<AppSearchResult>(), string.Empty, true);
@@ -157,7 +161,7 @@ internal sealed class SearchExecutionEngine : IDisposable
                 var streamingContextDirectory = isInlineSearchContext
                     ? (!string.IsNullOrWhiteSpace(searchScope) ? searchScope : tracker.ActivePath ?? tracker.LastActiveExplorerPath)
                     : tracker.LastActiveExplorerPath;
-                await _streamRenderer.RenderAsync(query, streamingScope, streamingContextDirectory, fileLimit, appLimit, resultMapper, searchVersion, onResultsUpdated, token, onLocalServiceUnavailable: onLocalServiceUnavailable, bypassExclusions: bypassExclusions, resultMapperConsumesBatches: resultMapperConsumesBatches, onReceivedCountUpdated: onReceivedCountUpdated, scopeDirective: scopeDirective, foldersOnly: folderScope).ConfigureAwait(false);
+                await _streamRenderer.RenderAsync(query, streamingScope, streamingContextDirectory, fileLimit, appLimit, resultMapper, searchVersion, onResultsUpdated, token, onLocalServiceUnavailable: onLocalServiceUnavailable, bypassExclusions: bypassExclusions, resultMapperConsumesBatches: resultMapperConsumesBatches, onReceivedCountUpdated: onReceivedCountUpdated, scopeDirective: scopeDirective, foldersOnly: folderScope, fileTypeRule: fileTypeRule).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {

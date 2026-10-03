@@ -244,7 +244,10 @@ public partial class SettingsWindow : Window
     private void BtnOk_Click(object sender, RoutedEventArgs e)
     {
         if (DataContext is SettingsViewModel vm)
-            vm.ApplyCommand.Execute(null);
+        {
+            vm.Apply();
+            if (!vm.LastApplySucceeded) return;
+        }
 
         Close();
     }

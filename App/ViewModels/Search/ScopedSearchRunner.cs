@@ -17,7 +17,7 @@ internal static class ScopedSearchRunner
         Action<SearchResult> onResult,
         Action onLocalSearchFailed,
         bool bypassExclusions,
-        CancellationToken token)
+        CancellationToken token, string? fileTypeRule = null)
     {
         var failureReported = 0;
         void ReportLocalSearchFailedOnce()
@@ -28,7 +28,7 @@ internal static class ScopedSearchRunner
 
         var tasks = directive.Folders.Select(folder => RunFolderAsync(
             searchService, folder, query, fileLimit, appLimit, onResult,
-            ReportLocalSearchFailedOnce, bypassExclusions, directive.FilterPattern, token)).ToArray();
+            ReportLocalSearchFailedOnce, bypassExclusions, directive.FilterPattern, token, fileTypeRule)).ToArray();
 
         try
         {
@@ -50,13 +50,13 @@ internal static class ScopedSearchRunner
         Action onLocalSearchFailed,
         bool bypassExclusions,
         string fileNameFilter,
-        CancellationToken token)
+        CancellationToken token, string? fileTypeRule = null)
     {
         try
         {
             await searchService.SearchStreamingAsync(
                 query, fileLimit, appLimit, folder, onResult, token,
-                onLocalSearchFailed, bypassExclusions, fileNameFilter: fileNameFilter).ConfigureAwait(false);
+                onLocalSearchFailed, bypassExclusions, fileNameFilter: fileNameFilter, fileTypeRule: fileTypeRule).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

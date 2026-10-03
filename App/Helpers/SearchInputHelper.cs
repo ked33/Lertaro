@@ -191,6 +191,9 @@ public static class SearchInputHelper
 
     public static bool HandleCommonSearchKeys(System.Windows.Input.KeyEventArgs e, ISearchWindow window, ShellMenuPresenter? menuPresenter)
     {
+        if (SearchFilterHotkeySupport.TryHandle(e, window))
+            return true;
+
         // 1. Actions Mode keys
         if (HandleActionsModeKeys(e, window, menuPresenter))
             return true;

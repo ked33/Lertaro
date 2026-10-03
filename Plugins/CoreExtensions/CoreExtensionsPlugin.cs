@@ -247,6 +247,15 @@ public class CoreExtensionsPlugin : IPlugin, IActionProvider, IConfigurable
                             },
                             new PluginConfigField
                             {
+                                Key = "Hotkey",
+                                LabelKey = "CoreExtensions_Config_CustomFilters_HotkeyLabel",
+                                DescriptionKey = "CoreExtensions_Config_CustomFilters_HotkeyDesc",
+                                FieldType = ConfigFieldType.Hotkey,
+                                RequireModifier = true,
+                                DefaultValue = ""
+                            },
+                            new PluginConfigField
+                            {
                                 Key = "Rule",
                                 LabelKey = "CoreExtensions_Config_CustomFilters_RuleLabel",
                                 DescriptionKey = "CoreExtensions_Config_CustomFilters_RuleDesc",

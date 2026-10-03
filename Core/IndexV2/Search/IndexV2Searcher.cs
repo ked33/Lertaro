@@ -13,7 +13,7 @@ public static class IndexV2Searcher
 {
     public static void SearchStreaming(LiveIndex index, string query, int limit, Action<SearchResult> onResult, CancellationToken token, string? directoryFilter = null, string? fileNameFilter = null)
     {
-        if (limit <= 0 || string.IsNullOrWhiteSpace(query))
+        if (limit <= 0 || (string.IsNullOrWhiteSpace(query) && SearchContext.FileTypeFilter == null))
             return;
 
         var parsed = SearchQueryParser.Parse(query);

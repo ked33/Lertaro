@@ -21,6 +21,8 @@ public class QuickSearchViewModel : ViewModelBase, IDisposable
 
         _searchService = new SearchService();
         _launchSources = new QuickSearchLaunchSourceSupport(OnLaunchSourceChanged);
+        FilterSession = new SearchFilterSession(RefreshFilterSearch);
+        FilterSession.PropertyChanged += (_, _) => OnPropertyChanged(nameof(LaunchPanelVisibility));
         Search = new SearchExecutionViewModel(this, _searchService);
         Monitor = new ServiceMonitorViewModel(this, _searchService);
 
@@ -58,6 +60,8 @@ public class QuickSearchViewModel : ViewModelBase, IDisposable
         Services.UiMetrics.ScaleChanged += RefreshScaleBindings;
     }
 
+    private void RefreshFilterSearch() => Search.PerformSearch(SearchQuery);
+    public SearchFilterSession FilterSession { get; }
     public SearchExecutionViewModel Search { get; }
     public ServiceMonitorViewModel Monitor { get; }
     public ObservableRangeCollection<LaunchPanelSourceViewModel> LaunchSources => _launchSources.Sources;
@@ -222,7 +226,7 @@ public class QuickSearchViewModel : ViewModelBase, IDisposable
     // window, not an idle "glance at the time" moment the way the Quick window's popup can be.
     public Visibility ClockVisibility => !IsInlineSearchContext && UserSettings.Load().SearchWindow.ShowClock ? Visibility.Visible : Visibility.Collapsed;
 
-    public Visibility LaunchPanelVisibility => !IsInlineSearchContext
+    public Visibility LaunchPanelVisibility => !IsInlineSearchContext && !FilterSession.IsActive
         && (!Search.IsActionsMode || ResultsPanelVisibility == Visibility.Visible)
         && string.IsNullOrWhiteSpace(SearchQuery)
         && UserSettings.Load().QuickLaunch.Enabled

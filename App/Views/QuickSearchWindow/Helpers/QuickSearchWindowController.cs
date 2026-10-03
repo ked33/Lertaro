@@ -229,7 +229,9 @@ public class QuickSearchWindowController
                 StayOpenChanged?.Invoke(false);
             }
 
+            _window.ViewModel.FilterSession.Set(null, refresh: false);
             _window.ViewModel.SearchQuery = string.Empty;
+            _window.ViewModel.Search.CancelPendingSearch();
 
             _window.UpdateLayout();
             _window.Hide();

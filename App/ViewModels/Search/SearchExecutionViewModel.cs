@@ -103,7 +103,7 @@ public class SearchExecutionViewModel : ViewModelBase, IDisposable
                 {
                     return;
                 }
-                if (string.IsNullOrWhiteSpace(value))
+                if (string.IsNullOrWhiteSpace(value) && !_mainVm.FilterSession.IsActive)
                 {
                     _engine.CancelPendingSearch();
                     _dispatcher.PerformSearch(value);
