@@ -1,6 +1,6 @@
 # Indexing Management
 
-The Indexing settings page controls indexing scopes, refresh schedules, and exclusion rules across local hard drives, network shares, WSL distributions, and standalone folders. Top tabs include: **Local Drives**, **Network Drives**, **WSL** (shown only when distributions are detected), **Folders**, and **Exclusions**.
+The Indexing settings page controls indexing scopes, refresh schedules, and exclusion rules across local hard drives, network shares, WSL distributions, and standalone folders. Top tabs include: **Local Drives**, **Network Drives**, **WSL** (shown only when distributions are detected), **Folders**, **Exclusions**, and **Whitelist**.
 
 ## 1. Local Drives
 
@@ -59,3 +59,12 @@ Exclusion rules apply globally across local drives, network storage, and custom 
 
 > [!TIP]
 > Exclusions support both **single entry additions** and **batch editing**: click **Generate from List** to export rules to text, edit, and click **Apply to List** to update in bulk. Modified exclusion rules automatically trigger index filtering.
+
+
+## 6. Whitelist
+
+Under **Settings → Index → Whitelist**, enter one absolute directory path per line or use **Add Folder** to select multiple folders. Environment variables such as `%USERPROFILE%` are supported. Click **Apply** after adding, editing or removing lines. The list is empty by default.
+
+Each listed directory and all its descendants take priority over path, Glob and regex exclusions, as well as ignore files such as `.gitignore`. You can keep the default `.*` rule and allow only specific folders. Directory boundaries are respected: `.claude` does not include `.claude-backup`.
+
+The whitelist does not change ranking, enable additional index sources, or bypass Windows hidden/system filtering, access permissions or traversal-loop protection. Whitelist-only changes do not rebuild indexed local drives. Only overlapping network, WSL or custom-folder indexes are refreshed.

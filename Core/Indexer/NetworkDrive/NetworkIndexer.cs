@@ -169,6 +169,23 @@ public sealed class NetworkIndexer : IDisposable
             NotifyDirectoriesChanged(root, null);
     }
 
+    public void RefreshWhitelistPaths(IReadOnlyList<string> previous, IReadOnlyList<string> current)
+    {
+        EnsureConfigured();
+        string[] sources;
+        lock (_gate)
+            sources = _refreshModes.Keys.ToArray();
+        var affected = NetworkIndexerHelper.FindWhitelistChangedRoots(sources, previous, current);
+        lock (_gate)
+        {
+            // Unlike the manual refresh button, settings changes must be queued even when another
+            // source (or this one) is busy. Recheck membership after preparing paths outside the lock.
+            foreach (var drive in affected)
+                if (_refreshModes.ContainsKey(drive))
+                    _scheduler?.QueueRefreshDrive(drive, "whitelist changed");
+        }
+    }
+
     public bool RefreshDrive(string drive)
     {
         EnsureConfigured();

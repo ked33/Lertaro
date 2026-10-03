@@ -70,7 +70,7 @@ public static class DeltaPathApplier
             return false;
 
         var isDirectory = (attributes & FileAttributes.Directory) != 0;
-        if (exclusionRules?.IsExcludedPath(path, isDirectory) == true)
+        if (exclusionRules?.IsExcludedFromIndex(path, isDirectory) == true)
             return ApplyDeleted(delta, path);
 
         var normalized = PathHelpers.NormalizePath(path, isDirectory);

@@ -6,6 +6,9 @@ namespace Lertaro.Core.Services.Search;
 // probe stable while the user types in the same directory and is discarded with that window.
 internal sealed class ScopeLiveSearchCache
 {
+    public ExclusionRuleSet? Rules { get; }
+    public ScopeLiveSearchCache(ExclusionRuleSet? rules = null) => Rules = rules;
+
     private readonly ConcurrentDictionary<string, Lazy<bool>> _decisions = new(StringComparer.OrdinalIgnoreCase);
 
     public bool GetOrAdd(string directory, Func<string, bool> probe) => _decisions.GetOrAdd(directory,

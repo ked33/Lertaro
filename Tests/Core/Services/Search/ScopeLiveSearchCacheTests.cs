@@ -28,6 +28,19 @@ public sealed class ScopeLiveSearchCacheTests
     }
 
     [TestMethod]
+    public void NewRules_DoNotReuseOldEligibilityDecisions()
+    {
+        var before = ExclusionRuleSet.From(new UserSettings());
+        var after = ExclusionRuleSet.From(new UserSettings { WhitelistedPaths = [@"C:\Projects\.claude"] });
+        var oldCache = new ScopeLiveSearchCache(before);
+        Assert.IsTrue(oldCache.GetOrAdd(@"C:\Projects\.claude", _ => true));
+        var newCache = new ScopeLiveSearchCache(after);
+        Assert.AreSame(after, newCache.Rules);
+        Assert.IsFalse(newCache.GetOrAdd(@"C:\Projects\.claude", _ => false));
+        Assert.IsTrue(oldCache.GetOrAdd(@"C:\Projects\.claude", _ => false));
+    }
+
+    [TestMethod]
     public void GetOrAdd_DifferentDirectories_ProbesEachDirectory()
     {
         var cache = new ScopeLiveSearchCache();

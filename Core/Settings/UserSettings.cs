@@ -16,6 +16,12 @@ public class UserSettings
         "%USERPROFILE%\\AppData",
         "%ProgramFiles(x86)%"
     };
+    private List<string> _whitelistedPaths = new();
+    public List<string> WhitelistedPaths
+    {
+        get => _whitelistedPaths;
+        set => _whitelistedPaths = value ?? new();
+    }
     public List<string> IgnoredPathGlobs { get; set; } = new()
     {
         ".*",

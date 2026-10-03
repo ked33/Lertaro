@@ -9,6 +9,7 @@ public sealed class ExclusionRuleSet
     private readonly NetworkGlobPattern[] _ignoredGlobs;
     private readonly Regex[] _ignoredRegexes;
     private readonly string? _root;
+    internal PathWhitelist Whitelist { get; }
 
     /// <summary>
     /// Whether any pattern can tell the two separator spellings apart, and so whether the slash form of a
@@ -22,12 +23,13 @@ public sealed class ExclusionRuleSet
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _ancestorVerdicts =
         new(StringComparer.OrdinalIgnoreCase);
 
-    private ExclusionRuleSet(string[] excludedRoots, NetworkGlobPattern[] ignoredGlobs, Regex[] ignoredRegexes, string? root = null)
+    private ExclusionRuleSet(string[] excludedRoots, NetworkGlobPattern[] ignoredGlobs, Regex[] ignoredRegexes, string? root = null, PathWhitelist? whitelist = null)
     {
         _excludedRoots = excludedRoots;
         _ignoredGlobs = ignoredGlobs;
         _ignoredRegexes = ignoredRegexes;
         _root = root;
+        Whitelist = whitelist ?? PathWhitelist.Empty;
         // A glob only cares which spelling a separator took if it can say something about one: GlobToRegex
         // normalizes the pattern's separators and compiles each to a class matching either spelling, so a
         // plain `*\Cache\*` answers the same on both forms. Inside a character class the characters go out
@@ -65,7 +67,8 @@ public sealed class ExclusionRuleSet
             _cachedRules = new ExclusionRuleSet(
                 BuildExcludedRoots(settings.ExcludedPaths),
                 BuildIgnoredGlobs(settings.IgnoredPathGlobs),
-                BuildIgnoredRegexes(settings.IgnoredPathRegexes));
+                BuildIgnoredRegexes(settings.IgnoredPathRegexes),
+                whitelist: settings.WhitelistedPaths.Count == 0 ? PathWhitelist.Empty : new PathWhitelist(settings.WhitelistedPaths));
             _cachedSettingsSource = settings;
             return _cachedRules;
         }
@@ -75,7 +78,8 @@ public sealed class ExclusionRuleSet
         BuildExcludedRoots(settings.ExcludedPaths, NormalizePath(root, isDirectory: true)),
         BuildIgnoredGlobs(settings.IgnoredPathGlobs),
         BuildIgnoredRegexes(settings.IgnoredPathRegexes),
-        NormalizePath(root, isDirectory: true));
+        NormalizePath(root, isDirectory: true),
+        settings.WhitelistedPaths.Count == 0 ? PathWhitelist.Empty : new PathWhitelist(settings.WhitelistedPaths));
 
     public bool IsExcluded(SearchResult result, string? exemptRoot = null)
     {
@@ -99,8 +103,20 @@ public sealed class ExclusionRuleSet
             !string.IsNullOrEmpty(exemptRoot) ? NormalizePath(exemptRoot, isDirectory: true) : null);
     }
 
+    // Watcher updates must retain the same connecting directories as a full scan. This does not
+    // make those excluded ancestors visible in search; only their whitelisted descendants are shown.
+    internal bool IsExcludedFromIndex(string path, bool isDirectory)
+    {
+        if (Whitelist.IsEmpty || !isDirectory)
+            return IsExcludedPath(path, isDirectory);
+        var normalized = NormalizePath(path, isDirectory: true);
+        return !Whitelist.HasDescendant(normalized) && IsExcludedNormalized(normalized, null);
+    }
+
     private bool IsExcludedNormalized(string normalized, string? normalizedExempt)
     {
+        if (!Whitelist.IsEmpty && Whitelist.Contains(normalized))
+            return false;
 
         // 1. Check excluded roots on the full normalized path
         foreach (var excludedRoot in _excludedRoots)

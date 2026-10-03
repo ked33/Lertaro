@@ -12,12 +12,15 @@ internal static class IndexerHelper
     // never spuriously flags a recheck; the category tags keep "excluded path X" from colliding with
     // "glob X"/"regex X" if the same literal string appears in more than one list.
     public static string ComputeExclusionFingerprint(
-        IEnumerable<string> excludedPaths, IEnumerable<string> ignoredPathGlobs, IEnumerable<string> ignoredPathRegexes)
+        IEnumerable<string> excludedPaths, IEnumerable<string> ignoredPathGlobs, IEnumerable<string> ignoredPathRegexes,
+        IEnumerable<string>? whitelistedPaths = null)
     {
         var sb = new StringBuilder();
         AppendCategory(sb, 'P', excludedPaths);
         AppendCategory(sb, 'G', ignoredPathGlobs);
         AppendCategory(sb, 'R', ignoredPathRegexes);
+        if (whitelistedPaths != null)
+            AppendCategory(sb, 'W', whitelistedPaths);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()))).ToLowerInvariant();
     }
 

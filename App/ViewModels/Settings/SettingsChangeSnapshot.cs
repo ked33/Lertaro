@@ -7,7 +7,8 @@ internal static class SettingsChangeSnapshot
     public static ExclusionSnapshot CaptureExclusions(UserSettings settings) => new(
         settings.ExcludedPaths.ToList(),
         settings.IgnoredPathGlobs.ToList(),
-        settings.IgnoredPathRegexes.ToList());
+        settings.IgnoredPathRegexes.ToList(),
+        settings.WhitelistedPaths.ToList());
 
     public static bool ExclusionsChanged(ExclusionSnapshot oldRules, ExclusionSnapshot newRules)
         => StringListChanged(oldRules.Paths, newRules.Paths)
@@ -29,4 +30,5 @@ internal static class SettingsChangeSnapshot
 internal sealed record ExclusionSnapshot(
     IReadOnlyList<string> Paths,
     IReadOnlyList<string> Globs,
-    IReadOnlyList<string> Regexes);
+    IReadOnlyList<string> Regexes,
+    IReadOnlyList<string> Whitelist);

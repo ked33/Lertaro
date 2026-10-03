@@ -16,6 +16,13 @@ public static class SearchServiceManagementExtensions
         SearchScopeCoverage.Invalidate();
     }
 
+    public static void RefreshWhitelistIndexes(this SearchService service, IReadOnlyList<string> previous, IReadOnlyList<string> current)
+    {
+        UserNetworkDriveSearch.Configure();
+        UserNetworkDriveSearch.RefreshWhitelistPaths(previous, current);
+        SearchScopeCoverage.Invalidate();
+    }
+
     public static void ConfigureNetworkIndexes(this SearchService service)
     {
         UserNetworkDriveSearch.Configure();

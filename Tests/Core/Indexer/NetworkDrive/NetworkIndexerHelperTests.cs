@@ -36,6 +36,24 @@ public sealed class NetworkIndexerHelperTests
                 new[] { "D", "Z" }));
 
     [TestMethod]
+    public void WhitelistChanges_RefreshAllOverlappingSourcesIncludingRemovedPaths()
+    {
+        var affected = NetworkIndexerHelper.FindWhitelistChangedRoots(
+            ["C", @"C:\work", @"C:\work\.claude\cache", @"C:\other", "Z", @"\server\share"],
+            [@"C:\work\.claude"], [@"Z:
+ew"]);
+        CollectionAssert.AreEqual(new[] { "C", @"C:\work", @"C:\work\.claude\cache", "Z" }, affected);
+    }
+
+    [TestMethod]
+    public void WhitelistChanges_EquivalentSpellingOrRedundantChildDoesNotRefresh()
+    {
+        var affected = NetworkIndexerHelper.FindWhitelistChangedRoots(["C", "Z"],
+            [@"C:\work\.claude"], [@"c:/work/.claude/", @"C:\work\.claude\cache"]);
+        Assert.IsEmpty(affected);
+    }
+
+    [TestMethod]
     public void CreateStatus_NoIndexNoCurrent_UsesZeroDefaults()
     {
         var status = NetworkIndexerHelper.CreateStatus("Z", "Idle", 0, index: null, current: null);

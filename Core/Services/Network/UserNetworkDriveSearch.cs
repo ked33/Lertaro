@@ -30,6 +30,8 @@ public static class UserNetworkDriveSearch
         var settings = UserSettings.Load();
         NetworkIndexer.Configure(settings.NetworkDrives, settings.WslSettings, settings.FolderIndexes, forceRefresh: true);
     }
+    public static void RefreshWhitelistPaths(IReadOnlyList<string> previous, IReadOnlyList<string> current)
+        => NetworkIndexer.RefreshWhitelistPaths(previous, current);
     public static bool RefreshDrive(string drive) => NetworkIndexer.RefreshDrive(drive);
     public static bool CancelDrive(string drive) => NetworkIndexer.CancelDrive(drive);
 

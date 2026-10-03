@@ -25,7 +25,8 @@ internal sealed class WalkFilter
             {
                 ExcludedPaths = options.ExcludedPaths.ToList(),
                 IgnoredPathGlobs = options.IgnoredPathGlobs.ToList(),
-                IgnoredPathRegexes = options.IgnoredPathRegexes.ToList()
+                IgnoredPathRegexes = options.IgnoredPathRegexes.ToList(),
+                WhitelistedPaths = options.WhitelistedPaths?.ToList() ?? new()
             }, root),
             options.MaxDepth,
             options.WorkerCount,
@@ -33,7 +34,7 @@ internal sealed class WalkFilter
 
     public NetworkIgnoreRuleSet LoadIgnoreRules(string physicalDir, string logicalDir, NetworkIgnoreRuleSet inherited)
     {
-        if (!_useIgnoreFiles)
+        if (!_useIgnoreFiles || _globalRules.Whitelist.Contains(logicalDir))
             return inherited;
 
         var current = inherited;
@@ -45,6 +46,12 @@ internal sealed class WalkFilter
 
     public bool ShouldIndex(string fullPath, string name, bool isDirectory, FileAttributes attributes, NetworkIgnoreRuleSet ignoreRules)
     {
+        // Keep only the ancestor chain needed to reach an allowed subtree. Search filtering still
+        // hides excluded ancestors and siblings; the index needs these rows to connect the tree.
+        if (!_globalRules.Whitelist.IsEmpty && (_globalRules.Whitelist.Contains(fullPath)
+            || (isDirectory && _globalRules.Whitelist.HasDescendant(fullPath))))
+            return true;
+
         if (_globalRules.IsExcludedPath(fullPath, isDirectory))
             return false;
 
@@ -58,6 +65,10 @@ internal sealed class WalkFilter
     {
         if (_maxDepth > 0 && depth > _maxDepth)
             return false;
+
+        if (!_globalRules.Whitelist.IsEmpty
+            && (_globalRules.Whitelist.Contains(fullPath) || _globalRules.Whitelist.HasDescendant(fullPath)))
+            return true;
 
         if (_globalRules.IsExcludedPath(fullPath, isDirectory: true))
             return false;

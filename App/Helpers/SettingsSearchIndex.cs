@@ -59,6 +59,8 @@ public static class SettingsSearchIndex
         new("Network_IndexStatus", "Index", vm => vm.LocalDrive.SelectedTab = "Folders", "TabFolders/RowFolderRebuild", "Settings_FolderIndex"),
         new("Network_RebuildBtn", "Index", vm => vm.LocalDrive.SelectedTab = "Folders", "TabFolders/RowFolderRebuild", "Settings_FolderIndex"),
         new("Folder_AddBtn", "Index", vm => vm.LocalDrive.SelectedTab = "Folders", "TabFolders/RowFolderRebuild", "Settings_FolderIndex"),
+        new("Settings_Whitelist", "Index", vm => vm.LocalDrive.SelectedTab = "Whitelist", "TabWhitelist/TxtPaths"),
+        new("Whitelist_Paths", "Index", vm => vm.LocalDrive.SelectedTab = "Whitelist", "TabWhitelist/TxtPaths", "Settings_Whitelist"),
         new("Settings_Exclusions", "Index", vm => { vm.LocalDrive.SelectedTab = "Exclusions"; vm.Exclusions.SelectedSubTab = "Path"; }, "TabExclusions/SubTabExclusionsPath"),
         new("Exclusions_TabPath", "Index", vm => { vm.LocalDrive.SelectedTab = "Exclusions"; vm.Exclusions.SelectedSubTab = "Path"; }, "TabExclusions/SubTabExclusionsPath", "Settings_Exclusions"),
         new("Exclusions_TabGlob", "Index", vm => { vm.LocalDrive.SelectedTab = "Exclusions"; vm.Exclusions.SelectedSubTab = "Glob"; }, "TabExclusions/SubTabExclusionsGlob", "Settings_Exclusions"),

@@ -43,7 +43,8 @@ internal static class DriveRefreshRunner
                 settings.IgnoredPathRegexes,
                 0,
                 0,
-                true);
+                true,
+                settings.WhitelistedPaths);
             var previousStore = getPreviousStore(drive);
             LogResumeProgress(drive, previousStore);
             var index = NetworkIndex.Build(
