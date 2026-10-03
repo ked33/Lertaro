@@ -10,6 +10,7 @@ public sealed class TranslationQueryParserTests
 
         Assert.AreEqual("zh-CN", result.TargetLanguage);
         Assert.AreEqual("hello world", result.Text);
+        Assert.IsFalse(result.HasExplicitTargetLanguage);
     }
 
     [TestMethod]
@@ -19,6 +20,17 @@ public sealed class TranslationQueryParserTests
 
         Assert.AreEqual("en", result.TargetLanguage);
         Assert.AreEqual("hello world", result.Text);
+        Assert.IsTrue(result.HasExplicitTargetLanguage);
+    }
+
+    [TestMethod]
+    public void Parse_ExplicitTargetMatchingDefault_RemainsExplicit()
+    {
+        var result = TranslationQueryParser.Parse("zh-Hans 你好", "zh-Hans");
+
+        Assert.AreEqual("zh-hans", result.TargetLanguage);
+        Assert.AreEqual("你好", result.Text);
+        Assert.IsTrue(result.HasExplicitTargetLanguage);
     }
 
     [TestMethod]

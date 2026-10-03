@@ -15,6 +15,8 @@
   "Translator_FailedDesc": "Microsoft Translator no pudo traducir este texto.",
   "Translator_Config_TriggerLabel": "Palabra de activación",
   "Translator_Config_TriggerDesc": "Escriba esta palabra antes del código de idioma de destino opcional y del texto. Ejemplo: tr en hello. Predeterminado: tr.",
+  "Translator_Config_ChineseToEnglishLabel": "Traducir el chino simplificado detectado al inglés",
+  "Translator_Config_ChineseToEnglishDesc": "Activado de forma predeterminada. Si no se especifica un idioma de destino y se detecta chino simplificado (zh-Hans), se traduce al inglés (en). El idioma de destino explícito tiene prioridad.",
   "Plugin_Comp_Desc_TranslationInstantProvider": "Proporciona traducciones como respuestas instantáneas mediante Microsoft Translator.",
   "Plugin_Comp_Desc_TranslatorTranslationProvider": "Proporciona recursos de localización para el complemento de traducción."
 }

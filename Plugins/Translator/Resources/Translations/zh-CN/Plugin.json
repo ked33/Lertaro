@@ -15,6 +15,8 @@
   "Translator_FailedDesc": "Microsoft Translator 无法翻译此文本。",
   "Translator_Config_TriggerLabel": "触发词",
   "Translator_Config_TriggerDesc": "在可选的目标语言代码和待翻译文本前输入此词。例如：tr en hello。默认值：tr。",
+  "Translator_Config_ChineseToEnglishLabel": "检测到简体中文时翻译为英文",
+  "Translator_Config_ChineseToEnglishDesc": "默认启用。未指定目标语言且检测到简体中文（zh-Hans）时，自动翻译为英文（en）。手动指定的目标语言优先。",
   "Plugin_Comp_Desc_TranslationInstantProvider": "使用 Microsoft Translator 以即时答案形式提供翻译。",
   "Plugin_Comp_Desc_TranslatorTranslationProvider": "为翻译插件提供本地化资源。"
 }
