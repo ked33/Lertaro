@@ -27,6 +27,8 @@ public class Provider : IQuickNavigationProvider
     private readonly ConcurrentDictionary<uint, string> _commandMap = new();
     private int _nextId = 1;
     private int _nextCmdId = 1;
+    internal RootMenuPreparation Preparation { get; } = new();
+    internal Task<RecentFoldersSnapshot>? RecentFolderSnapshotTask { get; set; }
     internal IReadOnlyList<DynamicMenuItem> RecentFolderSubmenu { get; set; } = [];
     internal Task<IReadOnlyList<string>>? OpenedFolderPathsTask { get; set; }
 
@@ -54,6 +56,7 @@ public class Provider : IQuickNavigationProvider
         _folderSnapshots.Clear();
         _commandMap.Clear();
         RecentFolderSubmenu = [];
+        RecentFolderSnapshotTask = null;
         OpenedFolderPathsTask = null;
         Interlocked.Exchange(ref _nextId, 1);
         Interlocked.Exchange(ref _nextCmdId, 1);

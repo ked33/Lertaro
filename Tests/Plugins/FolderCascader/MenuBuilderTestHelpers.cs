@@ -16,6 +16,7 @@ internal static class MenuBuilderTestHelpers
         public Task<string?>? HoveredFolderPathTask { get; init; }
         public Task<IReadOnlyList<string>>? OpenedFolderPathsTask { get; init; }
         public bool IsDir { get; init; }
+        public bool DeferNavigationPreparation { get; init; }
         public bool IsApplication { get; init; }
     }
 

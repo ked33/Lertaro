@@ -45,12 +45,12 @@ internal static class FolderBrowseMenuBuilder
                 {
                     Text = Path.GetFileName(entry.Path),
                     HasSubMenu = true,
-                    SubMenuHandle = provider.AllocateHandle(entry.Path)
+                    SubMenuHandle = provider.AllocateHandle(entry.Path), IsPathAvailable = true
                 }
                 : new DynamicMenuItem
                 {
                     Text = Path.GetFileName(entry.Path),
-                    CommandId = provider.AllocateCommand(entry.Path)
+                    CommandId = provider.AllocateCommand(entry.Path), IsPathAvailable = true
                 });
         }
 
