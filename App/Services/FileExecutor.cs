@@ -165,7 +165,7 @@ public static class FileExecutor
             });
 
     // Both folder opening routes share this exact sequence. The location route supplies a first-window
-    // callback that uses SHOpenFolderAndSelectItems so Windows can select the requested item.
+    // callback that sends an Explorer selection request for the target item.
     private static bool TryUseExplorerTabs(Func<bool> openNewTab, Func<bool>? openFirstWindow)
     {
         FolderOpenGate.Wait();
