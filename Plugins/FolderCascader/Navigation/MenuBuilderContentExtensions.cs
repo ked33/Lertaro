@@ -114,7 +114,8 @@ internal static class MenuBuilderContentExtensions
             items.Insert(0, new DynamicMenuItem
             {
                 IsPinnedToTop = true,
-                Text = TranslationService.Get("QuickNav_Loading"),
+                // An optional hover must not reserve visible space before it is confirmed.
+                Text = string.Empty,
                 IsDisabled = true,
                 LoadDeferredItem = async cancellation =>
                 {

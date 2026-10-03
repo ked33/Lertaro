@@ -13,27 +13,28 @@ namespace Lertaro.App.Tests.Services.ShellMenu.QuickNav;
 public sealed class QuickNavigationDeferredItemsTests
 {
     [StaTestMethod]
-    public void PendingItemDoesNotBlockOpeningAndIsInsertedAtItsReservedPosition()
+    public void ConfirmedHoverRevealsItsRowAndSeparatorAfterOpening()
     {
         var completion = new TaskCompletionSource<DynamicMenuItem?>();
         var menu = Menu();
-        var marker = new MenuItem { Header = "Loading", IsEnabled = false, Focusable = false };
+        var marker = new MenuItem { Visibility = Visibility.Collapsed, IsEnabled = false, Focusable = false };
         var separator = new Separator();
         menu.Items.Add(marker);
         menu.Items.Add(separator);
         menu.Items.Add(new MenuItem { Header = "Recent", Focusable = false });
-        QuickNavigationDeferredItems.Attach(menu, marker, new() { Text = "Loading", IsDisabled = true, LoadDeferredItem = _ => completion.Task },
+        QuickNavigationDeferredItems.Attach(menu, marker, new() { IsDisabled = true, LoadDeferredItem = _ => completion.Task },
             item => new MenuItem { Header = item.Text }, () => true, separator);
         try
         {
             menu.IsOpen = true;
             Assert.IsTrue(menu.IsOpen);
             Assert.IsFalse(completion.Task.IsCompleted);
-            PumpUntil(() => marker.ActualHeight > 0);
-            var reservedHeight = marker.ActualHeight;
+            PumpUntil(() => menu.ActualHeight > 0);
+            Assert.AreEqual(Visibility.Collapsed, separator.Visibility);
             completion.SetResult(new() { Text = "Hovered" });
             PumpUntil(() => menu.Items[0] is MenuItem row && Equals(row.Header, "Hovered"));
-            Assert.AreEqual(reservedHeight, ((MenuItem)menu.Items[0]).Height);
+            Assert.AreEqual(Visibility.Visible, ((MenuItem)menu.Items[0]).Visibility);
+            Assert.AreEqual(Visibility.Visible, separator.Visibility);
             Assert.AreSame(separator, menu.Items[1]);
             Assert.AreEqual("Recent", ((MenuItem)menu.Items[2]).Header);
         }
@@ -41,11 +42,11 @@ public sealed class QuickNavigationDeferredItemsTests
     }
 
     [StaTestMethod]
-    public void EmptyHoveredFolderRemovesItsSeparator()
+    public void EmptyHoveredFolderDoesNotChangeMenuHeight()
     {
         var completion = new TaskCompletionSource<DynamicMenuItem?>();
         var menu = Menu();
-        var marker = new MenuItem { Header = "Loading", IsEnabled = false, Focusable = false };
+        var marker = new MenuItem { Visibility = Visibility.Collapsed, IsEnabled = false, Focusable = false };
         var separator = new Separator();
         var current = new MenuItem { Header = "Current", Focusable = false };
         menu.Items.Add(marker);
@@ -56,9 +57,17 @@ public sealed class QuickNavigationDeferredItemsTests
         try
         {
             menu.IsOpen = true;
+            PumpUntil(() => menu.ActualHeight > 0);
+            menu.UpdateLayout();
+            var heightBefore = menu.ActualHeight;
+            var rowPositionBefore = current.TranslatePoint(new Point(), menu);
+            Assert.AreEqual(Visibility.Collapsed, separator.Visibility);
             completion.SetResult(null);
             PumpUntil(() => menu.Items.Count == 1);
             Assert.AreSame(current, menu.Items[0]);
+            menu.UpdateLayout();
+            Assert.AreEqual(heightBefore, menu.ActualHeight);
+            Assert.AreEqual(rowPositionBefore, current.TranslatePoint(new Point(), menu));
         }
         finally { menu.IsOpen = false; }
     }
