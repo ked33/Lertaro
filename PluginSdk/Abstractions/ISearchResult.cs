@@ -14,6 +14,9 @@ public interface ISearchResult
     /// <summary>Directory context where the result action is invoked.</summary>
     string ContextDirectory { get; }
 
+    /// <summary>Physical folder under the middle-click that opened Quick Navigation; otherwise null.</summary>
+    string? HoveredFolderPath => null;
+
     /// <summary>True if this is a directory, false if a file.</summary>
     bool IsDir { get; }
 

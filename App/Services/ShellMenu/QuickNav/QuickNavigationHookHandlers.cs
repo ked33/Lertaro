@@ -53,11 +53,15 @@ internal static class QuickNavigationHookHandlers
             if (host == null || generation != Volatile.Read(ref _middleClickGeneration)) return;
             if (QuickNavigationTriggerGate.CanShow(host.Value.Hwnd, host.Value.Process, host.Value.ClassName, host.Value.IsDesktop, x, y, MouseTriggerType.MiddleClick)
                 || FileDialogQuickNavGate.CanShow(host.Value.Hwnd, host.Value.Process, host.Value.ClassName, x, y))
+            {
+                var hoveredFolder = !host.Value.IsDesktop && host.Value.Process.Equals("explorer", StringComparison.OrdinalIgnoreCase)
+                    ? ExplorerHoveredFolder.CaptureAsync(host.Value.Hwnd, x, y) : null;
                 dispatcher.BeginInvoke(() =>
                 {
                     if (generation != Volatile.Read(ref _middleClickGeneration)) return;
-                    QuickNavigationMenu.Show(x, y);
+                    QuickNavigationMenu.Show(x, y, hoveredFolder);
                 });
+            }
         });
     }
 

@@ -25,7 +25,9 @@ public static class QuickNavigationMenu
     // this exists to fix.
     private static int _sessionGeneration;
 
-    public static void Show(int mouseX, int mouseY)
+    public static void Show(int mouseX, int mouseY) => Show(mouseX, mouseY, null);
+
+    internal static void Show(int mouseX, int mouseY, Task<string?>? hoveredFolder)
     {
         var tracker = InlineSearchManager.Instance.ExplorerTracker;
 
@@ -42,7 +44,7 @@ public static class QuickNavigationMenu
         if (string.IsNullOrEmpty(path) || !Directory.Exists(path))
             path = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-        ShowCore(mouseX, mouseY, trigger, path);
+        ShowCore(mouseX, mouseY, trigger, path, hoveredFolder);
     }
 
     public static void ShowFromKeyboard()
@@ -62,13 +64,13 @@ public static class QuickNavigationMenu
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
     }
 
-    private static void ShowCore(int mouseX, int mouseY, QuickNavTriggerContext trigger, string path)
+    private static void ShowCore(int mouseX, int mouseY, QuickNavTriggerContext trigger, string path, Task<string?>? hoveredFolder = null)
     {
         var generation = ++_sessionGeneration;
-        _ = ShowAsync(mouseX, mouseY, generation, trigger, path);
+        _ = ShowAsync(mouseX, mouseY, generation, trigger, path, hoveredFolder);
     }
 
-    private static async Task ShowAsync(int mouseX, int mouseY, int generation, QuickNavTriggerContext trigger, string path)
+    private static async Task ShowAsync(int mouseX, int mouseY, int generation, QuickNavTriggerContext trigger, string path, Task<string?>? hoveredFolder)
     {
         var hookClient = App.HookClient;
         if (hookClient?.IsConnected == true)
@@ -90,10 +92,11 @@ public static class QuickNavigationMenu
             }
         }
 
+        var hoveredPath = hoveredFolder == null ? null : await hoveredFolder;
         if (generation != _sessionGeneration)
             return;
 
-        var dummyResult = new AppSearchResult { FullPath = path, Name = Path.GetFileName(path), IsDir = true };
+        var dummyResult = new AppSearchResult { FullPath = path, Name = Path.GetFileName(path), IsDir = true, HoveredFolderPath = hoveredPath };
         var contextMenu = new ContextMenu();
         contextMenu.PreviewKeyDown += (_, e) => QuickNavigationMenuKeyHandler.HandleShortcutKeyDown(contextMenu, e);
         contextMenu.PreviewKeyDown += (s, e) => { if (e.Key == System.Windows.Input.Key.Escape) { contextMenu.IsOpen = false; e.Handled = true; } };

@@ -3,6 +3,7 @@
   "FolderCascader_Action": "Explorar Directorio en Cascada",
   "FolderCascader_History": "Historial",
   "FolderCascader_OpenedFolders": "Carpetas abiertas",
+  "FolderCascader_HoveredFolder": "Carpeta bajo el cursor",
   "FolderCascader_EmptyFolder": "(Vacío)",
   "FolderCascader_AddCurrentFolder": "Añadir Carpeta Actual",
   "FolderCascader_NoHistory": "(Sin historial)",
