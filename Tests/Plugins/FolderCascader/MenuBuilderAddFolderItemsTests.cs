@@ -153,15 +153,11 @@ public sealed class MenuBuilderAddFolderItemsTests
     }
 
     [TestMethod]
-    public void AddFolderItems_ResolvableVirtualFolder_AllocatesThePhysicalFolder()
+    public void AddFolderItems_VirtualFolderRetainsItsTokenUntilExpansion()
     {
-        // A virtual folder that does have one ("shell:Personal") is resolved before the handle is
-        // allocated, because the submenu expansion behind that handle walks a real directory. A virtual
-        // folder that has none (the "This PC" case below) keeps its token instead.
+        // Namespace resolution belongs to submenu expansion or execution, not root construction.
         var provider = new Provider();
         var items = new List<DynamicMenuItem>();
-        var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-        Assert.IsFalse(string.IsNullOrEmpty(documents), "the test account has no Documents folder to resolve to");
         var folders = new List<FolderCascaderPlugin.FolderConfigItem>
         {
             Folder("Documents", "shell:Personal")
@@ -170,11 +166,11 @@ public sealed class MenuBuilderAddFolderItemsTests
         MenuBuilder.AddFolderItems(items, folders, Array.Empty<string>(), provider);
 
         Assert.IsTrue(items[0].HasSubMenu);
-        Assert.AreEqual(documents, GetPath(provider, items[0].SubMenuHandle), ignoreCase: true);
+        Assert.AreEqual("shell:Personal", GetPath(provider, items[0].SubMenuHandle));
     }
 
     [TestMethod]
-    public void AddFolderItems_InvalidVirtualFolder_DisablesItem()
+    public void AddFolderItems_InvalidVirtualFolderIsNotProbedUntilUse()
     {
         var provider = new Provider();
         var items = new List<DynamicMenuItem>();
@@ -185,9 +181,9 @@ public sealed class MenuBuilderAddFolderItemsTests
 
         MenuBuilder.AddFolderItems(items, folders, Array.Empty<string>(), provider);
 
-        Assert.IsTrue(items[0].IsDisabled);
-        Assert.IsFalse(items[0].HasSubMenu);
-        Assert.AreEqual(IntPtr.Zero, items[0].SubMenuHandle);
+        Assert.IsFalse(items[0].IsDisabled);
+        Assert.IsTrue(items[0].HasSubMenu);
+        Assert.AreEqual("shell:DefinitelyMissingFolder", GetPath(provider, items[0].SubMenuHandle));
     }
 
     [TestMethod]

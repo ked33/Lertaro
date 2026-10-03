@@ -90,11 +90,11 @@ public static class QuickNavigationMenu
 
     private static void ShowMenu(int mouseX, int mouseY, int generation, QuickNavTriggerContext trigger, string path, Task<string?>? hoveredFolder)
     {
-        // Neither capture gates the popup: the opened-folder submenu and the deferred hover row consume them.
+        // Hover detection is asynchronous; opened-folder capture starts only when its submenu is expanded.
         var dummyResult = new AppSearchResult
         {
-            FullPath = path, Name = Path.GetFileName(path), IsDir = true, DeferNavigationPreparation = true,
-            HoveredFolderPathTask = hoveredFolder, OpenedFolderPathsTask = CaptureOpenedFoldersAsync()
+            FullPath = path, Name = Path.GetFileName(path), IsDir = true,
+            HoveredFolderPathTask = hoveredFolder, OpenedFolderPathsLoader = CaptureOpenedFoldersAsync
         };
         var contextMenu = new ContextMenu();
         contextMenu.PreviewKeyDown += (_, e) => QuickNavigationMenuKeyHandler.HandleShortcutKeyDown(contextMenu, e);

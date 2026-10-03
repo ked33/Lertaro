@@ -20,9 +20,8 @@ public interface ISearchResult
     /// <summary>Click-scoped reads that may complete after Quick Navigation is already visible.</summary>
     Task<string?>? HoveredFolderPathTask => null;
 
-    /// <summary>The Quick Navigation host supports deferred root preparation.</summary>
-    bool DeferNavigationPreparation => false;
-    Task<IReadOnlyList<string>>? OpenedFolderPathsTask => null;
+    /// <summary>Invoked on the submenu worker when Current Directory is first expanded.</summary>
+    Func<Task<IReadOnlyList<string>>>? OpenedFolderPathsLoader => null;
 
     /// <summary>True if this is a directory, false if a file.</summary>
     bool IsDir { get; }

@@ -14,9 +14,8 @@ internal static class MenuBuilderTestHelpers
         public string ContextDirectory { get; init; } = "";
         public string? HoveredFolderPath { get; init; }
         public Task<string?>? HoveredFolderPathTask { get; init; }
-        public Task<IReadOnlyList<string>>? OpenedFolderPathsTask { get; init; }
+        public Func<Task<IReadOnlyList<string>>>? OpenedFolderPathsLoader { get; init; }
         public bool IsDir { get; init; }
-        public bool DeferNavigationPreparation { get; init; }
         public bool IsApplication { get; init; }
     }
 

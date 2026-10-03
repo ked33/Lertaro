@@ -225,8 +225,8 @@ internal static class QuickNavigationMenuContentExtensions
             // still expand on hover/keyboard-focus/right-arrow; this gate only controls click/Enter.
             if (!item.IsActionable || (item.HasSubMenu && !canNavigate)) return;
 
-            // A prepared snapshot is only a display hint: external changes are checked on execution.
-            if (item.IsPathAvailable == true && !Helpers.FavoritePathResolver.IsPathAvailable(itemPath)) return;
+            // Metadata is only a display hint. Validate the actual target and kind on execution.
+            if (!CanExecutePath(item, itemPath)) return;
 
             contextMenu.IsOpen = false;
             (contextMenu.PlacementTarget as Window)?.Hide();
@@ -251,7 +251,7 @@ internal static class QuickNavigationMenuContentExtensions
 
         AttachMiddleClick(menuItem, item, canNavigate, () =>
         {
-            if (item.IsPathAvailable == true && !Helpers.FavoritePathResolver.IsPathAvailable(itemPath)) return;
+            if (!CanExecutePath(item, itemPath)) return;
             contextMenu.IsOpen = false;
             (contextMenu.PlacementTarget as Window)?.Hide();
             Application.Current.Dispatcher.BeginInvoke(new Action(() =>
@@ -302,6 +302,11 @@ internal static class QuickNavigationMenuContentExtensions
 
     internal static bool IsPathAvailable(DynamicMenuItem item, string? path, Func<string, bool>? check = null) =>
         !string.IsNullOrEmpty(path) && (item.IsPathAvailable ?? (check ?? (p => Helpers.FavoritePathResolver.IsPathAvailable(p)))(path));
+
+    internal static bool CanExecutePath(DynamicMenuItem item, string? path) =>
+        item.IsPathAvailable != true || (item.HasSubMenu
+            ? PluginSdk.Helpers.PathAvailability.IsFolderAvailable(path)
+            : Helpers.FavoritePathResolver.IsPathAvailable(path));
 
     internal static void AttachMiddleClick(MenuItem menuItem, DynamicMenuItem item, bool canNavigate, Action openFolder)
     {

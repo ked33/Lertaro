@@ -16,7 +16,8 @@ internal static class MenuBuilderContentExtensions
     internal static List<DynamicMenuItem> BuildRootMenu(Provider provider, ISearchResult? context = null)
     {
         provider.ClearSession();
-        provider.OpenedFolderPathsTask = context?.OpenedFolderPathsTask;
+        if (context?.OpenedFolderPathsLoader is { } loader)
+            provider.OpenedFolderPaths = new Lazy<Task<IReadOnlyList<string>>>(loader);
         var hoveredFolder = context?.HoveredFolderPath;
         var items = new List<DynamicMenuItem>();
 
@@ -29,7 +30,7 @@ internal static class MenuBuilderContentExtensions
 
         if (folders != null)
         {
-            MenuBuilder.AddFolderItems(items, folders, Array.Empty<string>(), provider, context?.DeferNavigationPreparation == true);
+            MenuBuilder.AddFolderItems(items, folders, Array.Empty<string>(), provider);
         }
 
         var hasSupplementalMenu = false;
@@ -39,7 +40,7 @@ internal static class MenuBuilderContentExtensions
             "ShowOpenedFolders",
             true);
 
-        if (showOpenedFolders && (context?.OpenedFolderPathsTask != null || ExplorerPathService.GetOpenedFolderPaths().Count > 0))
+        if (showOpenedFolders && (context?.OpenedFolderPathsLoader != null || ExplorerPathService.GetOpenedFolderPaths().Count > 0))
         {
             if (!hasSupplementalMenu && items.Count > 0 && !items.Last().IsSeparator)
             {
@@ -52,9 +53,6 @@ internal static class MenuBuilderContentExtensions
                 SubMenuHandle = provider.AllocateHandle("foldercascader://opened-folders"), IsPathAvailable = false,
                 HBitmapItem = IconBitmapCache.OpenedFoldersHBitmap
             };
-            if (context?.OpenedFolderPathsTask is { } openedTask)
-                openedItem.LoadDeferredItem = async cancellation =>
-                    (await openedTask.WaitAsync(cancellation)).Count > 0 ? openedItem : null;
             items.Add(openedItem);
             hasSupplementalMenu = true;
         }
@@ -69,36 +67,20 @@ internal static class MenuBuilderContentExtensions
             "ShowHistory",
             true);
 
-        var favoritePreparation = showFavorites && context?.DeferNavigationPreparation == true
-            ? provider.Preparation.FavoriteAvailability() : null;
-        var hasFavorites = showFavorites && (favoritePreparation != null
-            ? !favoritePreparation.IsCompletedSuccessfully || favoritePreparation.Result.Available
-            : HasAvailableFavorites(FavoritesService.GetFavorites(), File.Exists, Directory.Exists));
+        var hasFavorites = showFavorites && FavoritesService.GetFavorites().Any(f => !string.IsNullOrWhiteSpace(f.Path));
         if (hasFavorites)
         {
             if (!hasSupplementalMenu && items.Count > 0 && !items.Last().IsSeparator)
             {
                 items.Add(new DynamicMenuItem { IsSeparator = true });
             }
-            DynamicMenuItem FavoriteItem() => new()
+            items.Add(new DynamicMenuItem
             {
                 Text = TranslationService.Get("FolderCascader_Favorites"),
                 HasSubMenu = true,
                 SubMenuHandle = provider.AllocateHandle("foldercascader://favorites"), IsPathAvailable = false,
                 HBitmapItem = IconBitmapCache.FavoritesHBitmap
-            };
-            if (favoritePreparation != null && !favoritePreparation.IsCompletedSuccessfully)
-                items.Add(new DynamicMenuItem
-                {
-                    IsDisabled = true,
-                    LoadDeferredItem = async cancellation =>
-                    {
-                        var prepared = await favoritePreparation.WaitAsync(cancellation);
-                        cancellation.ThrowIfCancellationRequested();
-                        return prepared.Available ? FavoriteItem() : null;
-                    }
-                });
-            else items.Add(FavoriteItem());
+            });
             hasSupplementalMenu = true;
         }
 
@@ -119,11 +101,7 @@ internal static class MenuBuilderContentExtensions
         }
 
         if (PluginSettingsService.GetSetting("Lertaro.Plugins.FolderCascader", "ShowRecentFolders", true))
-        {
-            if (context?.DeferNavigationPreparation == true)
-                RecentFoldersMenu.AppendDeferred(items, provider, historyShown);
-            else RecentFoldersMenu.AppendRoot(items, provider, historyShown);
-        }
+            RecentFoldersMenu.AppendRoot(items, provider, historyShown);
 
         while (items.Count > 0 && items.Last().IsSeparator)
         {

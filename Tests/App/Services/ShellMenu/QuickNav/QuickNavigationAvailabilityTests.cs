@@ -7,6 +7,20 @@ namespace Lertaro.App.Tests.Services.ShellMenu.QuickNav;
 public sealed class QuickNavigationAvailabilityTests
 {
     [TestMethod]
+    public void FolderMetadataIsValidatedOnExecutionAndCannotNavigateToAFile()
+    {
+        var file = Path.GetTempFileName();
+        try
+        {
+            var item = new DynamicMenuItem { HasSubMenu = true, IsPathAvailable = true };
+            Assert.IsFalse(QuickNavigationMenuContentExtensions.CanExecutePath(item, file));
+            Assert.IsFalse(QuickNavigationMenuContentExtensions.CanExecutePath(item, file + ".missing"));
+            Assert.IsTrue(QuickNavigationMenuContentExtensions.CanExecutePath(item, Path.GetDirectoryName(file)));
+        }
+        finally { File.Delete(file); }
+    }
+
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void PreparedStateDoesNotPerformAnotherFilesystemOrShellProbe(bool available)
