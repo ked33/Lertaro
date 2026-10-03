@@ -50,9 +50,15 @@ public sealed class ExplorerShellWindowsHelperTests
         var targetFolder = new FakeFolder { Self = new FakeItem { Path = @"C:\target" } };
         var window = new FakeWindow(new FakeDocument(oldFolder, targetFolder));
 
-        Assert.IsTrue(ExplorerShellWindowsHelper.NavigateAndSelect(window, @"C:\target", "same-name"));
+        var activated = IntPtr.Zero;
+        Assert.IsTrue(ExplorerShellWindowsHelper.NavigateAndSelect(window, @"C:\target", "same-name", hwnd =>
+        {
+            Assert.AreSame(targetFolder.Item, window.Document.SelectedItem);
+            activated = hwnd;
+        }));
 
         Assert.AreEqual(@"C:\target", window.NavigatedTo);
+        Assert.AreEqual((IntPtr)window.HWND, activated);
         Assert.AreSame(targetFolder.Item, window.Document.SelectedItem);
         Assert.AreEqual(0x1 | 0x4 | 0x8 | 0x10, window.Document.SelectionFlags);
     }
@@ -63,13 +69,39 @@ public sealed class ExplorerShellWindowsHelperTests
         var folder = new FakeFolder { Self = new FakeItem { Path = @"C:\target" }, Item = null };
         var window = new FakeWindow(new FakeDocument(folder, folder));
 
-        Assert.IsFalse(ExplorerShellWindowsHelper.NavigateAndSelect(window, @"C:\target", "missing"));
+        var activated = false;
+        Assert.IsFalse(ExplorerShellWindowsHelper.NavigateAndSelect(window, @"C:\target", "missing", _ => activated = true));
+        Assert.IsNull(window.Document.SelectedItem);
+        Assert.IsFalse(activated);
+    }
+
+    [TestMethod]
+    public void NavigateAndSelect_ActivationFailure_DoesNotRequestAnotherWindow()
+    {
+        var folder = new FakeFolder { Self = new FakeItem { Path = @"C:\target" } };
+        var window = new FakeWindow(new FakeDocument(folder, folder));
+
+        Assert.IsTrue(ExplorerShellWindowsHelper.NavigateAndSelect(window, @"C:\target", "item", _ =>
+            throw new InvalidOperationException("The target window closed after selection.")));
+        Assert.AreSame(folder.Item, window.Document.SelectedItem);
+    }
+
+    [TestMethod]
+    public void NavigateAndSelect_FolderTabWithoutSelection_ActivatesItsOwningWindow()
+    {
+        var folder = new FakeFolder { Self = new FakeItem { Path = @"C:\target" } };
+        var window = new FakeWindow(new FakeDocument(folder, folder));
+        var activated = IntPtr.Zero;
+
+        Assert.IsTrue(ExplorerShellWindowsHelper.NavigateAndSelect(window, @"C:\target", string.Empty, hwnd => activated = hwnd));
+        Assert.AreEqual((IntPtr)window.HWND, activated);
         Assert.IsNull(window.Document.SelectedItem);
     }
 
     // Public because production accesses the same members through the COM dynamic binder.
     public sealed class FakeWindow(FakeDocument document)
     {
+        public long HWND => 42;
         public string? NavigatedTo { get; private set; }
         public FakeDocument Document { get; } = document;
         public void Navigate2(string path) => NavigatedTo = path;

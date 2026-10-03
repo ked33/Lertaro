@@ -3,6 +3,8 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using Lertaro.Core;
+using Lertaro.Core.Hook;
+using Lertaro.Core.Wire;
 
 namespace Lertaro.App.Services;
 
@@ -106,7 +108,7 @@ internal static class ExplorerShellWindowsHelper
     /// ShellThread, a thread-per-call worker built for exactly this kind of shell work, which also keeps
     /// every COM call on the STA the objects were created on.
     /// </remarks>
-    public static bool NavigateAndSelect(object shellWindow, string folder, string? itemName)
+    public static bool NavigateAndSelect(object shellWindow, string folder, string? itemName, Action<IntPtr>? activateWindow = null)
     {
         dynamic window = shellWindow;
         window.Navigate2(folder);
@@ -116,7 +118,19 @@ internal static class ExplorerShellWindowsHelper
         {
             try
             {
-                if (TrySelectInFolder(shellWindow, folder, itemName)) return true;
+                if (TrySelectInFolder(shellWindow, folder, itemName))
+                {
+                    try
+                    {
+                        (activateWindow ?? ActivateExplorerWindow)((IntPtr)window.HWND);
+                    }
+                    catch (Exception ex)
+                    {
+                        // The view was selected; a closed HWND or failed activation is not a locate failure.
+                        Logger.Log($"[ExplorerShellWindowsHelper] Could not activate the selected view: {ex.Message}", LogLevel.Warn);
+                    }
+                    return true;
+                }
             }
             catch
             {
@@ -145,7 +159,11 @@ internal static class ExplorerShellWindowsHelper
                 if (hwnd != IntPtr.Zero)
                 {
                     window = FindShellWindowForTab(GetActiveTabHandle(hwnd), hwnd);
-                    if (window != null && TrySelectInFolder(window, folder, itemName)) return true;
+                    if (window != null && TrySelectInFolder(window, folder, itemName))
+                    {
+                        ActivateExplorerWindow(hwnd);
+                        return true;
+                    }
                 }
             }
             catch (Exception ex)
@@ -161,8 +179,44 @@ internal static class ExplorerShellWindowsHelper
             Thread.Sleep(MatchPollMs);
         }
 
-        Logger.Log($"[ExplorerShellWindowsHelper] Selection in the opened folder timed out for '{Path.Combine(folder, itemName)}'; falling back to Explorer /select. Last error: {lastError?.Message ?? "none"}", LogLevel.Warn);
+        Logger.Log($"[ExplorerShellWindowsHelper] Selection in the opened folder timed out for '{Path.Combine(folder, itemName)}'. Last error: {lastError?.Message ?? "none"}", LogLevel.Warn);
         return false;
+    }
+
+    // Granting Explorer foreground permission before launch does not activate the window that
+    // eventually receives a QTTabBar/native tab. Activate that exact HWND after its view is ready.
+    private static void ActivateExplorerWindow(IntPtr hwnd)
+    {
+        try
+        {
+            if (!IsExplorerWindow(hwnd)) return;
+            // Restore minimized windows only, preserving a maximized window's existing size.
+            if (IsIconic(hwnd)) ShowWindowAsync(hwnd, 9 /* SW_RESTORE */);
+            var requested = ExplorerNativeHooks.SetForegroundWindow(hwnd);
+            var hook = App.HookClient;
+            var usedHook = false;
+            if (GetForegroundWindow() != hwnd && hook is { IsConnected: true, ServiceProcessId: > 0 })
+            {
+                AllowSetForegroundWindow((uint)hook.ServiceProcessId);
+                // Reuse the existing foreground handoff. An Alt tap could alter the user's held hotkey.
+                hook.SendMessage(new IpcMessage { Id = IpcMessageId.ForceForeground, Hwnd = hwnd.ToInt64(), BoolVal = false });
+                usedHook = true;
+            }
+
+            // The receiving UI thread and the hook both complete activation asynchronously.
+            var started = Stopwatch.GetTimestamp();
+            while (GetForegroundWindow() != hwnd && Stopwatch.GetElapsedTime(started).TotalMilliseconds < 250)
+                Thread.Sleep(10);
+
+            var foreground = GetForegroundWindow();
+            Logger.Log($"[ExplorerShellWindowsHelper] Activate HWND=0x{hwnd.ToInt64():X}: requested={requested}, hook={usedHook}, foreground=0x{foreground.ToInt64():X}.",
+                foreground == hwnd ? LogLevel.Debug : LogLevel.Warn);
+        }
+        catch (Exception ex)
+        {
+            // Selection already succeeded. An activation failure must not open a duplicate window.
+            Logger.Log($"[ExplorerShellWindowsHelper] Activate HWND=0x{hwnd.ToInt64():X} failed: {ex.Message}", LogLevel.Warn);
+        }
     }
 
     internal static bool TrySelectInFolder(object shellWindow, string folder, string? itemName)
@@ -334,6 +388,18 @@ internal static class ExplorerShellWindowsHelper
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsIconic(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ShowWindowAsync(IntPtr hwnd, int command);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AllowSetForegroundWindow(uint processId);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

@@ -29,7 +29,7 @@ internal static class ExplorerLocateHelper
             path = Path.TrimEndingDirectorySeparator(UserPathResolver.Expand(path));
             var fileManager = UserSettings.Load().DefaultFileManager;
 
-            if (fileManager.OpenFoldersInNewExplorerTabs && FileExecutor.TryLocateInNewExplorerTab(path, () => ShellOpenHelper.TryRevealInFolder(path)))
+            if (fileManager.OpenFoldersInNewExplorerTabs && FileExecutor.TryLocateInNewExplorerTab(path, () => TryRevealAndActivate(path)))
                 return;
 
             RevealWithShell(path);
@@ -100,9 +100,19 @@ internal static class ExplorerLocateHelper
             && ExplorerShellWindowsHelper.TrySelectInOpenedFolder(parent, Path.GetFileName(path)))
             return;
 
-        if (ShellOpenHelper.TryRevealInFolder(path)) return;
+        if (TryRevealAndActivate(path)) return;
 
         Logger.Log($"[FileExecutor] Locate failed for '{path}': the shell could not select the item in its parent folder.", LogLevel.Error);
         MessageBox.Show(string.Format(TranslationManager.Instance["Executor_LocateFailed"], path), TranslationManager.Instance["Service_Error"], MessageBoxButton.OK, MessageBoxImage.Error);
+    }
+
+    private static bool TryRevealAndActivate(string path)
+    {
+        if (!ShellOpenHelper.TryRevealInFolder(path)) return false;
+        var parent = ResolveContainingFolder(path);
+        // /select is also asynchronous. Once its view appears, select and activate the owning window.
+        if (!string.IsNullOrWhiteSpace(parent))
+            ExplorerShellWindowsHelper.TrySelectInOpenedFolder(parent, Path.GetFileName(path));
+        return true;
     }
 }
