@@ -28,16 +28,13 @@ public class Provider : IQuickNavigationProvider
     private int _nextId = 1;
     private int _nextCmdId = 1;
     internal IReadOnlyList<DynamicMenuItem> RecentFolderSubmenu { get; set; } = [];
+    internal Task<IReadOnlyList<string>>? OpenedFolderPathsTask { get; set; }
 
     // Reuses the plugin's own display name rather than a separate translation key -- this provider IS
     // the plugin (FolderCascaderPlugin has no other component contributing quick-navigation items).
     public string GroupName => TranslationService.Get("FolderCascader_PluginName");
 
-    // Root-level equivalent of the "+" MenuBuilder.InsertCategoryHeader prepends to each nested
-    // category submenu -- the host renders this in the root group header itself (see
-    // QuickNavigationMenu.Show), since that header isn't something this plugin builds directly.
-    public Action<ISearchResult>? HeaderAction => result => MenuBuilder.PromptAndAddCurrentFolder(result.FullPath, "");
-    public string? HeaderActionTooltip => TranslationService.Get("FolderCascader_AddCurrentFolder");
+    public bool ShowGroupHeader => false;
 
     public bool CanProvide(ISearchResult result) => result != null && !string.IsNullOrEmpty(result.FullPath);
 
@@ -57,6 +54,7 @@ public class Provider : IQuickNavigationProvider
         _folderSnapshots.Clear();
         _commandMap.Clear();
         RecentFolderSubmenu = [];
+        OpenedFolderPathsTask = null;
         Interlocked.Exchange(ref _nextId, 1);
         Interlocked.Exchange(ref _nextCmdId, 1);
     }

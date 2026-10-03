@@ -13,9 +13,11 @@ namespace Lertaro.Plugins.FolderCascader.Navigation;
 // file has no surface any test calls directly, only what GetMenuItems' own dispatch delegates into.
 internal static class MenuBuilderContentExtensions
 {
-    internal static List<DynamicMenuItem> BuildRootMenu(Provider provider, string? hoveredFolder = null)
+    internal static List<DynamicMenuItem> BuildRootMenu(Provider provider, ISearchResult? context = null)
     {
         provider.ClearSession();
+        provider.OpenedFolderPathsTask = context?.OpenedFolderPathsTask;
+        var hoveredFolder = context?.HoveredFolderPath;
         var items = new List<DynamicMenuItem>();
 
         // Unpersisted falls back to FolderCascaderPlugin's own schema DefaultValue automatically
@@ -37,32 +39,23 @@ internal static class MenuBuilderContentExtensions
             "ShowOpenedFolders",
             true);
 
-        if (showOpenedFolders && ExplorerPathService.GetOpenedFolderPaths().Count > 0)
+        if (showOpenedFolders && (context?.OpenedFolderPathsTask != null || ExplorerPathService.GetOpenedFolderPaths().Count > 0))
         {
             if (!hasSupplementalMenu && items.Count > 0 && !items.Last().IsSeparator)
             {
                 items.Add(new DynamicMenuItem { IsSeparator = true });
             }
-            items.Add(new DynamicMenuItem
+            var openedItem = new DynamicMenuItem
             {
                 Text = TranslationService.Get("FolderCascader_OpenedFolders"),
                 HasSubMenu = true,
                 SubMenuHandle = provider.AllocateHandle("foldercascader://opened-folders"),
                 HBitmapItem = IconBitmapCache.OpenedFoldersHBitmap
-            });
-            hasSupplementalMenu = true;
-        }
-
-        if (!string.IsNullOrWhiteSpace(hoveredFolder) && Path.IsPathFullyQualified(hoveredFolder) && Directory.Exists(hoveredFolder))
-        {
-            if (!hasSupplementalMenu && items.Count > 0 && !items.Last().IsSeparator)
-                items.Add(new DynamicMenuItem { IsSeparator = true });
-            items.Add(new DynamicMenuItem
-            {
-                Text = TranslationService.Get("FolderCascader_HoveredFolder"),
-                HasSubMenu = true,
-                SubMenuHandle = provider.AllocateHandle(hoveredFolder)
-            });
+            };
+            if (context?.OpenedFolderPathsTask is { } openedTask)
+                openedItem.LoadDeferredItem = async cancellation =>
+                    (await openedTask.WaitAsync(cancellation)).Count > 0 ? openedItem : null;
+            items.Add(openedItem);
             hasSupplementalMenu = true;
         }
 
@@ -114,6 +107,39 @@ internal static class MenuBuilderContentExtensions
         while (items.Count > 0 && items.Last().IsSeparator)
         {
             items.RemoveAt(items.Count - 1);
+        }
+
+        if (context?.HoveredFolderPathTask is { } hoveredTask)
+        {
+            items.Insert(0, new DynamicMenuItem
+            {
+                IsPinnedToTop = true,
+                Text = TranslationService.Get("QuickNav_Loading"),
+                IsDisabled = true,
+                LoadDeferredItem = async cancellation =>
+                {
+                    var path = await hoveredTask.WaitAsync(cancellation);
+                    cancellation.ThrowIfCancellationRequested();
+                    // The capture already validated the physical directory off the UI thread.
+                    return string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path) ? null : new DynamicMenuItem
+                    {
+                        IsPinnedToTop = true,
+                        Text = TranslationService.Get("FolderCascader_HoveredFolder"),
+                        HasSubMenu = true,
+                        SubMenuHandle = provider.AllocateHandle(path)
+                    };
+                }
+            });
+        }
+        else if (!string.IsNullOrWhiteSpace(hoveredFolder) && Path.IsPathFullyQualified(hoveredFolder) && Directory.Exists(hoveredFolder))
+        {
+            items.Insert(0, new DynamicMenuItem
+            {
+                IsPinnedToTop = true,
+                Text = TranslationService.Get("FolderCascader_HoveredFolder"),
+                HasSubMenu = true,
+                SubMenuHandle = provider.AllocateHandle(hoveredFolder)
+            });
         }
 
         return items;

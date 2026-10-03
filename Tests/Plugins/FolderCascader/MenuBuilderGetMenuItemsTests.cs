@@ -14,9 +14,7 @@ public sealed class MenuBuilderGetMenuItemsTests
     [TestMethod]
     public void GetMenuItems_RootLevel_NeverIncludesAHeaderOrStandaloneAddItem()
     {
-        // Root's own "+" comes from Provider.HeaderAction, rendered by the host directly into the
-        // group header row (see QuickNavigationMenu.Show) -- it's never one of GetMenuItems' own
-        // returned DynamicMenuItems the way a category submenu's header is.
+        // The root has no group header; category submenus retain their own add buttons.
         PluginSettingsService.GetSettingFunc = (pluginId, key, defaultValue) =>
             pluginId == "Lertaro.Plugins.FolderCascader" && key == "Folders"
                 ? new List<FolderCascaderPlugin.FolderConfigItem> { Folder("Downloads", @"C:\Downloads") }
@@ -37,16 +35,15 @@ public sealed class MenuBuilderGetMenuItemsTests
     }
 
     [TestMethod]
-    public void Provider_HeaderAction_IsWiredWithATooltip()
+    public void Provider_HidesItsRootGroupHeader()
     {
         var provider = new Provider();
 
-        Assert.IsNotNull(provider.HeaderAction);
-        Assert.IsFalse(string.IsNullOrEmpty(provider.HeaderActionTooltip));
+        Assert.IsFalse(provider.ShowGroupHeader);
     }
 
     [TestMethod]
-    public void Provider_HeaderAction_PromptsThenSavesAtRootLevel()
+    public void PromptAndAddCurrentFolder_SavesAtRootLevel()
     {
         PluginSettingsService.GetSettingFunc = (pluginId, key, defaultValue) =>
             pluginId == "Lertaro.Plugins.FolderCascader" && key == "Folders" ? new List<FolderCascaderPlugin.FolderConfigItem>() : defaultValue;
@@ -56,10 +53,9 @@ public sealed class MenuBuilderGetMenuItemsTests
             fields.ToDictionary(f => f.Key, object? (f) => f.DefaultValue);
         try
         {
-            var provider = new Provider();
             var result = new FakeResult { FullPath = Path.GetTempPath() };
 
-            provider.HeaderAction!(result);
+            MenuBuilder.PromptAndAddCurrentFolder(result.FullPath, "");
 
             var added = saved!.Single();
             Assert.AreEqual(Path.GetTempPath(), added.Path);

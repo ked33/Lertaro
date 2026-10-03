@@ -20,6 +20,9 @@ public interface IQuickNavigationProvider : IPluginComponent
     /// </summary>
     string GroupName { get; }
 
+    /// <summary>Whether Quick Navigation renders this provider's group header.</summary>
+    bool ShowGroupHeader => true;
+
     /// <summary>The display name of the provider.</summary>
     string IPluginComponent.Name => GroupName;
 

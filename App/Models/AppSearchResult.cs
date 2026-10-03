@@ -118,6 +118,18 @@ public class AppSearchResult : System.ComponentModel.INotifyPropertyChanged, Plu
         set => Extras.HoveredFolderPath = value;
     }
 
+    public Task<string?>? HoveredFolderPathTask
+    {
+        get => _extras?.HoveredFolderPathTask;
+        set => Extras.HoveredFolderPathTask = value;
+    }
+
+    public Task<IReadOnlyList<string>>? OpenedFolderPathsTask
+    {
+        get => _extras?.OpenedFolderPathsTask;
+        set => Extras.OpenedFolderPathsTask = value;
+    }
+
     public bool IsDir
     {
         get => _extras?.IsDir ?? _source?.IsDir ?? false;

@@ -14,6 +14,8 @@ public static class IconBitmapCache
     public static IntPtr AddHBitmap { get; private set; } = IntPtr.Zero;
 
     private static readonly object _iconLock = new();
+    private static (System.Windows.Media.Color Color, double Opacity, System.Windows.Media.Matrix Transform,
+        System.Windows.Media.Matrix RelativeTransform)? _renderedAccent;
 
     [System.Runtime.InteropServices.DllImport("gdi32.dll", EntryPoint = "DeleteObject")]
     [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
@@ -43,6 +45,16 @@ public static class IconBitmapCache
     {
         lock (_iconLock)
         {
+            var brush = AccentBrush();
+            var accent = brush is System.Windows.Media.SolidColorBrush solid
+                ? (solid.Color, solid.Opacity, solid.Transform.Value, solid.RelativeTransform.Value)
+                : ((System.Windows.Media.Color, double, System.Windows.Media.Matrix, System.Windows.Media.Matrix)?)null;
+            // ponytail: cache the usual solid theme accent. Unusual brushes keep the existing render
+            // path; add a richer key only if themes start using gradients or other brush types.
+            if (accent != null && accent == _renderedAccent && FavoritesHBitmap != IntPtr.Zero
+                && HistoryHBitmap != IntPtr.Zero && OpenedFoldersHBitmap != IntPtr.Zero
+                && CategoryHBitmap != IntPtr.Zero && AddHBitmap != IntPtr.Zero) return;
+
             // Render the new handles first, then delete the old ones, so a failed render never leaves
             // the menu pointing at deleted GDI objects.
             var newFavorites = CreateStarHBitmap();
@@ -62,6 +74,7 @@ public static class IconBitmapCache
             OpenedFoldersHBitmap = newOpened;
             CategoryHBitmap = newCategory;
             AddHBitmap = newAdd;
+            _renderedAccent = accent;
 
             if (oldFavorites != IntPtr.Zero) DeleteObject(oldFavorites);
             if (oldHistory != IntPtr.Zero) DeleteObject(oldHistory);

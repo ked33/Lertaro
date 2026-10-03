@@ -87,6 +87,14 @@ public interface IDynamicActionProvider : IPluginComponent
 /// </summary>
 public class DynamicMenuItem
 {
+    /// <summary>
+    /// Optional Quick Navigation root update, started after the popup opens. Empty Text reserves an
+    /// invisible insertion point; null removes the item, and returning this item keeps it unchanged.
+    /// Honor cancellation before allocating session handles. The host invokes this on its UI thread.
+    /// </summary>
+    public Func<CancellationToken, Task<DynamicMenuItem?>>? LoadDeferredItem { get; set; }
+    /// <summary>Place this Quick Navigation root item above provider groups, with a separator below it.</summary>
+    public bool IsPinnedToTop { get; set; }
     public string Text { get; set; } = string.Empty;
     public uint CommandId { get; set; }
     public bool IsSeparator { get; set; }

@@ -27,6 +27,8 @@ internal sealed class AppSearchResultExtras
     public string? ParentDir;
     public string? ContextDirectory;
     public string? HoveredFolderPath;
+    public Task<string?>? HoveredFolderPathTask;
+    public Task<IReadOnlyList<string>>? OpenedFolderPathsTask;
     public string? Drive;
     public bool? IsDir;
     public PluginSdk.Abstractions.FileMetadata? Metadata;

@@ -95,6 +95,12 @@ public sealed class IconBitmapCacheTests
                     }
                     IconBitmapCache.EnsureIcons();
                     AssertIcons(expected);
+                    var handles = new[] { IconBitmapCache.FavoritesHBitmap, IconBitmapCache.HistoryHBitmap,
+                        IconBitmapCache.OpenedFoldersHBitmap, IconBitmapCache.CategoryHBitmap, IconBitmapCache.AddHBitmap };
+                    IconBitmapCache.EnsureIcons();
+                    CollectionAssert.AreEqual(handles, new[] { IconBitmapCache.FavoritesHBitmap, IconBitmapCache.HistoryHBitmap,
+                        IconBitmapCache.OpenedFoldersHBitmap, IconBitmapCache.CategoryHBitmap, IconBitmapCache.AddHBitmap },
+                        "An unchanged theme must reuse its native bitmaps.");
                 }).Task.WaitAsync(TestTimeout);
 
                 await Task.Run(IconBitmapCache.EnsureIcons).WaitAsync(TestTimeout);
