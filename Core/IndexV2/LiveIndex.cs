@@ -67,10 +67,12 @@ public sealed class LiveIndex : IDisposable
         {
             EnsureUsable();
             mutate(_snapshot!, _delta!);
-            Interlocked.Increment(ref _revision);
         }
         finally
         {
+            // A cancelled/failed batch may already have changed rows. Invalidate revision-based
+            // readers even when the caller will replay the batch from its previous USN watermark.
+            Interlocked.Increment(ref _revision);
             _lock.ExitWriteLock();
         }
     }

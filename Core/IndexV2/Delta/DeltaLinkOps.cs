@@ -26,7 +26,7 @@ public static class DeltaLinkOps
         };
         record.Aliases = AliasGeneration.Generate(name, out var providerIds);
         record.ProviderIds = providerIds;
-        delta.Added.Add(record);
+        delta.AppendAdded(record);
         delta.CountAdded(flags.HasFlag(FileRecordFlags.Directory));
     }
 
@@ -136,8 +136,9 @@ public static class DeltaLinkOps
             }
         }
 
-        foreach (var record in delta.Added)
+        foreach (var row in delta.AddedRowsForId(frn))
         {
+            var record = delta.Added[row];
             if (!record.Removed && record.Id == frn)
             {
                 record.Size = size;
@@ -172,6 +173,11 @@ public static class DeltaLinkOps
                     continue;
                 }
 
+                // Most metadata notifications leave attributes unchanged. Keep the immutable row and
+                // its metadata-only overlay instead of decoding its name and regenerating aliases.
+                if (MergeFlags(snapshot.Flags[row], observedFlags) == snapshot.Flags[row])
+                    continue;
+
                 var name = snapshot.GetName(row);
                 var (size, creation, lastWrite, lastAccess) = delta.MetadataOf(row);
                 var record = new DeltaOverlay.DeltaRecord
@@ -193,9 +199,12 @@ public static class DeltaLinkOps
             }
         }
 
-        foreach (var record in delta.Added)
+        foreach (var row in delta.AddedRowsForId(frn))
+        {
+            var record = delta.Added[row];
             if (!record.Removed && record.Id == frn)
                 record.Flags = MergeFlags(record.Flags, observedFlags);
+        }
     }
 
     private static ushort MergeFlags(ushort currentFlags, FileRecordFlags observedFlags)
@@ -234,8 +243,9 @@ public static class DeltaLinkOps
 
     private static DeltaOverlay.DeltaRecord? FindMatchingAdded(DeltaOverlay delta, UInt128 frn, UInt128 parentFrn, string name)
     {
-        foreach (var record in delta.Added)
+        foreach (var row in delta.AddedRowsForId(frn))
         {
+            var record = delta.Added[row];
             if (!record.Removed && record.Id == frn && record.ParentFrn == parentFrn
                 && string.Equals(record.Name, name, StringComparison.OrdinalIgnoreCase)
                 && delta.ParentResolves(record)) // an unhealed orphan is triple-unmatchable, like the old engine's pf=0

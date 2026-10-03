@@ -47,6 +47,14 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
+      - name: Test incremental indexing and service shutdown
+        shell: pwsh
+        env:
+          NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+        run: |
+          dotnet test Tests/Core/Core.csproj -c Release --filter "FullyQualifiedName~IndexV2|FullyQualifiedName~Indexer.Usn|FullyQualifiedName~IdleTrimGate|FullyQualifiedName~MonitorLoopJoin" --logger trx --results-directory TestResults
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test animation controls and settings search
         shell: pwsh
         env:

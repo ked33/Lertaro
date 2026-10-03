@@ -84,18 +84,22 @@ internal static class UsnMetadataReader
             FileRecordFlagsHelper.FromAttributes(attributes));
     }
 
-    internal static void Refresh(LiveIndex live, HashSet<UInt128> ids)
+    internal static void Refresh(LiveIndex live, HashSet<UInt128> ids, CancellationToken token = default)
     {
         var (isNtfs, paths) = live.Read((snapshot, delta) =>
         {
             var found = new Dictionary<UInt128, string>();
             foreach (var id in ids)
+            {
+                token.ThrowIfCancellationRequested();
                 if (delta.TryGetPathForFrn(id, out var path)) found.Add(id, path);
+            }
             return (snapshot.FileSystemType.Equals("NTFS", StringComparison.OrdinalIgnoreCase), found);
         });
         var values = new Dictionary<UInt128, Metadata>();
         foreach (var (id, path) in paths)
         {
+            token.ThrowIfCancellationRequested();
             if (isNtfs && IsNtfsInternalPath(path))
                 continue;
 
@@ -109,6 +113,7 @@ internal static class UsnMetadataReader
         {
             foreach (var (id, metadata) in values)
             {
+                token.ThrowIfCancellationRequested();
                 DeltaLinkOps.UpdateMetadata(delta, id, metadata.Size, metadata.Created, metadata.Modified, metadata.Accessed);
                 DeltaLinkOps.UpdateFlags(delta, id, metadata.Flags);
             }

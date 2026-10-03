@@ -9,6 +9,53 @@ public sealed class IdleTrimGateTests
     private static IdleTrimGate At(long start = 0) => new(IdleMs, start);
 
     [TestMethod]
+    public void Compaction_IsCheckedWithoutAnySearchOrGcArming()
+    {
+        var gate = At();
+        Assert.IsFalse(gate.ShouldCompact(59_999));
+        Assert.IsTrue(gate.ShouldCompact(60_000));
+        Assert.IsFalse(gate.ShouldTrim(60_000), "background persistence must not arm repeated GC");
+        Assert.IsFalse(gate.ShouldCompact(63_000));
+        Assert.IsTrue(gate.ShouldCompact(120_000));
+    }
+
+    [TestMethod]
+    public void Compaction_WaitsForAnActiveSearchAndItsIdleWindow()
+    {
+        var gate = At();
+        gate.SearchStarted(0);
+        Assert.IsFalse(gate.ShouldCompact(120_000));
+        gate.SearchFinished(120_000);
+        Assert.IsFalse(gate.ShouldCompact(123_000));
+        Assert.IsTrue(gate.ShouldCompact(123_001));
+        Assert.IsTrue(gate.ShouldTrim(123_001), "compaction does not consume the search cleanup");
+    }
+
+    [TestMethod]
+    public void SearchCleanup_DoesNotConsumeTheBackgroundCompactionCheck()
+    {
+        var gate = At();
+        gate.SearchStarted(0);
+        gate.SearchFinished(100);
+        Assert.IsTrue(gate.ShouldTrim(4_000));
+        Assert.IsFalse(gate.ShouldTrim(60_000));
+        Assert.IsTrue(gate.ShouldCompact(60_000));
+    }
+
+    [TestMethod]
+    public void ConcurrentTicks_GrantOnlyOneCompactionCheckPerInterval()
+    {
+        var gate = At();
+        var granted = 0;
+        Parallel.For(0, 16, _ =>
+        {
+            if (gate.ShouldCompact(60_000))
+                Interlocked.Increment(ref granted);
+        });
+        Assert.AreEqual(1, granted);
+    }
+
+    [TestMethod]
     public void ASearchStillRunning_IsNotIdle_HoweverLongAgoItStarted()
     {
         // The bug. A whole-drive query blocks for longer than the idle window, so the trimmer used to

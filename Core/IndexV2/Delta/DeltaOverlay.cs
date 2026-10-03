@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Lertaro.Core.IndexV2.Alias;
 
 using Lertaro.Core.IndexV2.Persistence;
@@ -40,8 +41,24 @@ public sealed class DeltaOverlay
     // rows; rows with a full override record carry the refresh inside that record instead.
     internal readonly Dictionary<int, (long Size, uint Creation, uint LastWrite, uint LastAccess)> MetadataOverrides = new();
     private readonly Dictionary<UInt128, int> _addedById = new();
+    private readonly Dictionary<UInt128, List<int>> _addedRowsById = new();
 
     public DeltaOverlay(Snapshot snapshot) => Snapshot = snapshot;
+
+    // USN identities are one-to-many (hard links). Index stable row numbers so Upsert's replacement
+    // remains visible without rebuilding the lookup. Callers hold the owning LiveIndex lock.
+    internal void AppendAdded(DeltaRecord record)
+    {
+        if (!_addedRowsById.TryGetValue(record.Id, out var rows))
+            _addedRowsById.Add(record.Id, rows = new List<int>(1));
+        rows.Add(Added.Count);
+        Added.Add(record);
+    }
+
+    // ponytail: retains removed rows until compaction, so cost is O(this FRN's history/hard links),
+    // never O(all added files). If same-FRN churn dominates, prune tombstones from these buckets.
+    internal ReadOnlySpan<int> AddedRowsForId(UInt128 id) =>
+        _addedRowsById.TryGetValue(id, out var rows) ? CollectionsMarshal.AsSpan(rows) : default;
 
     public int VisibleAddedCount => Added.Count(r => !r.Removed);
     public int PendingChangeCount => DeletedBase.Count + BaseOverrides.Count + RenamedAway.Count + MetadataOverrides.Count + Added.Count;
@@ -113,7 +130,7 @@ public sealed class DeltaOverlay
             // tombstoned base row must stay dead and the reused id gets a fresh delta row, exactly
             // like the old engine's TryGetIndexById-skips-deleted + append behavior.
             _addedById[id] = Added.Count;
-            Added.Add(record);
+            AppendAdded(record);
             CountAdded(isDirectory);
         }
     }
@@ -176,9 +193,12 @@ public sealed class DeltaOverlay
 
     internal DeltaRecord? FindAddedDirectory(UInt128 frn)
     {
-        foreach (var record in Added)
+        foreach (var row in AddedRowsForId(frn))
+        {
+            var record = Added[row];
             if (!record.Removed && record.Id == frn && (record.Flags & (ushort)FileRecordFlags.Directory) != 0)
                 return record;
+        }
         return null;
     }
 
@@ -195,15 +215,16 @@ public sealed class DeltaOverlay
                 first--;
             for (var row = first; row < Snapshot.Count && ids[row] == frn; row++)
             {
-                if (!IsSuperseded(row))
+                if (!IsVisiblyDeleted(row))
                 {
                     path = GetFullPath(row);
                     return true;
                 }
             }
         }
-        foreach (var record in Added)
+        foreach (var row in AddedRowsForId(frn))
         {
+            var record = Added[row];
             if (!record.Removed && record.Id == frn)
             {
                 path = GetFullPath(record);
@@ -231,8 +252,9 @@ public sealed class DeltaOverlay
                 return true;
             }
         }
-        foreach (var record in Added)
+        foreach (var row in AddedRowsForId(frn))
         {
+            var record = Added[row];
             if (record.Id == frn)
             {
                 path = GetFullPath(record);
@@ -252,7 +274,8 @@ public sealed class DeltaOverlay
             while (first > 0 && ids[first - 1] == frn)
                 first--;
             for (row = first; row < Snapshot.Count && ids[row] == frn; row++)
-                if (!IsSuperseded(row) && Snapshot.IsDirectory(row))
+                if (!IsVisiblyDeleted(row) && (BaseOverrides.TryGetValue(row, out var record)
+                        ? IsDir(record.Flags) : Snapshot.IsDirectory(row)))
                     return true;
         }
         row = -1;

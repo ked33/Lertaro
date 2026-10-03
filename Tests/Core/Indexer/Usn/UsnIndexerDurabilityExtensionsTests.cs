@@ -135,6 +135,61 @@ public sealed class UsnIndexerDurabilityExtensionsTests
         Assert.IsFalse(File.Exists(CachePath(tempDir.Path)));
     }
 
+    [TestMethod]
+    public void BackgroundChurn_PersistsWithoutASearchAndResetsTheAddedLookup()
+    {
+        using var tempDir = new TempDirectory();
+        using var fixture = LiveIndexFixture.Build("C", new[] { LiveIndexFixture.Root() });
+        var indexer = Loaded(fixture, "NTFS");
+        var gate = new IdleTrimGate(3000, 0);
+        AddChurn(fixture.Index, UsnIndexerDurabilityExtensions.IdleCompactPendingThreshold);
+        indexer.AdvanceJournalWatermark("C", JournalId, 4242);
+
+        Assert.IsFalse(gate.ShouldTrim(60_000));
+        Assert.IsTrue(gate.ShouldCompact(60_000));
+        Assert.AreEqual(1, indexer.CompactIdleDeltas(tempDir.Path));
+        fixture.Index.Mutate((_, delta) =>
+        {
+            Assert.AreEqual(0, delta.AddedRowsForId(2).Length);
+            DeltaLinkOps.AddLink(delta, 2, 1, "churn0.txt", FileRecordFlags.None);
+            Assert.AreEqual(0, delta.PendingChangeCount, "a replay must match the newly compacted base");
+            DeltaLinkOps.AddLink(delta, 2, 1, "another-link.txt", FileRecordFlags.None);
+            Assert.AreEqual(1, delta.AddedRowsForId(2).Length);
+        });
+        Assert.AreEqual(4242L, SnapshotFormat.TryReadHeaderFromFile(CachePath(tempDir.Path))!.NextUsn);
+    }
+
+    [TestMethod]
+    public void CompactIdleDeltas_DriveBeingRebuilt_IsDeferredUntilReady()
+    {
+        using var tempDir = new TempDirectory();
+        using var fixture = LiveIndexFixture.Build("C", new[] { LiveIndexFixture.Root() });
+        var indexer = Loaded(fixture, "NTFS");
+        indexer.Status.Drives.Add(new UsnIndexer.DriveIndexStatus { Drive = "c", State = "indexing" });
+        AddChurn(fixture.Index, UsnIndexerDurabilityExtensions.IdleCompactPendingThreshold);
+
+        Assert.AreEqual(0, indexer.CompactIdleDeltas(tempDir.Path));
+        Assert.IsFalse(File.Exists(CachePath(tempDir.Path)));
+        Assert.AreEqual(UsnIndexerDurabilityExtensions.IdleCompactPendingThreshold, fixture.Index.PendingChangeCount);
+        indexer.Status.Drives[0].State = "ready";
+        Assert.AreEqual(1, indexer.CompactIdleDeltas(tempDir.Path));
+    }
+
+    [TestMethod]
+    public void CompactIdleDeltas_CancelledBeforeMaintenance_PreservesThePendingDelta()
+    {
+        using var tempDir = new TempDirectory();
+        using var fixture = LiveIndexFixture.Build("C", new[] { LiveIndexFixture.Root() });
+        var indexer = Loaded(fixture, "NTFS");
+        AddChurn(fixture.Index, UsnIndexerDurabilityExtensions.IdleCompactPendingThreshold);
+
+        Assert.ThrowsExactly<OperationCanceledException>(() =>
+            indexer.CompactIdleDeltas(tempDir.Path, new CancellationToken(canceled: true)));
+        Assert.IsFalse(File.Exists(CachePath(tempDir.Path)));
+        Assert.AreEqual(UsnIndexerDurabilityExtensions.IdleCompactPendingThreshold, fixture.Index.PendingChangeCount);
+        Assert.AreEqual(StartUsn, indexer._driveMetadata["C"].NextUsn);
+    }
+
     private static UsnIndexer.DriveRuntimeMetadata Metadata(string fileSystemType) => new()
     {
         SourceKind = FileRecordSourceKind.LocalMft,

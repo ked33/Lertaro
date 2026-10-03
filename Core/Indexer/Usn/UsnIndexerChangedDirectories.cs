@@ -26,7 +26,8 @@ internal static class UsnIndexerChangedDirectories
     public static List<string>? Resolve(
         LiveIndex live,
         HashSet<UInt128> parentFrns,
-        string? drive = null)
+        string? drive = null,
+        CancellationToken token = default)
     {
         if (parentFrns.Count == 0)
             return new List<string>();
@@ -37,6 +38,7 @@ internal static class UsnIndexerChangedDirectories
         {
             foreach (var frn in parentFrns)
             {
+                token.ThrowIfCancellationRequested();
                 if (!delta.TryGetPathForFrn(frn, out var path) || string.IsNullOrEmpty(path))
                 {
                     if (delta.TryGetHistoricalPathForFrn(frn, out path))
@@ -54,6 +56,7 @@ internal static class UsnIndexerChangedDirectories
 
         foreach (var frn in unresolvedFrns)
         {
+            token.ThrowIfCancellationRequested();
             if (!string.IsNullOrWhiteSpace(drive) && UsnFilePathResolver.TryResolve(drive, frn, out var path))
             {
                 directories.Add(path);
