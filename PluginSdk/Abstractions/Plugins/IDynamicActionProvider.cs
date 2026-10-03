@@ -101,7 +101,7 @@ public class DynamicMenuItem
     public bool HasSubMenu { get; set; }
     public IntPtr SubMenuHandle { get; set; }
     public bool IsDisabled { get; set; }
-    /// <summary>Availability already checked by the provider; null asks the host to check.</summary>
+    /// <summary>Navigation eligibility from provider metadata; null asks the host to check. True is revalidated on execution.</summary>
     public bool? IsPathAvailable { get; set; }
     /// <summary>
     /// Whether clicking/Enter on this item executes anything. Default: true. Set false for a pure

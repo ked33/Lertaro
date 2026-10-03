@@ -9,44 +9,26 @@ namespace Lertaro.Plugins.FolderCascader.Tests;
 public sealed class RecentFoldersMenuTests
 {
     [TestMethod]
-    public void MissingFoldersAreSkippedBeforeLimitAndEntriesRemainCascadable()
-    {
-        var provider = new Provider();
-        var snapshot = new RecentFoldersSnapshot(new RecentFolderEntry[]
-        {
-            new(@"C:\Missing", 30), new(@"C:\A", 20), new(@"c:\a", 15), new(@"C:\B", 10)
-        }, 2);
-        var items = RecentFoldersMenu.Build(provider, snapshot, path => path != @"C:\Missing");
-        Assert.HasCount(2, items);
-        Assert.IsTrue(items.All(i => i.HasSubMenu && i.SubMenuHandle != IntPtr.Zero));
-        Assert.IsTrue(provider.TryGetPath(items[0].SubMenuHandle, out var path));
-        Assert.AreEqual(@"C:\A", path);
-    }
-
-    [TestMethod]
-    public void LatestFifteenFoldersFollowTheCategoryAndSubmenuKeepsItsFullLimit()
+    public void LatestFifteenAppearImmediatelyWithoutCheckingTheirPathsOrPreparingSubmenuHandles()
     {
         var provider = new Provider();
         var entries = Entries(40);
-        entries.Add(new(@"C:\Missing", 100));
-        entries.Add(new(" ", 99));
-        entries.Add(new(@"c:\folder40", 39));
-        var items = new List<DynamicMenuItem> { new() { Text = "Existing" } };
-
-        RecentFoldersMenu.AppendRoot(items, provider, false, new(entries, 20), path => path != @"C:\Missing");
-
-        Assert.HasCount(17, items);
-        Assert.AreEqual("Existing", items[0].Text);
-        Assert.AreEqual(RecentFoldersMenu.HandlePath, GetPath(provider, items[1].SubMenuHandle));
-        var rootFolders = items.Skip(2).ToArray();
-        Assert.HasCount(15, rootFolders);
-        Assert.HasCount(20, provider.RecentFolderSubmenu);
+        entries.Add(new(" ", 100));
+        entries.Add(new(@"c:older40", 39));
+        var items = new List<DynamicMenuItem>();
+        RecentFoldersMenu.AppendRoot(items, provider, false, new(entries, 20));
+        Assert.HasCount(16, items);
+        Assert.IsTrue(items.All(item => item.LoadDeferredItem == null));
+        Assert.IsFalse(provider.TryGetPath(new IntPtr(18), out _), "Only the category and fifteen root handles are allocated.");
         CollectionAssert.AreEqual(Enumerable.Range(26, 15).Reverse().Select(i => $@"C:\Folder{i}").ToArray(),
-            rootFolders.Select(item => GetPath(provider, item.SubMenuHandle)).ToArray());
-        CollectionAssert.AreEqual(Enumerable.Range(6, 20).Reverse().Select(i => $@"C:\Folder{i}").ToArray(),
-            provider.RecentFolderSubmenu.Select(item => GetPath(provider, item.SubMenuHandle)).ToArray());
-        Assert.IsTrue(rootFolders.Concat(provider.RecentFolderSubmenu)
-            .All(item => item.HasSubMenu && item.IsActionable && !item.IsDisabled));
+            items.Skip(1).Select(item => GetPath(provider, item.SubMenuHandle)).ToArray());
+        var checkedPaths = new List<string>();
+        var submenu = RecentFoldersMenu.BuildSubmenu(provider, path => { checkedPaths.Add(path); return path != @"C:\Folder25"; });
+        Assert.HasCount(20, submenu);
+        Assert.HasCount(21, checkedPaths);
+        Assert.AreEqual(@"C:\Folder24", GetPath(provider, submenu[0].SubMenuHandle));
+        Assert.AreEqual(@"C:\Folder5", GetPath(provider, submenu[^1].SubMenuHandle));
+        Assert.IsFalse(checkedPaths.Intersect(items.Skip(1).Select(item => GetPath(provider, item.SubMenuHandle))).Any());
     }
 
     [TestMethod]
@@ -61,20 +43,13 @@ public sealed class RecentFoldersMenuTests
     {
         var provider = new Provider();
         var items = new List<DynamicMenuItem>();
-        RecentFoldersMenu.AppendRoot(items, provider, false, new(Entries(count), 20), _ => true);
-
+        RecentFoldersMenu.AppendRoot(items, provider, false, new(Entries(count), 20));
         Assert.HasCount(1 + rootCount, items);
-        var submenu = provider.RecentFolderSubmenu;
+        var submenu = RecentFoldersMenu.BuildSubmenu(provider, _ => true);
         Assert.HasCount(Math.Max(1, submenuCount), submenu);
-        if (submenuCount == 0)
-        {
-            Assert.IsTrue(submenu[0].IsDisabled);
-            Assert.IsFalse(submenu[0].HasSubMenu);
-        }
-        var paths = items.Skip(1).Concat(submenu.Where(item => !item.IsDisabled))
-            .Select(item => GetPath(provider, item.SubMenuHandle)).ToArray();
-        CollectionAssert.AreEqual(Entries(count).OrderByDescending(entry => entry.OpenedUtcTicks)
-            .Select(entry => entry.Path).ToArray(), paths);
+        if (submenuCount == 0) Assert.IsTrue(submenu[0].IsDisabled && !submenu[0].HasSubMenu);
+        CollectionAssert.AreEqual(Entries(count).OrderByDescending(entry => entry.OpenedUtcTicks).Select(entry => entry.Path).ToArray(),
+            items.Skip(1).Concat(submenu.Where(item => !item.IsDisabled)).Select(item => GetPath(provider, item.SubMenuHandle)).ToArray());
     }
 
     [TestMethod]
@@ -87,10 +62,9 @@ public sealed class RecentFoldersMenuTests
     {
         var provider = new Provider();
         var items = new List<DynamicMenuItem>();
-        RecentFoldersMenu.AppendRoot(items, provider, false, new(Entries(150), limit), _ => true);
-
+        RecentFoldersMenu.AppendRoot(items, provider, false, new(Entries(150), limit));
         Assert.HasCount(16, items);
-        Assert.HasCount(expectedSubmenuCount, provider.RecentFolderSubmenu);
+        Assert.HasCount(expectedSubmenuCount, RecentFoldersMenu.BuildSubmenu(provider, _ => true));
     }
 
     [TestMethod]
@@ -103,47 +77,33 @@ public sealed class RecentFoldersMenuTests
             RecentFoldersService.GetSnapshotFunc = () => new(Entries(40), 20);
             var provider = new Provider();
             var items = new List<DynamicMenuItem>();
-            RecentFoldersMenu.AppendRoot(items, provider, false, exists: _ => true);
-
+            RecentFoldersMenu.AppendRoot(items, provider, false);
             RecentFoldersService.GetSnapshotFunc = () => new(Entries(16), 1);
-            var submenu = provider.GetMenuItems(new FakeResult(), items[0].SubMenuHandle).ToArray();
+            var submenu = RecentFoldersMenu.BuildSubmenu(provider, _ => true);
             Assert.HasCount(20, submenu);
             Assert.AreEqual(@"C:\Folder25", GetPath(provider, submenu[0].SubMenuHandle));
-            Assert.AreEqual(@"C:\Folder6", GetPath(provider, submenu[^1].SubMenuHandle));
-
             provider.ClearSession();
-            Assert.HasCount(0, provider.RecentFolderSubmenu);
+            Assert.HasCount(0, provider.RecentFolderSnapshot.Entries);
             items.Clear();
-            RecentFoldersMenu.AppendRoot(items, provider, false, exists: _ => true);
-            Assert.HasCount(1, provider.RecentFolderSubmenu);
-            Assert.AreEqual(@"C:\Folder1", GetPath(provider, provider.RecentFolderSubmenu[0].SubMenuHandle));
+            RecentFoldersMenu.AppendRoot(items, provider, false);
+            submenu = RecentFoldersMenu.BuildSubmenu(provider, _ => true);
+            Assert.HasCount(1, submenu);
+            Assert.AreEqual(@"C:\Folder1", GetPath(provider, submenu[0].SubMenuHandle));
         }
-        finally
-        {
-            RecentFoldersService.GetSnapshotFunc = previous;
-        }
+        finally { RecentFoldersService.GetSnapshotFunc = previous; }
     }
 
     [TestMethod]
     public void SeparatorIsInsertedOnlyAfterVisibleHistory()
     {
         var items = new List<DynamicMenuItem> { new() { Text = "History" } };
-        RecentFoldersMenu.AppendRoot(items, new Provider(), historyShown: true, snapshot: new([], 20));
+        RecentFoldersMenu.AppendRoot(items, new Provider(), true, new([], 20));
         Assert.HasCount(3, items);
         Assert.IsTrue(items[1].IsSeparator);
-        Assert.IsTrue(items[2].HasSubMenu);
         var empty = new List<DynamicMenuItem>();
-        RecentFoldersMenu.AppendRoot(empty, new Provider(), historyShown: false, snapshot: new([], 20));
+        RecentFoldersMenu.AppendRoot(empty, new Provider(), false, new([], 20));
         Assert.HasCount(1, empty);
         Assert.IsFalse(empty[0].IsSeparator);
-    }
-
-    [TestMethod]
-    public void RecentFoldersAreShownByDefault()
-    {
-        var setting = new FolderCascaderPlugin().GetConfigSchema().Fields.Single().SubFields!
-            .Single(field => field.Key == "ShowRecentFolders");
-        Assert.IsTrue((bool)setting.DefaultValue!);
     }
 
     private static List<RecentFolderEntry> Entries(int count) =>

@@ -118,22 +118,16 @@ public class AppSearchResult : System.ComponentModel.INotifyPropertyChanged, Plu
         set => Extras.HoveredFolderPath = value;
     }
 
-    public bool DeferNavigationPreparation
-    {
-        get => _extras?.DeferNavigationPreparation ?? false;
-        set => Extras.DeferNavigationPreparation = value;
-    }
-
     public Task<string?>? HoveredFolderPathTask
     {
         get => _extras?.HoveredFolderPathTask;
         set => Extras.HoveredFolderPathTask = value;
     }
 
-    public Task<IReadOnlyList<string>>? OpenedFolderPathsTask
+    public Func<Task<IReadOnlyList<string>>>? OpenedFolderPathsLoader
     {
-        get => _extras?.OpenedFolderPathsTask;
-        set => Extras.OpenedFolderPathsTask = value;
+        get => _extras?.OpenedFolderPathsLoader;
+        set => Extras.OpenedFolderPathsLoader = value;
     }
 
     public bool IsDir

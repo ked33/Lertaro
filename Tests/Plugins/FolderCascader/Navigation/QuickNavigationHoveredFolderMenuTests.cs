@@ -90,7 +90,7 @@ public sealed class QuickNavigationHoveredFolderMenuTests
         var provider = new Provider();
         var result = new FakeResult
         {
-            FullPath = _directory.Path, HoveredFolderPathTask = hover.Task, OpenedFolderPathsTask = opened.Task
+            FullPath = _directory.Path, HoveredFolderPathTask = hover.Task, OpenedFolderPathsLoader = () => opened.Task
         };
         var items = provider.GetMenuItems(result, IntPtr.Zero).ToArray();
         Assert.HasCount(2, items);
@@ -108,7 +108,7 @@ public sealed class QuickNavigationHoveredFolderMenuTests
         Assert.AreEqual(_directory.Path, GetPath(provider, resolved.SubMenuHandle));
 
         opened.SetResult([@"C:\Fresh"]);
-        Assert.AreSame(items[1], await items[1].LoadDeferredItem!(CancellationToken.None));
+        Assert.IsNull(items[1].LoadDeferredItem);
         var folders = provider.GetMenuItems(result, items[1].SubMenuHandle).ToArray();
         Assert.HasCount(1, folders);
         Assert.AreEqual(@"C:\Fresh", GetPath(provider, folders[0].SubMenuHandle));
@@ -129,18 +129,18 @@ public sealed class QuickNavigationHoveredFolderMenuTests
     }
 
     [TestMethod]
-    public async Task EmptyDeferredCapturesRemoveTheirRows()
+    public async Task EmptyHoverIsRemovedButCurrentDirectoryHeadingStays()
     {
         var result = new FakeResult
         {
             FullPath = _directory.Path,
             HoveredFolderPathTask = Task.FromResult<string?>(null),
-            OpenedFolderPathsTask = Task.FromResult<IReadOnlyList<string>>([])
+            OpenedFolderPathsLoader = () => Task.FromResult<IReadOnlyList<string>>([])
         };
         var items = new Provider().GetMenuItems(result, IntPtr.Zero).ToArray();
         Assert.HasCount(2, items);
         Assert.IsTrue(items[0].IsPinnedToTop);
-        Assert.IsNull(await items[1].LoadDeferredItem!(CancellationToken.None));
+        Assert.IsNull(items[1].LoadDeferredItem);
         Assert.IsNull(await items[0].LoadDeferredItem!(CancellationToken.None));
     }
 }

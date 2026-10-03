@@ -27,10 +27,8 @@ public class Provider : IQuickNavigationProvider
     private readonly ConcurrentDictionary<uint, string> _commandMap = new();
     private int _nextId = 1;
     private int _nextCmdId = 1;
-    internal RootMenuPreparation Preparation { get; } = new();
-    internal Task<RecentFoldersSnapshot>? RecentFolderSnapshotTask { get; set; }
-    internal IReadOnlyList<DynamicMenuItem> RecentFolderSubmenu { get; set; } = [];
-    internal Task<IReadOnlyList<string>>? OpenedFolderPathsTask { get; set; }
+    internal RecentFoldersSnapshot RecentFolderSnapshot { get; set; } = new([], 20);
+    internal Lazy<Task<IReadOnlyList<string>>>? OpenedFolderPaths { get; set; }
 
     // Reuses the plugin's own display name rather than a separate translation key -- this provider IS
     // the plugin (FolderCascaderPlugin has no other component contributing quick-navigation items).
@@ -55,9 +53,8 @@ public class Provider : IQuickNavigationProvider
         _folderPages.Clear();
         _folderSnapshots.Clear();
         _commandMap.Clear();
-        RecentFolderSubmenu = [];
-        RecentFolderSnapshotTask = null;
-        OpenedFolderPathsTask = null;
+        RecentFolderSnapshot = new([], 20);
+        OpenedFolderPaths = null;
         Interlocked.Exchange(ref _nextId, 1);
         Interlocked.Exchange(ref _nextCmdId, 1);
     }
