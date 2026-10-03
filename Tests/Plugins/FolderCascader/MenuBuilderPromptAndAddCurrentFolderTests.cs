@@ -94,8 +94,10 @@ public sealed class MenuBuilderPromptAndAddCurrentFolderTests
         {
             MenuBuilder.PromptAndAddCurrentFolder(dir.Path, "");
 
-            Assert.AreEqual(dir.Path, saved!.Single().Path);
-            Assert.AreEqual("", saved.Single().ShortcutKey);
+            Assert.IsNotNull(saved);
+            var added = saved.Single();
+            Assert.AreEqual(dir.Path, added.Path);
+            Assert.AreEqual("", added.ShortcutKey);
         }
         finally
         {

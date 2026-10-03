@@ -14,7 +14,7 @@ public sealed class RecentFoldersMenuTests
         var provider = new Provider();
         var entries = Entries(40);
         entries.Add(new(" ", 100));
-        entries.Add(new(@"c:older40", 39));
+        entries.Add(new(entries[39].Path.ToLowerInvariant(), 39));
         var items = new List<DynamicMenuItem>();
         RecentFoldersMenu.AppendRoot(items, provider, false, new(entries, 20));
         Assert.HasCount(16, items);
