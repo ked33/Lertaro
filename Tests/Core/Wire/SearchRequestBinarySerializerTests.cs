@@ -41,6 +41,46 @@ public sealed class SearchRequestBinarySerializerTests
     }
 
     [TestMethod]
+    [DataRow(SearchRequestId.Search)]
+    [DataRow(SearchRequestId.SearchDir)]
+    public async Task RoundTrip_Search_WithoutFileTypeRule_DoesNotEnableFiltering(SearchRequestId id)
+    {
+        var result = await RoundTripAsync(new SearchRequestMessage
+        {
+            Id = id,
+            Query = "脚本",
+            DirectoryFilter = @"D:\D-Download"
+        });
+
+        // Ordinary searches leave the rule unset. Turning null into an empty rule makes the
+        // service construct a filter that rejects every file and folder, even in a healthy index.
+        Assert.IsNull(result.FileTypeRule);
+    }
+
+    [TestMethod]
+    [DataRow(SearchRequestId.Search, "")]
+    [DataRow(SearchRequestId.SearchDir, "")]
+    [DataRow(SearchRequestId.Search, " ")]
+    [DataRow(SearchRequestId.SearchDir, " ")]
+    [DataRow(SearchRequestId.Search, "*.lnk; *.pdf")]
+    [DataRow(SearchRequestId.SearchDir, "*.lnk; *.pdf")]
+    [DataRow(SearchRequestId.Search, ":f,:-f")]
+    [DataRow(SearchRequestId.SearchDir, ":f,:-f")]
+    public async Task RoundTrip_Search_PreservesExplicitFileTypeRule(SearchRequestId id, string rule)
+    {
+        var result = await RoundTripAsync(new SearchRequestMessage
+        {
+            Id = id,
+            Query = "report",
+            DirectoryFilter = @"C:\docs",
+            FileTypeRule = rule
+        });
+
+        // An explicitly empty rule still matches nothing; it must not silently disable filtering.
+        Assert.AreEqual(rule, result.FileTypeRule);
+    }
+
+    [TestMethod]
     public async Task RoundTrip_Search_DefaultsToFuzzyWhenFlagNeverSet()
     {
         // SearchRequestMessage is a struct and cannot carry a field initializer, so the wire flag is
