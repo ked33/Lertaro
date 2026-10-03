@@ -57,7 +57,9 @@ public sealed class TranslationInstantProvider : IInstantResultProvider
         }
 
         var targetLanguage = parsed.TargetLanguage;
-        var key = targetLanguage + "\n" + text;
+        var chineseToEnglish = !parsed.HasExplicitTargetLanguage &&
+            PluginSettingsService.GetSetting(PluginId, "TranslateSimplifiedChineseToEnglish", true);
+        var key = chineseToEnglish + "\n" + targetLanguage + "\n" + text;
         _latestRequestKey = key;
         if (TryGetCached(key, out var cached))
         {
@@ -81,7 +83,7 @@ public sealed class TranslationInstantProvider : IInstantResultProvider
             yield break;
         }
 
-        EnsureFetchStarted(key, text, targetLanguage, word, query);
+        EnsureFetchStarted(key, text, targetLanguage, chineseToEnglish, word, query);
         yield return CreateItem(TranslationService.Get("Translator_LoadingTitle"), TranslationService.Get("Translator_LoadingDesc"), "None");
     }
 
@@ -119,7 +121,7 @@ public sealed class TranslationInstantProvider : IInstantResultProvider
         }
     }
 
-    private static void EnsureFetchStarted(string key, string text, string targetLanguage, string triggerWord, string requestQuery)
+    private static void EnsureFetchStarted(string key, string text, string targetLanguage, bool chineseToEnglish, string triggerWord, string requestQuery)
     {
         lock (PendingRequests)
         {
@@ -138,7 +140,7 @@ public sealed class TranslationInstantProvider : IInstantResultProvider
                 TranslationResponse? translation = null;
                 try
                 {
-                    translation = await MicrosoftTranslationFetcher.TranslateAsync(text, targetLanguage);
+                    translation = await MicrosoftTranslationFetcher.TranslateAsync(text, targetLanguage, chineseToEnglish);
                 }
                 catch
                 {

@@ -1,6 +1,6 @@
 namespace Lertaro.Plugins.Translator;
 
-internal readonly record struct TranslationQuery(string TargetLanguage, string Text);
+internal readonly record struct TranslationQuery(string TargetLanguage, string Text, bool HasExplicitTargetLanguage = false);
 
 internal static class TranslationQueryParser
 {
@@ -14,7 +14,7 @@ internal static class TranslationQueryParser
         if (separator < 0 || !TryNormalizeLanguage(input[..separator], out var targetLanguage))
             return new(defaultTargetLanguage, input);
 
-        return new(targetLanguage, input[(separator + 1)..].TrimStart());
+        return new(targetLanguage, input[(separator + 1)..].TrimStart(), HasExplicitTargetLanguage: true);
     }
 
     private static int FindWhitespace(string value)

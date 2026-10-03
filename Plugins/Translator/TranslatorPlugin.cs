@@ -21,6 +21,14 @@ public sealed class TranslatorPlugin : IPlugin, IConfigurable
                 DescriptionKey = "Translator_Config_TriggerDesc",
                 FieldType = ConfigFieldType.Text,
                 DefaultValue = "tr"
+            },
+            new()
+            {
+                Key = "TranslateSimplifiedChineseToEnglish",
+                LabelKey = "Translator_Config_ChineseToEnglishLabel",
+                DescriptionKey = "Translator_Config_ChineseToEnglishDesc",
+                FieldType = ConfigFieldType.Boolean,
+                DefaultValue = true
             }
         }
     };

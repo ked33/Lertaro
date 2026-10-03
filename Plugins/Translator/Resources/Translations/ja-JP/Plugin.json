@@ -15,6 +15,8 @@
   "Translator_FailedDesc": "Microsoft Translator はこのテキストを翻訳できませんでした。",
   "Translator_Config_TriggerLabel": "トリガー語",
   "Translator_Config_TriggerDesc": "任意の対象言語コードとテキストの前にこの語を入力します。例: tr en hello。既定値: tr。",
+  "Translator_Config_ChineseToEnglishLabel": "簡体字中国語を検出したら英語に翻訳",
+  "Translator_Config_ChineseToEnglishDesc": "既定で有効。対象言語を指定せずに簡体字中国語（zh-Hans）が検出された場合、英語（en）に翻訳します。明示的に指定した対象言語が優先されます。",
   "Plugin_Comp_Desc_TranslationInstantProvider": "Microsoft Translator を使用して即時回答として翻訳を提供します。",
   "Plugin_Comp_Desc_TranslatorTranslationProvider": "翻訳プラグインのローカライズ リソースを提供します。"
 }
