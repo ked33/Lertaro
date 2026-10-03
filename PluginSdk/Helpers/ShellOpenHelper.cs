@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 
 namespace Lertaro.PluginSdk.Helpers;
@@ -6,13 +8,8 @@ namespace Lertaro.PluginSdk.Helpers;
 /// The one place this app hands "open this folder" and "show me that item" to the Windows shell.
 /// </summary>
 /// <remarks>
-/// Every call site used to spell the shell's own command line instead
-/// (<c>Process.Start("explorer.exe", $"/select,\"{path}\"")</c>), which is wrong three ways: it forces
-/// explorer.exe even when the user registered a replacement file manager, the <c>/select,</c> switch is
-/// an unparsed string that a quote or trailing backslash in the path breaks, and it starts a whole
-/// second process to ask the shell for something this process can ask over the API those command lines
-/// end up calling anyway. <c>ShellExecuteW</c> is the launcher verb route, <c>SHOpenFolderAndSelectItems</c>
-/// is the documented "reveal this item" route.
+/// Folder opens use the shell association. File-system selection uses Windows Explorer's /select
+/// command for compatibility with Explorer's own selection flow. Virtual shell items retain the PIDL route.
 /// </remarks>
 public static class ShellOpenHelper
 {
@@ -104,30 +101,84 @@ public static class ShellOpenHelper
     /// Shows the folder holding <paramref name="itemPath"/> with that item selected. A folder passed in
     /// is revealed in its parent the same way a file is, so callers do not need to know which they hold.
     /// </summary>
-    /// <returns><see langword="false"/> when the shell could not resolve or reveal the item.</returns>
+    /// <returns>Whether Explorer was launched or the shell API accepted the request; selection completes asynchronously.</returns>
     public static bool TryRevealInFolder(string? itemPath)
     {
         if (string.IsNullOrWhiteSpace(itemPath)) return false;
+        try
+        {
+            var path = UserPathResolver.Expand(itemPath);
+            if (UserPathResolver.IsVirtualPath(path)) return TryRevealShellItem(path);
 
+            var startInfo = BuildRevealStartInfo(path);
+            if (!File.Exists(path) && !Directory.Exists(path))
+            {
+                Logger.Log($"[ShellOpenHelper] Cannot locate missing or inaccessible item '{path}'.", LogLevel.Error);
+                return false;
+            }
+
+            AllowExplorerForeground();
+            using var process = Process.Start(startInfo);
+            if (process != null) return true;
+            Logger.Log($"[ShellOpenHelper] Explorer could not be launched to select '{path}'.", LogLevel.Error);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"[ShellOpenHelper] Locate failed for '{itemPath}': {ex.GetType().Name} (0x{ex.HResult:X8}): {ex.Message}", LogLevel.Error);
+            return false;
+        }
+    }
+
+    // Build only: no process launch, so path handling can be checked without opening Explorer windows.
+    internal static ProcessStartInfo BuildRevealStartInfo(string itemPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(itemPath);
+        var path = UserPathResolver.Expand(itemPath);
+        if (UserPathResolver.IsVirtualPath(path) || path.IndexOfAny(Path.GetInvalidPathChars()) >= 0)
+            throw new ArgumentException("Explorer selection requires a valid file-system path.", nameof(itemPath));
+
+        path = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        return new ProcessStartInfo
+        {
+            FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"),
+            // Explorer parses commas and quotes itself, not with the C runtime argument rules.
+            // Always quote the validated path: ArgumentList leaves comma-only paths unquoted.
+            // Root backslashes stay literal; ordinary folder trailing separators were trimmed above.
+            Arguments = $"/select,\"{path}\"",
+            // CreateProcess avoids file associations and guarantees a process handle for the hand-off.
+            UseShellExecute = false
+        };
+    }
+
+    private static bool TryRevealShellItem(string itemPath)
+    {
         var pidl = IntPtr.Zero;
         var parentPidl = IntPtr.Zero;
         try
         {
-            if (SHParseDisplayName(itemPath, IntPtr.Zero, out pidl, 0, out _) != 0 || pidl == IntPtr.Zero)
+            var parseResult = SHParseDisplayName(itemPath, IntPtr.Zero, out pidl, 0, out _);
+            if (parseResult < 0 || pidl == IntPtr.Zero)
+            {
+                Logger.Log($"[ShellOpenHelper] SHParseDisplayName failed for '{itemPath}': HRESULT=0x{parseResult:X8}.", LogLevel.Error);
                 return false;
+            }
 
             // Explicit parent + child works for directories too; do not ask the shell to open the item.
             parentPidl = ILClone(pidl);
-            if (parentPidl == IntPtr.Zero || !ILRemoveLastID(parentPidl)) return false;
+            if (parentPidl == IntPtr.Zero || !ILRemoveLastID(parentPidl))
+            {
+                Logger.Log($"[ShellOpenHelper] Cannot resolve a parent shell item for '{itemPath}'.", LogLevel.Error);
+                return false;
+            }
             var childPidl = ILFindLastID(pidl);
             if (childPidl == IntPtr.Zero) return false;
 
             AllowExplorerForeground();
-            return SHOpenFolderAndSelectItems(parentPidl, 1, new[] { childPidl }, 0) == 0;
-        }
-        catch
-        {
-            return false;
+            var selectResult = SHOpenFolderAndSelectItems(parentPidl, 1, new[] { childPidl }, 0);
+            if (selectResult < 0)
+                Logger.Log($"[ShellOpenHelper] SHOpenFolderAndSelectItems failed for '{itemPath}': HRESULT=0x{selectResult:X8}.", LogLevel.Error);
+            return selectResult >= 0;
         }
         finally
         {
