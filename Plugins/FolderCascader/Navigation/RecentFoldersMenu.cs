@@ -42,7 +42,7 @@ internal static class RecentFoldersMenu
 
     private static DynamicMenuItem CreateFolder(Provider provider, string path) => new()
     {
-        Text = MenuBuilder.GetDisplayName(path, "") + $" ({path})", HasSubMenu = true,
+        Text = MenuBuilder.GetDisplayName(path, "") + $" ({Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(path)) ?? path})", HasSubMenu = true,
         SubMenuHandle = provider.AllocateHandle(path), IsPathAvailable = true
     };
 }
