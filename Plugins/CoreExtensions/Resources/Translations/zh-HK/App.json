@@ -730,7 +730,7 @@
   "RecentFolders_Capacity": "保留數量",
   "RecentFolders_MenuLimit": "選單數量",
   "RecentFolders_Exclusions": "不記錄這些目錄",
-  "RecentFolders_ExclusionsHint": "每行一個絕對目錄，支援環境變數，包含其子目錄。套用後也會刪除已有的相符記錄。",
+  "RecentFolders_ExclusionsHint": "每行一個絕對目錄，支援環境變數，僅排除目錄本身，不包含其子目錄。套用後也會刪除已有的相符記錄。",
   "RecentFolders_Browse": "選擇目錄",
   "RecentFolders_Search": "搜尋目錄名稱或路徑",
   "RecentFolders_Remove": "刪除",

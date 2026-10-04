@@ -730,7 +730,7 @@
   "RecentFolders_Capacity": "Keep entries",
   "RecentFolders_MenuLimit": "Menu entries",
   "RecentFolders_Exclusions": "Do not record these folders",
-  "RecentFolders_ExclusionsHint": "One absolute folder per line; environment variables are supported. Includes subfolders. Apply also removes matching saved entries.",
+  "RecentFolders_ExclusionsHint": "One absolute folder per line; environment variables are supported. Excludes only the listed folders, not their subfolders. Apply also removes matching saved entries.",
   "RecentFolders_Browse": "Choose folders",
   "RecentFolders_Search": "Search folder names or paths",
   "RecentFolders_Remove": "Delete",

@@ -730,7 +730,7 @@
   "RecentFolders_Capacity": "保存件数",
   "RecentFolders_MenuLimit": "メニュー件数",
   "RecentFolders_Exclusions": "記録しないフォルダー",
-  "RecentFolders_ExclusionsHint": "絶対パスを1行に1つ指定します。環境変数とサブフォルダーに対応します。適用時に一致する既存の記録も削除します。",
+  "RecentFolders_ExclusionsHint": "絶対パスを1行に1つ指定します。環境変数に対応します。指定したフォルダーのみを除外し、サブフォルダーは除外しません。適用時に一致する既存の記録も削除します。",
   "RecentFolders_Browse": "フォルダーを選択",
   "RecentFolders_Search": "フォルダー名またはパスを検索",
   "RecentFolders_Remove": "削除",

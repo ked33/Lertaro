@@ -730,7 +730,7 @@
   "RecentFolders_Capacity": "保存条数",
   "RecentFolders_MenuLimit": "菜单条数",
   "RecentFolders_Exclusions": "不记录这些目录",
-  "RecentFolders_ExclusionsHint": "每行一个绝对目录，支持环境变量，包含其子目录。应用后也会删除已有的匹配记录。",
+  "RecentFolders_ExclusionsHint": "每行一个绝对目录，支持环境变量，仅排除目录本身，不包含其子目录。应用后也会删除已有的匹配记录。",
   "RecentFolders_Browse": "选择目录",
   "RecentFolders_Search": "搜索目录名称或路径",
   "RecentFolders_Remove": "删除",

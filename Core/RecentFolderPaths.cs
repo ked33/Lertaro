@@ -21,6 +21,5 @@ public static class RecentFolderPaths
     }
 
     public static bool IsExcluded(string normalizedPath, IEnumerable<string> exclusions) => exclusions.Any(root =>
-        normalizedPath.Equals(root, StringComparison.OrdinalIgnoreCase)
-        || normalizedPath.StartsWith(root.EndsWith('\\') ? root : root + "\\", StringComparison.OrdinalIgnoreCase));
+        normalizedPath.Equals(root, StringComparison.OrdinalIgnoreCase));
 }

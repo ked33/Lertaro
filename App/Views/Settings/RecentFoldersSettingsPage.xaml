@@ -39,7 +39,7 @@
                      AutomationProperties.Name="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[RecentFolders_MenuLimit]}"
                      Text="{Binding MenuLimit, UpdateSourceTrigger=PropertyChanged, ValidatesOnDataErrors=True, ValidatesOnExceptions=True, NotifyOnValidationError=True}"/>
         </WrapPanel>
-        <Expander Grid.Row="2" x:Name="ExclusionsExpander" IsExpanded="{Binding IsExclusionsExpanded}" Margin="0,0,0,12"
+        <Expander Grid.Row="2" x:Name="ExclusionsExpander" Foreground="{DynamicResource TextPrimary}" IsExpanded="{Binding IsExclusionsExpanded}" Margin="0,0,0,12"
                   Header="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[RecentFolders_Exclusions]}">
             <StackPanel Margin="0,8,0,0">
                 <TextBlock Text="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[RecentFolders_ExclusionsHint]}"

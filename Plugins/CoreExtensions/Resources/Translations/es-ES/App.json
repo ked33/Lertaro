@@ -730,7 +730,7 @@
   "RecentFolders_Capacity": "Entradas guardadas",
   "RecentFolders_MenuLimit": "Entradas del menú",
   "RecentFolders_Exclusions": "No registrar estas carpetas",
-  "RecentFolders_ExclusionsHint": "Una ruta absoluta por línea; admite variables de entorno e incluye subcarpetas. Aplicar también elimina las entradas guardadas que coincidan.",
+  "RecentFolders_ExclusionsHint": "Una ruta absoluta por línea; admite variables de entorno. Solo excluye las carpetas indicadas, no sus subcarpetas. Aplicar también elimina las entradas guardadas que coincidan.",
   "RecentFolders_Browse": "Elegir carpetas",
   "RecentFolders_Search": "Buscar nombres o rutas de carpetas",
   "RecentFolders_Remove": "Eliminar",

@@ -67,15 +67,17 @@ public sealed class RecentFoldersStoreTests
     }
 
     [TestMethod]
-    public void ApplyingExclusionsPrunesChildrenButNotPrefixSiblings()
+    public void ApplyingExclusionsPrunesOnlyExactDirectory()
     {
         using var store = new RecentFoldersStore(StorePath, new(), () => 50);
         store.Record(@"C:\Private", 10);
         store.Record(@"C:\Private\Child", 20);
         store.Record(@"C:\PrivateOther", 30);
         store.ApplySettings(new() { ExcludedDirectories = [@"c:\private\"] });
+        store.Record(@"C:\Private", 55);
         store.Record(@"C:\Private\Later", 60);
-        Assert.AreEqual(@"C:\PrivateOther", store.GetSnapshot().Entries.Single().Path);
+        CollectionAssert.AreEqual(new[] { @"C:\Private\Later", @"C:\PrivateOther", @"C:\Private\Child" },
+            store.GetSnapshot().Entries.Select(e => e.Path).ToArray());
     }
 
     [TestMethod]
@@ -130,12 +132,14 @@ public sealed class RecentFoldersStoreTests
     }
 
     [TestMethod]
-    public void ExclusionNormalizationUsesDirectoryBoundariesAndEnvironmentVariables()
+    public void ExclusionNormalizationUsesExactDirectoriesAndEnvironmentVariables()
     {
         var root = RecentFolderPaths.Normalize("%TEMP%")!;
-        Assert.IsTrue(RecentFolderPaths.IsExcluded(root + @"\child", [root]));
+        Assert.IsTrue(RecentFolderPaths.IsExcluded(root, [root]));
+        Assert.IsFalse(RecentFolderPaths.IsExcluded(root + @"\child", [root]));
         Assert.IsFalse(RecentFolderPaths.IsExcluded(root + "-other", [root]));
-        Assert.IsTrue(RecentFolderPaths.IsExcluded(@"C:\child", [@"C:\"]));
+        Assert.IsTrue(RecentFolderPaths.IsExcluded(@"C:\", [@"C:\"]));
+        Assert.IsFalse(RecentFolderPaths.IsExcluded(@"C:\child", [@"C:\"]));
         Assert.IsNull(RecentFolderPaths.Normalize(@"\\?\C:\device"));
     }
 }
