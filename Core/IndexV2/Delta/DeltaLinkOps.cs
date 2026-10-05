@@ -131,7 +131,14 @@ public static class DeltaLinkOps
                 }
                 else
                 {
-                    delta.MetadataOverrides[row] = (size, creation, lastWrite, lastAccess);
+                    // Repeated USN metadata refreshes (especially parent directories) often read
+                    // the original values. Do not count those as pending snapshot changes; also
+                    // discard an old override when a file returns to its persisted metadata.
+                    if (snapshot.Sizes[row] == size && snapshot.CreationTimes[row] == creation
+                        && snapshot.LastWriteTimes[row] == lastWrite && snapshot.LastAccessTimes[row] == lastAccess)
+                        delta.MetadataOverrides.Remove(row);
+                    else
+                        delta.MetadataOverrides[row] = (size, creation, lastWrite, lastAccess);
                 }
             }
         }

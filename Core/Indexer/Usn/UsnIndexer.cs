@@ -70,6 +70,9 @@ public partial class UsnIndexer : IDisposable
         public UInt128 RootId { get; init; }
         public ulong JournalId { get; set; }
         public long NextUsn { get; set; }
+        // Monotonic, per-drive maintenance scheduling; guarded by LockObj, never persisted.
+        public long? LastChangeTicks { get; set; }
+        public long? CompactionDeferredSinceTicks { get; set; }
         // Set when a USN batch had nowhere to land, which stops NextUsn from moving again for the
         // lifetime of THIS instance: a stamp that walks past a batch nothing applied would turn one
         // dropped batch into a change nothing can ever replay. Deliberately per-instance rather than

@@ -49,6 +49,8 @@ public static class UsnIndexerExtensions
                 Logger.Log($"[UsnIndexer] Dropped {records.Count} USN record(s) for drive {drive}: no live index ({(rebuildOwnsDrive ? "a rebuild owns this drive" : "the drive is unloaded")}); its journal watermark is pinned so the next cold start replays them.", LogLevel.Warn);
                 return false;
             }
+            if (records.Count > 0 && indexer._driveMetadata.TryGetValue(drive, out var metadata))
+                metadata.LastChangeTicks = Environment.TickCount64;
         }
 
         var namePool = new FileRecordNamePool();
@@ -151,6 +153,11 @@ public static class UsnIndexerExtensions
         if (pendingMetadataFrns.Count > 0)
             UsnMetadataReader.Refresh(live, pendingMetadataFrns, token);
 
+        lock (indexer.LockObj)
+        {
+            if (records.Count > 0 && indexer._driveMetadata.TryGetValue(drive, out var metadata))
+                metadata.LastChangeTicks = Environment.TickCount64;
+        }
         token.ThrowIfCancellationRequested();
         indexer.PublishStatusChanged();
         return true;

@@ -33,14 +33,24 @@ public static class SnapshotWriter
     {
         var records = store.Records;
         var order = new List<int>(records.Count);
+        var alreadySorted = true;
         for (var i = 0; i < records.Count; i++)
-            if (!records[i].IsDeleted)
-                order.Add(i);
-        order.Sort((a, b) =>
         {
-            var c = records[a].Id.CompareTo(records[b].Id);
-            return c != 0 ? c : a.CompareTo(b);
-        });
+            if (!records[i].IsDeleted)
+            {
+                if (order.Count > 0 && records[order[^1]].Id > records[i].Id)
+                    alreadySorted = false;
+                order.Add(i);
+            }
+        }
+        // Metadata-only updates and deletions retain snapshot ID order. Equal-ID hard links
+        // already have the required input-order tie break, so no sort is needed in that case.
+        if (!alreadySorted)
+            order.Sort((a, b) =>
+            {
+                var c = records[a].Id.CompareTo(records[b].Id);
+                return c != 0 ? c : a.CompareTo(b);
+            });
         var count = order.Count;
 
         var nameIds = new uint[count];

@@ -16,6 +16,73 @@ public sealed class UsnIndexerDurabilityExtensionsTests
     private const long StartUsn = 100;
 
     [TestMethod]
+    public void CompactionScheduling_WaitsForQuietWithoutChangingTheWatermark()
+    {
+        var metadata = Metadata("NTFS");
+        metadata.LastChangeTicks = 60_000;
+        Assert.IsFalse(UsnIndexerDurabilityExtensions.ShouldCompactDrive(metadata, 4096, 60_000));
+        Assert.IsFalse(UsnIndexerDurabilityExtensions.ShouldCompactDrive(metadata, 4096, 64_999));
+        Assert.IsTrue(UsnIndexerDurabilityExtensions.ShouldCompactDrive(metadata, 4096, 65_000));
+        Assert.AreEqual(StartUsn, metadata.NextUsn);
+    }
+
+    [TestMethod]
+    public void CompactionScheduling_ContinuousChurnCannotDeferForever()
+    {
+        var metadata = Metadata("NTFS");
+        for (long now = 60_000; now < 360_000; now += 60_000)
+        {
+            metadata.LastChangeTicks = now;
+            Assert.IsFalse(UsnIndexerDurabilityExtensions.ShouldCompactDrive(metadata, 4096, now));
+        }
+        metadata.LastChangeTicks = 360_000;
+        Assert.IsTrue(UsnIndexerDurabilityExtensions.ShouldCompactDrive(metadata, 4096, 360_000));
+    }
+
+    [TestMethod]
+    public void CompactionScheduling_LargeDeltaOverridesTheQuietWindow()
+    {
+        var metadata = Metadata("NTFS");
+        metadata.LastChangeTicks = 60_000;
+        Assert.IsFalse(UsnIndexerDurabilityExtensions.ShouldCompactDrive(metadata, 65_535, 60_000));
+        Assert.IsTrue(UsnIndexerDurabilityExtensions.ShouldCompactDrive(metadata, 65_536, 60_000));
+    }
+
+    [TestMethod]
+    public void CompactionScheduling_DroppingBelowThresholdResetsTheDeferral()
+    {
+        var metadata = Metadata("NTFS");
+        metadata.LastChangeTicks = 60_000;
+        Assert.IsFalse(UsnIndexerDurabilityExtensions.ShouldCompactDrive(metadata, 4096, 60_000));
+        Assert.IsFalse(UsnIndexerDurabilityExtensions.ShouldCompactDrive(metadata, 4095, 300_000));
+        Assert.IsNull(metadata.CompactionDeferredSinceTicks);
+        metadata.LastChangeTicks = 360_000;
+        Assert.IsFalse(UsnIndexerDurabilityExtensions.ShouldCompactDrive(metadata, 4096, 360_000));
+    }
+
+    [TestMethod]
+    public void CompactIdleDeltas_BusyDriveDoesNotPreventAnotherDriveFromPersisting()
+    {
+        using var tempDir = new TempDirectory();
+        using var busy = LiveIndexFixture.Build("C", new[] { LiveIndexFixture.Root() });
+        using var quiet = LiveIndexFixture.Build("D", new[] { LiveIndexFixture.Root() });
+        var indexer = Loaded(busy, "NTFS");
+        indexer._recordIndexes["D"] = quiet.Index;
+        indexer._driveMetadata["D"] = Metadata("NTFS");
+        AddChurn(busy.Index, 4096);
+        AddChurn(quiet.Index, 4096);
+        // A future monotonic stamp avoids a wall-clock-sensitive quiet-window assertion on slow CI.
+        indexer._driveMetadata["C"].LastChangeTicks = Environment.TickCount64 + 60_000;
+
+        Assert.AreEqual(1, indexer.CompactIdleDeltas(tempDir.Path));
+        Assert.AreEqual(4096, busy.Index.PendingChangeCount);
+        Assert.AreEqual(0, quiet.Index.PendingChangeCount);
+        Assert.IsNull(indexer._driveMetadata["D"].CompactionDeferredSinceTicks);
+        Assert.IsFalse(File.Exists(CachePath(tempDir.Path)));
+        Assert.IsTrue(File.Exists(LocalDriveCacheLocator.GetCachePath(tempDir.Path, "D")));
+    }
+
+    [TestMethod]
     public void AdvanceJournalWatermark_SameJournal_RecordsThePositionToStampWith()
     {
         var indexer = new UsnIndexer();

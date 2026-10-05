@@ -183,6 +183,49 @@ public sealed class DeltaLinkOpsTests
     }
 
     [TestMethod]
+    public void UpdateMetadata_UnchangedHardLinks_DoNotCreatePendingChanges()
+    {
+        using var fixture = LiveIndexFixture.Build("C", new[]
+        {
+            LiveIndexFixture.Root(),
+            new FileRecord(3, 1, "first.txt", FileRecordFlags.None, 123, 10, 20, 30),
+            new FileRecord(3, 1, "second.txt", FileRecordFlags.None, 123, 10, 20, 30),
+        });
+        fixture.Index.Mutate((_, delta) =>
+        {
+            for (var i = 0; i < 10; i++)
+                DeltaLinkOps.UpdateMetadata(delta, 3, 123, 10, 20, 30);
+            Assert.AreEqual(0, delta.PendingChangeCount);
+            DeltaLinkOps.UpdateMetadata(delta, 3, 456, 10, 21, 30);
+            Assert.AreEqual(2, delta.MetadataOverrides.Count);
+            DeltaLinkOps.UpdateMetadata(delta, 3, 123, 10, 20, 30);
+            Assert.AreEqual(0, delta.PendingChangeCount);
+        });
+    }
+
+    [TestMethod]
+    public void UpdateMetadata_ReturnToBaseValues_PreservesAttributeOverrideAndPersistsIt()
+    {
+        using var fixture = BuildSampleDrive();
+        fixture.Index.Mutate((snapshot, delta) =>
+        {
+            DeltaLinkOps.UpdateMetadata(delta, 3, 555, 10, 20, 30);
+            DeltaLinkOps.UpdateFlags(delta, 3, FileRecordFlags.Hidden);
+            DeltaLinkOps.UpdateMetadata(delta, 3, 0, 0, 0, 0);
+            Assert.AreEqual(1, delta.PendingChangeCount);
+            Assert.AreEqual(0L, delta.MetadataOf(snapshot.FirstRowForId(3)).Size);
+        });
+        Assert.IsTrue(fixture.Index.Compact(fixture.Path));
+        fixture.Index.Read((snapshot, _) =>
+        {
+            var row = snapshot.FirstRowForId(3);
+            Assert.AreEqual((ushort)FileRecordFlags.Hidden, snapshot.Flags[row]);
+            Assert.AreEqual(0L, snapshot.Sizes[row]);
+            return 0;
+        });
+    }
+
+    [TestMethod]
     public void UpdateMetadata_AddedRecord_PatchesItInPlace()
     {
         using var fixture = BuildSampleDrive();

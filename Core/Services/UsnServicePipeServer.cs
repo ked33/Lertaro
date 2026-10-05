@@ -1,4 +1,5 @@
 using System.IO.Pipes;
+using System.Threading.Channels;
 
 using Lertaro.Core.Services.HookLaunch;
 
@@ -190,14 +191,14 @@ public sealed class UsnServicePipeServer : IDisposable
         if (engine == null)
             return;
 
-        var signal = new SemaphoreSlim(0);
+        // A notification means "send the latest status", not "replay one historical status".
+        // Keep at most one pending send when a slow client falls behind a file-change burst.
+        var signal = CreateStatusSignalChannel();
 
         void Handler(Indexer.Usn.UsnIndexer.IndexerStatus _)
         {
-            // Unsubscribing does not wait for a handler already running on the indexer's thread, so
-            // one can still arrive between the removal below and the dispose that follows it.
-            try { signal.Release(); }
-            catch (ObjectDisposedException) { }
+            // Nonblocking and exception-free even for a full buffer or a late callback after stop.
+            signal.Writer.TryWrite(true);
         }
 
         try
@@ -207,7 +208,11 @@ public sealed class UsnServicePipeServer : IDisposable
 
             while (!token.IsCancellationRequested && pipe.IsConnected)
             {
-                await signal.WaitAsync(token).ConfigureAwait(false);
+                await signal.Reader.ReadAsync(token).ConfigureAwait(false);
+                // The initial status above is immediate. Subsequent snapshots need at most 5 Hz;
+                // this bounds status rebuilding/serialization even when the client reads quickly.
+                await Task.Delay(200, token).ConfigureAwait(false);
+                signal.Reader.TryRead(out _);
                 if (!pipe.IsConnected)
                     break;
 
@@ -220,9 +225,18 @@ public sealed class UsnServicePipeServer : IDisposable
         finally
         {
             engine.StatusChanged -= Handler;
-            signal.Dispose();
+            signal.Writer.TryComplete();
         }
     }
+
+    internal static Channel<bool> CreateStatusSignalChannel() => Channel.CreateBounded<bool>(
+        new BoundedChannelOptions(1)
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            FullMode = BoundedChannelFullMode.DropWrite,
+            AllowSynchronousContinuations = false,
+        });
 
     private static Task WriteControlResponseAsync(Stream stream, PipeResponse response, CancellationToken token) => response.Kind switch
     {

@@ -18,6 +18,28 @@ internal static class UsnIndexerDurabilityExtensions
     // Self-throttling rather than timed: Compact swaps in a fresh DeltaOverlay, so this gate closes the
     // moment a write succeeds and only reopens once this much NEW churn has accumulated.
     internal const int IdleCompactPendingThreshold = 4096;
+    internal const long ChangeQuietPeriodMs = 5000;
+    internal const long MaxCompactionDeferralMs = 5 * 60_000;
+    internal const int BusyCompactPendingThreshold = 65_536;
+
+    // Caller holds LockObj. A busy drive must not postpone another drive, or postpone itself
+    // indefinitely. The existing once-a-minute gate still bounds expensive maintenance attempts.
+    // ponytail: pending entries approximate memory pressure; byte accounting is the upgrade path
+    // if exceptionally long names make this entry-count ceiling too coarse.
+    internal static bool ShouldCompactDrive(UsnIndexer.DriveRuntimeMetadata metadata, int pending, long nowTicks)
+    {
+        if (pending < IdleCompactPendingThreshold)
+        {
+            metadata.CompactionDeferredSinceTicks = null;
+            return false;
+        }
+
+        metadata.CompactionDeferredSinceTicks ??= nowTicks;
+        return !metadata.LastChangeTicks.HasValue
+            || nowTicks - metadata.LastChangeTicks.Value >= ChangeQuietPeriodMs
+            || pending >= BusyCompactPendingThreshold
+            || nowTicks - metadata.CompactionDeferredSinceTicks.Value >= MaxCompactionDeferralMs;
+    }
 
     // Records the journal position a successfully applied batch reached, so the next persist can stamp
     // it. Only ever called for a batch ApplyUsnRecords said it applied, and never past a pin, which is
@@ -87,7 +109,7 @@ internal static class UsnIndexerDurabilityExtensions
                         && d.State == "indexing"))
                     continue;
 
-                if (live.PendingChangeCount < IdleCompactPendingThreshold)
+                if (!ShouldCompactDrive(metadata, live.PendingChangeCount, Environment.TickCount64))
                     continue;
 
                 // Stamp read BEFORE Compact, never after: a batch landing in between can only make the
@@ -106,11 +128,30 @@ internal static class UsnIndexerDurabilityExtensions
             token.ThrowIfCancellationRequested();
             try
             {
+                // A previous drive's rewrite may have taken seconds. Recheck this drive before
+                // starting; its workload or live-index instance may have changed in that time.
+                lock (indexer.LockObj)
+                {
+                    if (!indexer._recordIndexes.TryGetValue(drive, out var current) || !ReferenceEquals(current, live)
+                        || !indexer._driveMetadata.TryGetValue(drive, out var metadata)
+                        || indexer.Status.Drives.Any(d => d.Drive.Equals(drive, StringComparison.OrdinalIgnoreCase)
+                            && d.State == "indexing")
+                        || !ShouldCompactDrive(metadata, live.PendingChangeCount, Environment.TickCount64))
+                        continue;
+                }
                 // Outside LockObj on purpose: this holds the LiveIndex write lock across a full merge and
                 // a multi-hundred-MB rewrite, which no search should queue behind while the indexer is
                 // otherwise idle. Compact's own force:false gate re-checks the delta under that lock.
                 if (live.Compact(LocalDriveCacheLocator.GetCachePath(cacheDir, drive), stamp))
+                {
                     written++;
+                    lock (indexer.LockObj)
+                    {
+                        if (indexer._recordIndexes.TryGetValue(drive, out var current) && ReferenceEquals(current, live)
+                            && indexer._driveMetadata.TryGetValue(drive, out var metadata))
+                            metadata.CompactionDeferredSinceTicks = null;
+                    }
+                }
             }
             catch (ObjectDisposedException)
             {

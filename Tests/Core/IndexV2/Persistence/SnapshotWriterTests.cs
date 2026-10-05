@@ -5,6 +5,31 @@ namespace Lertaro.Core.Tests.IndexV2.Persistence;
 [TestClass]
 public sealed class SnapshotWriterTests
 {
+    [TestMethod]
+    public void Write_SortedAndUnsortedInput_PreserveHardLinkOrderAndProduceIdenticalSnapshots()
+    {
+        using var dir = new TempDirectory();
+        var store = BuildStore(fileCount: 0);
+        var root = store.Records[0];
+        var firstLink = new FileRecord(3, 1, "first.txt", FileRecordFlags.None, 123, 1, 2, 3);
+        var secondLink = new FileRecord(3, 1, "second.txt", FileRecordFlags.Hidden, 123, 1, 2, 3);
+        var last = new FileRecord(9, 1, "last.txt", FileRecordFlags.None);
+        store.Records.AddRange(new[] { firstLink, secondLink, last });
+        var sortedPath = Path.Combine(dir.Path, "sorted.idx");
+        SnapshotWriter.Write(store, sortedPath);
+
+        store.Records.Clear();
+        store.Records.AddRange(new[] { last, firstLink, root, secondLink });
+        var unsortedPath = Path.Combine(dir.Path, "unsorted.idx");
+        SnapshotWriter.Write(store, unsortedPath);
+
+        CollectionAssert.AreEqual(File.ReadAllBytes(sortedPath), File.ReadAllBytes(unsortedPath));
+        using var snapshot = Snapshot.Open(sortedPath);
+        Assert.AreEqual("first.txt", snapshot.GetName(1));
+        Assert.AreEqual("second.txt", snapshot.GetName(2));
+        Assert.AreEqual(123L, snapshot.Sizes[2]);
+    }
+
     // Regression coverage for the GitHub issue this fixes: a network drive's periodic scan checkpoint and
     // its FileSystemWatcher's incremental updates are two entirely separate LiveIndex instances with no
     // lock in common, so both could previously call SnapshotWriter.Write for the SAME final path at once
