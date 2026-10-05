@@ -247,11 +247,5 @@
   "Plugin_Comp_Desc_OpenPowerShellAction": "선택한 폴더 또는 파일이 있는 디렉터리에서 PowerShell 7을 엽니다.",
   "Action_OpenAdminPowerShell": "PowerShell 7 열기 (관리자)",
   "Action_OpenAdminPowerShell_Desc": "선택한 폴더 또는 파일이 있는 디렉터리에서 관리자 권한으로 PowerShell 7을 엽니다.",
-  "Plugin_Comp_Desc_OpenAdminPowerShellAction": "선택한 폴더 또는 파일이 있는 디렉터리에서 관리자 권한으로 PowerShell 7을 엽니다.",
-  "Action_OpenWindowsTerminal": "Windows Terminal 열기",
-  "Action_OpenWindowsTerminal_Desc": "선택한 폴더 또는 파일이 있는 디렉터리에서 Windows Terminal을 엽니다.",
-  "Plugin_Comp_Desc_OpenWindowsTerminalAction": "선택한 폴더 또는 파일이 있는 디렉터리에서 Windows Terminal을 엽니다.",
-  "Action_OpenAdminWindowsTerminal": "Windows Terminal 열기 (관리자)",
-  "Action_OpenAdminWindowsTerminal_Desc": "선택한 폴더 또는 파일이 있는 디렉터리에서 관리자 권한으로 Windows Terminal을 엽니다.",
-  "Plugin_Comp_Desc_OpenAdminWindowsTerminalAction": "선택한 폴더 또는 파일이 있는 디렉터리에서 관리자 권한으로 Windows Terminal을 엽니다."
+  "Plugin_Comp_Desc_OpenAdminPowerShellAction": "선택한 폴더 또는 파일이 있는 디렉터리에서 관리자 권한으로 PowerShell 7을 엽니다."
 }

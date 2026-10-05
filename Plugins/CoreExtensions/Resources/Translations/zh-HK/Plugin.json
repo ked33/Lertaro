@@ -247,11 +247,5 @@
   "Plugin_Comp_Desc_OpenPowerShellAction": "在所選資料夾或檔案所在目錄下開啟 PowerShell 7。",
   "Action_OpenAdminPowerShell": "開啟 PowerShell 7（系統管理員）",
   "Action_OpenAdminPowerShell_Desc": "以系統管理員身分在所選資料夾或檔案所在目錄下開啟 PowerShell 7。",
-  "Plugin_Comp_Desc_OpenAdminPowerShellAction": "以系統管理員身分在所選資料夾或檔案所在目錄下開啟 PowerShell 7。",
-  "Action_OpenWindowsTerminal": "開啟 Windows Terminal",
-  "Action_OpenWindowsTerminal_Desc": "在所選資料夾或檔案所在目錄下開啟 Windows Terminal。",
-  "Plugin_Comp_Desc_OpenWindowsTerminalAction": "在所選資料夾或檔案所在目錄下開啟 Windows Terminal。",
-  "Action_OpenAdminWindowsTerminal": "開啟 Windows Terminal（系統管理員）",
-  "Action_OpenAdminWindowsTerminal_Desc": "以系統管理員身分在所選資料夾或檔案所在目錄下開啟 Windows Terminal。",
-  "Plugin_Comp_Desc_OpenAdminWindowsTerminalAction": "以系統管理員身分在所選資料夾或檔案所在目錄下開啟 Windows Terminal。"
+  "Plugin_Comp_Desc_OpenAdminPowerShellAction": "以系統管理員身分在所選資料夾或檔案所在目錄下開啟 PowerShell 7。"
 }

@@ -31,8 +31,6 @@ public class CoreExtensionsPlugin : IPlugin, IActionProvider, IConfigurable
             new OpenAdminCommandPromptAction(),
             new OpenPowerShellAction(),
             new OpenAdminPowerShellAction(),
-            new OpenWindowsTerminalAction(),
-            new OpenAdminWindowsTerminalAction(),
             new TouchAction(),
             new MkdirAction()
         };

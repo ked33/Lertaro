@@ -247,11 +247,5 @@
   "Plugin_Comp_Desc_OpenPowerShellAction": "Open PowerShell 7 in the selected folder or the file’s directory.",
   "Action_OpenAdminPowerShell": "Open PowerShell 7 (Administrator)",
   "Action_OpenAdminPowerShell_Desc": "Open PowerShell 7 as administrator in the selected folder or the file’s directory.",
-  "Plugin_Comp_Desc_OpenAdminPowerShellAction": "Open PowerShell 7 as administrator in the selected folder or the file’s directory.",
-  "Action_OpenWindowsTerminal": "Open Windows Terminal",
-  "Action_OpenWindowsTerminal_Desc": "Open Windows Terminal in the selected folder or the file’s directory.",
-  "Plugin_Comp_Desc_OpenWindowsTerminalAction": "Open Windows Terminal in the selected folder or the file’s directory.",
-  "Action_OpenAdminWindowsTerminal": "Open Windows Terminal (Administrator)",
-  "Action_OpenAdminWindowsTerminal_Desc": "Open Windows Terminal as administrator in the selected folder or the file’s directory.",
-  "Plugin_Comp_Desc_OpenAdminWindowsTerminalAction": "Open Windows Terminal as administrator in the selected folder or the file’s directory."
+  "Plugin_Comp_Desc_OpenAdminPowerShellAction": "Open PowerShell 7 as administrator in the selected folder or the file’s directory."
 }

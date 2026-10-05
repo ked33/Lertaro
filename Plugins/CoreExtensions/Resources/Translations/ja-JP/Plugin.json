@@ -247,11 +247,5 @@
   "Plugin_Comp_Desc_OpenPowerShellAction": "選択したフォルダーまたはファイルのあるディレクトリで PowerShell 7 を開きます。",
   "Action_OpenAdminPowerShell": "PowerShell 7 を開く（管理者）",
   "Action_OpenAdminPowerShell_Desc": "選択したフォルダーまたはファイルのあるディレクトリで PowerShell 7 を管理者として開きます。",
-  "Plugin_Comp_Desc_OpenAdminPowerShellAction": "選択したフォルダーまたはファイルのあるディレクトリで PowerShell 7 を管理者として開きます。",
-  "Action_OpenWindowsTerminal": "Windows Terminal を開く",
-  "Action_OpenWindowsTerminal_Desc": "選択したフォルダーまたはファイルのあるディレクトリで Windows Terminal を開きます。",
-  "Plugin_Comp_Desc_OpenWindowsTerminalAction": "選択したフォルダーまたはファイルのあるディレクトリで Windows Terminal を開きます。",
-  "Action_OpenAdminWindowsTerminal": "Windows Terminal を開く（管理者）",
-  "Action_OpenAdminWindowsTerminal_Desc": "選択したフォルダーまたはファイルのあるディレクトリで Windows Terminal を管理者として開きます。",
-  "Plugin_Comp_Desc_OpenAdminWindowsTerminalAction": "選択したフォルダーまたはファイルのあるディレクトリで Windows Terminal を管理者として開きます。"
+  "Plugin_Comp_Desc_OpenAdminPowerShellAction": "選択したフォルダーまたはファイルのあるディレクトリで PowerShell 7 を管理者として開きます。"
 }
