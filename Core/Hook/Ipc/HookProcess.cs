@@ -259,14 +259,11 @@ public sealed class HookProcess : IDisposable
                         StringVal2 = className,
                         IsDesktop = isDesktop
                     });
+                    // Focus changes are not memory pressure. TrimWorkingSet forces two blocking
+                    // full GCs and evicts working pages; ETW showed repeated pairs during ordinary
+                    // Explorer interaction. Notify the App and let the runtime schedule collection.
                     _explorerTracker.OnExplorerDeactivated += () =>
-                    {
                         _ipcServer.SendMessage(new IpcMessage { Id = IpcMessageId.ExplorerDeactivated });
-                        Task.Run(() =>
-                        {
-                            try { Win32Api.TrimWorkingSet(); } catch { }
-                        });
-                    };
                     _explorerTracker.OnPathCaptured += (path, isDesktop, isDialog) => _ipcServer.SendMessage(new IpcMessage
                     {
                         Id = IpcMessageId.PathCaptured,
@@ -437,7 +434,8 @@ public sealed class HookProcess : IDisposable
         {
             Logger.Log("[HookProcess] Tracker thread did not stop in time; skipping tracker dispose to avoid a race.", LogLevel.Warn);
         }
-        try { Win32Api.TrimWorkingSet(); } catch { }
+        // HookModeLauncher returns after this loop; process exit releases its memory without a
+        // final forced GC, which would only delay shutdown after the hooks have been released.
     }
 
     public void Stop()

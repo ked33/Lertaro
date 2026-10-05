@@ -52,7 +52,7 @@ jobs:
         env:
           NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
         run: |
-          dotnet test Tests/Core/Core.csproj -c Release --filter "FullyQualifiedName~IndexV2|FullyQualifiedName~Indexer.Usn|FullyQualifiedName~IdleTrimGate|FullyQualifiedName~MonitorLoopJoin|FullyQualifiedName~UsnServicePipeServerTests" --logger trx --results-directory TestResults
+          dotnet test Tests/Core/Core.csproj -c Release --filter "FullyQualifiedName~IndexV2|FullyQualifiedName~Indexer.Usn|FullyQualifiedName~IdleTrimGate|FullyQualifiedName~MonitorLoopJoin|FullyQualifiedName~UsnServicePipeServerTests|FullyQualifiedName~Lertaro.Core.Tests.Hook" --logger trx --results-directory TestResults
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test animation controls and settings search
