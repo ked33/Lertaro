@@ -98,7 +98,13 @@ internal static class PluginTriggerQuery
             {
                 // Arbitrary plugin code, and this now runs on every keystroke: one provider throwing while
                 // reading its own settings must not cost the user the whole search.
-                declared = provider.QueryTriggerKeywords;
+                if (windowType == SearchWindowType.Inline
+                    && (!PluginSettingsService.GetSetting("Lertaro.Plugins.CoreExtensions", "InlineSearchEnableSearchActions", true)
+                        || Lertaro.App.Services.InlineSearchManager.Instance.ExplorerTracker.IsActiveWindowDialog))
+                    continue;
+                declared = windowType is { } providerWindowType
+                    ? provider.GetQueryTriggerKeywords(providerWindowType)
+                    : provider.QueryTriggerKeywords;
             }
             catch (Exception ex)
             {

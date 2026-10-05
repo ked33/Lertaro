@@ -241,5 +241,17 @@
   "CoreExtensions_Config_CustomFilterPrefixDesc": "自定义分类过滤器标记的前导字符（默认为 @）。",
   "CoreExtensions_WildcardFilterProvider_Name": "通配符二次过滤 (?表达式)",
   "CoreExtensions_Config_WildcardFilterPrefixLabel": "通配符过滤触发前缀",
-  "CoreExtensions_Config_WildcardFilterPrefixDesc": "触发通配符二次过滤的前缀字符(默认为 ?)。"
+  "CoreExtensions_Config_WildcardFilterPrefixDesc": "触发通配符二次过滤的前缀字符(默认为 ?)。",
+  "Action_OpenPowerShell": "打开 PowerShell 7",
+  "Action_OpenPowerShell_Desc": "在选中文件夹或文件所在目录下打开 PowerShell 7。",
+  "Plugin_Comp_Desc_OpenPowerShellAction": "在选中文件夹或文件所在目录下打开 PowerShell 7。",
+  "Action_OpenAdminPowerShell": "打开 PowerShell 7（管理员）",
+  "Action_OpenAdminPowerShell_Desc": "以管理员身份在选中文件夹或文件所在目录下打开 PowerShell 7。",
+  "Plugin_Comp_Desc_OpenAdminPowerShellAction": "以管理员身份在选中文件夹或文件所在目录下打开 PowerShell 7。",
+  "Action_OpenWindowsTerminal": "打开 Windows Terminal",
+  "Action_OpenWindowsTerminal_Desc": "在选中文件夹或文件所在目录下打开 Windows Terminal。",
+  "Plugin_Comp_Desc_OpenWindowsTerminalAction": "在选中文件夹或文件所在目录下打开 Windows Terminal。",
+  "Action_OpenAdminWindowsTerminal": "打开 Windows Terminal（管理员）",
+  "Action_OpenAdminWindowsTerminal_Desc": "以管理员身份在选中文件夹或文件所在目录下打开 Windows Terminal。",
+  "Plugin_Comp_Desc_OpenAdminWindowsTerminalAction": "以管理员身份在选中文件夹或文件所在目录下打开 Windows Terminal。"
 }

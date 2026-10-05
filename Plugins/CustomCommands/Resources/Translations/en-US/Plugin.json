@@ -11,7 +11,7 @@
   "CustomCommands_Config_TitleLabel": "Title",
   "CustomCommands_Config_PathLabel": "Path (Program or File)",
   "CustomCommands_Config_ParameterLabel": "Parameters",
-  "CustomCommands_Config_ParameterDesc": "Supports parameter substitution:\n· %s1, %s2 … (or {1}, {2} …): the 1st, 2nd … argument\n· %s (or {}): all input as a single argument\n· Input is used only via placeholders; with none, the configured parameters run as-is\n· Placeholders are auto-quoted; do not add quotes yourself",
+  "CustomCommands_Config_ParameterDesc": "Supports parameter substitution:\n· %s1, %s2 … (or {1}, {2} …): the 1st, 2nd … argument\n· %s (or {}): all input as a single argument\n· Input is used only via placeholders; with none, the configured parameters run as-is\n· Placeholders are auto-quoted; do not add quotes yourself\n· {currentDirectory}:the inline search directory, automatically quoted; do not add quotes. Only available in inline search.",
   "CustomCommands_Config_IconLabel": "Icon (SVG Path Data)",
   "CustomCommands_Config_WorkingDirLabel": "Working Directory",
   "CustomCommands_Config_RunSilentlyLabel": "Run Silently",
@@ -23,5 +23,9 @@
   "CustomCommands_PluginDesc": "Custom commands plugin. Allows users to define shortcuts, aliases, and external command triggers.",
   "Plugin_Comp_Desc_CustomCommandsInstantProvider": "Executes customized script commands, short aliases, or applications directly by typing them in the search box.",
   "Plugin_Comp_Desc_CustomCommandsQuickNavProvider": "Lists custom commands flagged \"Show in Quick Navigation\" as entries (optionally nested into submenus) in the Quick Navigation menu.",
-  "Plugin_Comp_Desc_CustomCommandsTranslationProvider": "Provides translation maps for Custom Commands and script triggers."
+  "Plugin_Comp_Desc_CustomCommandsTranslationProvider": "Provides translation maps for Custom Commands and script triggers.",
+  "CustomCommands_Config_UseCurrentDirectoryLabel": "Use inline current directory",
+  "CustomCommands_Config_UseCurrentDirectoryDesc": "Use the inline search directory as the working directory, overriding the fixed directory. This option or a {currentDirectory} argument makes the command inline-only; it is absent from main search, quick search and quick navigation.",
+  "CustomCommands_Config_MatchKeywordPrefixLabel": "Match keyword prefixes",
+  "CustomCommands_Config_MatchKeywordPrefixDesc": "Also show this command while its keyword is still being typed: tool can match tool and toola. Off by default to preserve full-keyword matching."
 }

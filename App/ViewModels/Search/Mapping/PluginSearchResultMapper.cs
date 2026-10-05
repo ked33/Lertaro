@@ -41,9 +41,11 @@ public static class PluginSearchResultMapper
         }
     }
 
-    public static void AddInstantResults(List<AppSearchResult> uiResults, string query, string? highlightQuery, bool isInlineWindow)
+    public static void AddInstantResults(List<AppSearchResult> uiResults, string query, string? highlightQuery, bool isInlineWindow, string? contextDirectory = null)
     {
-        if (isInlineWindow)
+        if (isInlineWindow && (string.IsNullOrWhiteSpace(contextDirectory)
+            || !PluginSettingsService.GetSetting(CoreExtensionsPluginId, InlineSearchActionsSettingKey, true)
+            || InlineSearchManager.Instance.ExplorerTracker.IsActiveWindowDialog))
             return;
 
         // highlightQuery defaults to `query` for callers that already pass the clean (token-stripped)
@@ -59,7 +61,7 @@ public static class PluginSearchResultMapper
         {
             try
             {
-                var results = PluginPerformanceMonitor.Measure(provider, () => provider.GetInstantResults(query)?.ToList());
+                var results = PluginPerformanceMonitor.Measure(provider, () => (isInlineWindow ? provider.GetInlineResults(query, contextDirectory!) : provider.GetInstantResults(query))?.ToList());
                 if (results == null)
                     continue;
 

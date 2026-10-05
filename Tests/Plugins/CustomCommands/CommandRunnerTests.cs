@@ -88,4 +88,37 @@ public sealed class CommandRunnerTests
 
         Assert.AreEqual("", result);
     }
+
+    [TestMethod]
+    public void ResolveParameter_CurrentDirectory_IsQuotedOnceAndNeverReparsed()
+    {
+        var root = Directory.CreateTempSubdirectory("lertaro-args-").FullName;
+        try
+        {
+            var directory = Directory.CreateDirectory(Path.Combine(root, "中文 space %s {1} {} {currentDirectory}")).FullName;
+            var command = MakeCommand("{currentDirectory} %s1 {} --last={currentDirectory}");
+            var result = CommandRunner.ResolveParameter(command, "literal{currentDirectory}", directory);
+            var quoted = "\"" + directory + "\"";
+
+            Assert.AreEqual(quoted + " literal{currentDirectory} literal{currentDirectory} --last=" + quoted, result);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [TestMethod]
+    public void ResolveParameter_SubstitutedInput_IsNotExpandedAgain()
+    {
+        Assert.AreEqual("literal%s{}", CommandRunner.ResolveParameter(MakeCommand("%s1"), "literal%s{}"));
+        Assert.AreEqual("literal{}", CommandRunner.ResolveParameter(MakeCommand("%s"), "literal{}"));
+    }
+
+    [TestMethod]
+    public void ResolveParameter_MissingCurrentDirectory_RefusesContextDependentCommand()
+    {
+        Assert.ThrowsExactly<DirectoryNotFoundException>(() => CommandRunner.ResolveParameter(MakeCommand("{currentDirectory}"), ""));
+        var command = MakeCommand("--flag");
+        command.UseCurrentDirectory = true;
+        Assert.ThrowsExactly<DirectoryNotFoundException>(() => CommandRunner.ResolveParameter(command, ""));
+    }
+
 }

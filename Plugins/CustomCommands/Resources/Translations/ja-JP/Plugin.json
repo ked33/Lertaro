@@ -11,7 +11,7 @@
   "CustomCommands_Config_TitleLabel": "タイトル",
   "CustomCommands_Config_PathLabel": "パス（プログラムまたはファイル）",
   "CustomCommands_Config_ParameterLabel": "パラメーター",
-  "CustomCommands_Config_ParameterDesc": "パラメーターの置換に対応しています:\n· %s1、%s2 …（または {1}、{2} …）: 1番目、2番目 … の引数\n· %s（または {}）: 入力全体を1つの引数として扱う\n· 入力はプレースホルダーを通じてのみ使用されます。プレースホルダーがない場合、設定したパラメーターがそのまま実行されます\n· プレースホルダーは自動的に引用符で囲まれます。自分で引用符を追加しないでください",
+  "CustomCommands_Config_ParameterDesc": "パラメーターの置換に対応しています:\n· %s1、%s2 …（または {1}、{2} …）: 1番目、2番目 … の引数\n· %s（または {}）: 入力全体を1つの引数として扱う\n· 入力はプレースホルダーを通じてのみ使用されます。プレースホルダーがない場合、設定したパラメーターがそのまま実行されます\n· プレースホルダーは自動的に引用符で囲まれます。自分で引用符を追加しないでください\n· {currentDirectory}:インライン検索の現在のディレクトリ。引用符は自動追加されるため、手動で追加しないでください。インライン検索のみで使用できます。",
   "CustomCommands_Config_IconLabel": "アイコン（SVG パスデータ）",
   "CustomCommands_Config_WorkingDirLabel": "作業ディレクトリ",
   "CustomCommands_Config_RunSilentlyLabel": "サイレント実行",
@@ -23,5 +23,9 @@
   "CustomCommands_PluginDesc": "カスタムコマンドプラグイン。ショートカット、エイリアス、外部コマンドトリガーをユーザーが定義できるようにします。",
   "Plugin_Comp_Desc_CustomCommandsInstantProvider": "検索ボックスに直接入力することで、カスタマイズしたスクリプトコマンド、短いエイリアス、またはアプリケーションを実行します。",
   "Plugin_Comp_Desc_CustomCommandsQuickNavProvider": "「クイックナビゲーションに表示」が設定されたカスタムコマンドを、クイックナビゲーションメニューの項目として（任意でサブメニューにネストして）一覧表示します。",
-  "Plugin_Comp_Desc_CustomCommandsTranslationProvider": "カスタムコマンドとスクリプトトリガー用の翻訳マップを提供します。"
+  "Plugin_Comp_Desc_CustomCommandsTranslationProvider": "カスタムコマンドとスクリプトトリガー用の翻訳マップを提供します。",
+  "CustomCommands_Config_UseCurrentDirectoryLabel": "インライン検索の現在のディレクトリを使用",
+  "CustomCommands_Config_UseCurrentDirectoryDesc": "固定の作業ディレクトリより優先して、インライン検索のディレクトリを使用します。この設定または {currentDirectory} 引数を使うコマンドは、インライン検索のみに表示されます。",
+  "CustomCommands_Config_MatchKeywordPrefixLabel": "キーワードの前方一致",
+  "CustomCommands_Config_MatchKeywordPrefixDesc": "キーワードの入力途中でも表示します。例えば tool は tool と toola に一致します。既定では無効で、キーワード全体の一致を維持します。"
 }

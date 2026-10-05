@@ -7,14 +7,18 @@ namespace Lertaro.Plugins.CustomCommands;
 // Placeholder resolution shared by both ways a command can run: the keyword-triggered instant answer
 // (CustomCommandsInstantProvider, which has typed argument text to substitute in) and the quick
 // navigation menu entry (CustomCommandsQuickNavProvider, a plain menu click with no typed args --
-// argSuffix is always empty there, so every placeholder just resolves to nothing).
+// argSuffix is empty there; directory-dependent commands are excluded from that menu).
 internal static class CommandRunner
 {
-    // Parses argSuffix into quote-aware individual arguments and resolves %sN/{N} (positional) and
-    // %s/{} (all-arguments) placeholders in cmd.Parameter. Moved out of the instant-answer provider
-    // unchanged so both callers stay byte-for-byte consistent with each other.
-    public static string ResolveParameter(CustomCommandsInstantProvider.CommandItem cmd, string argSuffix)
+    internal const string CurrentDirectoryPlaceholder = "{currentDirectory}";
+
+    internal static bool RequiresCurrentDirectory(CustomCommandsInstantProvider.CommandItem cmd) =>
+        cmd.UseCurrentDirectory || (cmd.Parameter?.Contains(CurrentDirectoryPlaceholder, StringComparison.Ordinal) ?? false);
+
+    public static string ResolveParameter(CustomCommandsInstantProvider.CommandItem cmd, string argSuffix, string? currentDirectory = null)
     {
+        if (RequiresCurrentDirectory(cmd) && !Directory.Exists(currentDirectory))
+            throw new DirectoryNotFoundException("This command requires an existing inline search directory.");
         var resolvedParam = cmd.Parameter ?? "";
 
         // Parse arguments supporting quotes (e.g., "a b" or 'a b')
@@ -63,34 +67,21 @@ internal static class CommandRunner
             }
         }
 
-        // Positional placeholders: %s1/{1} .. %sn/{n} -> the n-th argument (1-based).
-        // Single regex pass so %s1 can't match inside %s10, and so a leftover positional
-        // token can't be clobbered by the "all arguments" replacement below.
-        // Out-of-range indices resolve to an empty string. We quote each value ourselves
-        // so it stays a single argument — users must NOT quote placeholders themselves.
-        resolvedParam = Regex.Replace(resolvedParam, @"%s(\d+)|\{(\d+)\}", m =>
+        // One pass over the template: substituted paths/input must never become more placeholders.
+        // Quote native arguments here; users must not add quotes around placeholders.
+        return Regex.Replace(resolvedParam, @"\{currentDirectory\}|%s(\d+)|\{(\d+)\}|%s|\{\}", m =>
         {
+            if (m.Value == CurrentDirectoryPlaceholder)
+                return ArgQuoting.Quote(Path.GetFullPath(currentDirectory!));
+            if (m.Value is "%s" or "{}")
+                return string.IsNullOrEmpty(argSuffix) ? string.Empty : ArgQuoting.Quote(argSuffix);
+
             var digits = m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value;
             var value = int.TryParse(digits, out var n) && n >= 1 && n <= parsedArgs.Count
                 ? parsedArgs[n - 1]
                 : string.Empty;
-            // A missing/out-of-range argument vanishes rather than becoming an empty "".
             return value.Length == 0 ? string.Empty : ArgQuoting.Quote(value);
         });
-
-        // "All arguments as one" placeholders: %s or {} -> the whole input as a single
-        // quoted argument (empty input -> nothing).
-        var allArgs = string.IsNullOrEmpty(argSuffix) ? string.Empty : ArgQuoting.Quote(argSuffix);
-        if (resolvedParam.Contains("%s"))
-        {
-            resolvedParam = resolvedParam.Replace("%s", allArgs);
-        }
-        if (resolvedParam.Contains("{}"))
-        {
-            resolvedParam = resolvedParam.Replace("{}", allArgs);
-        }
-
-        return resolvedParam;
     }
 
     // Launches cmd directly via Process.Start -- used by the quick navigation menu entry, which
@@ -101,7 +92,7 @@ internal static class CommandRunner
     // RunMulti -- same direct ProcessStartInfo approach, no string round-trip needed here either.
     public static void Run(CustomCommandsInstantProvider.CommandItem cmd)
     {
-        if (string.IsNullOrWhiteSpace(cmd.Path)) return;
+        if (string.IsNullOrWhiteSpace(cmd.Path) || RequiresCurrentDirectory(cmd)) return;
 
         var resolvedParam = ResolveParameter(cmd, "");
         var psi = new ProcessStartInfo

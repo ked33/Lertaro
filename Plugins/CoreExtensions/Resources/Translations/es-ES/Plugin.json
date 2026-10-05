@@ -241,5 +241,17 @@
   "CoreExtensions_Config_CustomFilterPrefixDesc": "Carácter de prefijo para tokens de filtro de categoría personalizados (predeterminado @).",
   "CoreExtensions_WildcardFilterProvider_Name": "Filtro comodín secundario (?expresión)",
   "CoreExtensions_Config_WildcardFilterPrefixLabel": "Prefijo del filtro comodín",
-  "CoreExtensions_Config_WildcardFilterPrefixDesc": "Carácter de prefijo para activar el filtro comodín secundario (predeterminado ?)."
+  "CoreExtensions_Config_WildcardFilterPrefixDesc": "Carácter de prefijo para activar el filtro comodín secundario (predeterminado ?).",
+  "Action_OpenPowerShell": "Abrir PowerShell 7",
+  "Action_OpenPowerShell_Desc": "Abrir PowerShell 7 en la carpeta seleccionada o en el directorio del archivo.",
+  "Plugin_Comp_Desc_OpenPowerShellAction": "Abrir PowerShell 7 en la carpeta seleccionada o en el directorio del archivo.",
+  "Action_OpenAdminPowerShell": "Abrir PowerShell 7 (Administrador)",
+  "Action_OpenAdminPowerShell_Desc": "Abrir PowerShell 7 como administrador en la carpeta seleccionada o en el directorio del archivo.",
+  "Plugin_Comp_Desc_OpenAdminPowerShellAction": "Abrir PowerShell 7 como administrador en la carpeta seleccionada o en el directorio del archivo.",
+  "Action_OpenWindowsTerminal": "Abrir Windows Terminal",
+  "Action_OpenWindowsTerminal_Desc": "Abrir Windows Terminal en la carpeta seleccionada o en el directorio del archivo.",
+  "Plugin_Comp_Desc_OpenWindowsTerminalAction": "Abrir Windows Terminal en la carpeta seleccionada o en el directorio del archivo.",
+  "Action_OpenAdminWindowsTerminal": "Abrir Windows Terminal (Administrador)",
+  "Action_OpenAdminWindowsTerminal_Desc": "Abrir Windows Terminal como administrador en la carpeta seleccionada o en el directorio del archivo.",
+  "Plugin_Comp_Desc_OpenAdminWindowsTerminalAction": "Abrir Windows Terminal como administrador en la carpeta seleccionada o en el directorio del archivo."
 }

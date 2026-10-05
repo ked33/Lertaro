@@ -41,6 +41,14 @@ public class CustomCommandsPlugin : IPlugin, IConfigurable
                     },
                     new PluginConfigField
                     {
+                        Key = "MatchKeywordPrefix",
+                        LabelKey = "CustomCommands_Config_MatchKeywordPrefixLabel",
+                        DescriptionKey = "CustomCommands_Config_MatchKeywordPrefixDesc",
+                        FieldType = ConfigFieldType.Boolean,
+                        DefaultValue = false
+                    },
+                    new PluginConfigField
+                    {
                         Key = "Title",
                         LabelKey = "CustomCommands_Config_TitleLabel",
                         FieldType = ConfigFieldType.Text,
@@ -74,6 +82,14 @@ public class CustomCommandsPlugin : IPlugin, IConfigurable
                         LabelKey = "CustomCommands_Config_WorkingDirLabel",
                         FieldType = ConfigFieldType.FolderPath,
                         DefaultValue = ""
+                    },
+                    new PluginConfigField
+                    {
+                        Key = "UseCurrentDirectory",
+                        LabelKey = "CustomCommands_Config_UseCurrentDirectoryLabel",
+                        DescriptionKey = "CustomCommands_Config_UseCurrentDirectoryDesc",
+                        FieldType = ConfigFieldType.Boolean,
+                        DefaultValue = false
                     },
                     new PluginConfigField
                     {

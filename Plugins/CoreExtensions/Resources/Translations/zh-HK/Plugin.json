@@ -241,5 +241,17 @@
   "CoreExtensions_Config_CustomFilterPrefixDesc": "自訂分類篩選器標記的前導字元（預設 @）。",
   "CoreExtensions_WildcardFilterProvider_Name": "通配符二次過濾 (?表達式)",
   "CoreExtensions_Config_WildcardFilterPrefixLabel": "通配符過濾觸發前綴",
-  "CoreExtensions_Config_WildcardFilterPrefixDesc": "觸發通配符二次過濾的前綴字元(預設為 ?)。"
+  "CoreExtensions_Config_WildcardFilterPrefixDesc": "觸發通配符二次過濾的前綴字元(預設為 ?)。",
+  "Action_OpenPowerShell": "開啟 PowerShell 7",
+  "Action_OpenPowerShell_Desc": "在所選資料夾或檔案所在目錄下開啟 PowerShell 7。",
+  "Plugin_Comp_Desc_OpenPowerShellAction": "在所選資料夾或檔案所在目錄下開啟 PowerShell 7。",
+  "Action_OpenAdminPowerShell": "開啟 PowerShell 7（系統管理員）",
+  "Action_OpenAdminPowerShell_Desc": "以系統管理員身分在所選資料夾或檔案所在目錄下開啟 PowerShell 7。",
+  "Plugin_Comp_Desc_OpenAdminPowerShellAction": "以系統管理員身分在所選資料夾或檔案所在目錄下開啟 PowerShell 7。",
+  "Action_OpenWindowsTerminal": "開啟 Windows Terminal",
+  "Action_OpenWindowsTerminal_Desc": "在所選資料夾或檔案所在目錄下開啟 Windows Terminal。",
+  "Plugin_Comp_Desc_OpenWindowsTerminalAction": "在所選資料夾或檔案所在目錄下開啟 Windows Terminal。",
+  "Action_OpenAdminWindowsTerminal": "開啟 Windows Terminal（系統管理員）",
+  "Action_OpenAdminWindowsTerminal_Desc": "以系統管理員身分在所選資料夾或檔案所在目錄下開啟 Windows Terminal。",
+  "Plugin_Comp_Desc_OpenAdminWindowsTerminalAction": "以系統管理員身分在所選資料夾或檔案所在目錄下開啟 Windows Terminal。"
 }

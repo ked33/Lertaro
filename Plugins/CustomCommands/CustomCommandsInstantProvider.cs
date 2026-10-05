@@ -1,3 +1,5 @@
+using System.IO;
+using Lertaro.PluginSdk.Abstractions;
 using Lertaro.PluginSdk.Abstractions.Plugins;
 using Lertaro.PluginSdk.Services;
 
@@ -17,6 +19,15 @@ public class CustomCommandsInstantProvider : IInstantResultProvider
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+    public IReadOnlyList<string> GetQueryTriggerKeywords(SearchWindowType windowType) =>
+        LoadCommands()
+            .Where(c => c.Enabled && !string.IsNullOrWhiteSpace(c.Path)
+                && !string.IsNullOrWhiteSpace(c.Keyword)
+                && (windowType == SearchWindowType.Inline) == CommandRunner.RequiresCurrentDirectory(c))
+            .Select(c => TriggerWord.Normalize(c.Keyword))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
     public class CommandItem
     {
         public bool Enabled { get; set; } = true;
@@ -26,6 +37,8 @@ public class CustomCommandsInstantProvider : IInstantResultProvider
         public string Parameter { get; set; } = string.Empty;
         public string Icon { get; set; } = string.Empty;
         public string WorkingDir { get; set; } = string.Empty;
+        public bool UseCurrentDirectory { get; set; } = false;
+        public bool MatchKeywordPrefix { get; set; } = false;
         public bool RunSilently { get; set; } = false;
         public bool RunAsAdmin { get; set; } = false;
         // Consumed by CustomCommandsQuickNavProvider, not this instant-answer path.
@@ -53,7 +66,12 @@ public class CustomCommandsInstantProvider : IInstantResultProvider
         return new List<CommandItem>();
     }
 
-    public IEnumerable<InstantResultItem> GetInstantResults(string query)
+    public IEnumerable<InstantResultItem> GetInstantResults(string query) => GetResults(query, null);
+
+    public IEnumerable<InstantResultItem> GetInlineResults(string query, string currentDirectory) =>
+        Directory.Exists(currentDirectory) ? GetResults(query, System.IO.Path.GetFullPath(currentDirectory)) : [];
+
+    private IEnumerable<InstantResultItem> GetResults(string query, string? currentDirectory)
     {
         if (string.IsNullOrEmpty(query))
         {
@@ -66,10 +84,12 @@ public class CustomCommandsInstantProvider : IInstantResultProvider
 
         foreach (var cmd in cmds)
         {
-            // The keyword has to be the whole first token, matched the same way the host matches it before
-            // stripping it from the file search; a bare keyword runs the command with its configured
-            // parameters and no input.
-            if (!cmd.Enabled || !TriggerWord.TryMatch(query, cmd.Keyword, out var argSuffix))
+            // Keep existing global commands global. Directory-dependent commands need an inline context.
+            if (!cmd.Enabled || string.IsNullOrWhiteSpace(cmd.Path)
+                || (currentDirectory != null) != CommandRunner.RequiresCurrentDirectory(cmd))
+                continue;
+            if (!TriggerWord.TryMatch(query, cmd.Keyword, out var argSuffix)
+                && !(cmd.MatchKeywordPrefix && TriggerWord.IsTypedPrefixOf(query, cmd.Keyword)))
                 continue;
             // Compile final target executable path, arguments, working directory, and window style.
             // If WorkingDir is set, or RunSilently is true, we serialize options into a JSON payload starting with 'cc_exec:'
@@ -78,15 +98,16 @@ public class CustomCommandsInstantProvider : IInstantResultProvider
             // Input is used only through placeholders (see CommandRunner.ResolveParameter). A template
             // with no placeholder runs with exactly its configured parameters — trailing input is not
             // appended.
-            var resolvedParam = CommandRunner.ResolveParameter(cmd, argSuffix);
+            var resolvedParam = CommandRunner.ResolveParameter(cmd, argSuffix, currentDirectory);
+            var workingDir = cmd.UseCurrentDirectory ? currentDirectory! : cmd.WorkingDir;
 
-            if (!string.IsNullOrWhiteSpace(cmd.WorkingDir) || cmd.RunSilently)
+            if (currentDirectory != null || !string.IsNullOrWhiteSpace(workingDir) || cmd.RunSilently)
             {
                 var payload = new
                 {
                     Path = cmd.Path,
                     Arguments = resolvedParam,
-                    WorkingDir = cmd.WorkingDir,
+                    WorkingDir = workingDir,
                     RunSilently = cmd.RunSilently,
                     RunAsAdmin = cmd.RunAsAdmin
                 };
@@ -127,7 +148,8 @@ public class CustomCommandsInstantProvider : IInstantResultProvider
                 Description = string.Format(TranslationService.Get("CustomCommands_ResultDesc"), cmd.Path, adminSuffix),
                 IconData = iconData,
                 ActionType = "Execute",
-                ActionArgument = finalArg
+                ActionArgument = finalArg,
+                TabCompletion = TriggerWord.Normalize(cmd.Keyword)
             };
         }
     }

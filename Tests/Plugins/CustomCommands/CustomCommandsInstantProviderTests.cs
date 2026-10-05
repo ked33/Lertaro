@@ -159,4 +159,116 @@ public sealed class CustomCommandsInstantProviderTests
 
         Assert.IsEmpty(new CustomCommandsInstantProvider().GetInstantResults("builder x"));
     }
+
+    [TestMethod]
+    public void InlineResults_CaptureDirectoryAndAdminOptions_WithoutChangingConfiguration()
+    {
+        var directory = Directory.CreateTempSubdirectory("lertaro-inline-").FullName;
+        try
+        {
+            var normal = new CustomCommandsInstantProvider.CommandItem
+            {
+                Keyword = "tool", Path = "editor.exe", Parameter = "--new-window {currentDirectory}",
+                UseCurrentDirectory = true, WorkingDir = @"C:\fixed", MatchKeywordPrefix = true
+            };
+            var admin = new CustomCommandsInstantProvider.CommandItem
+            {
+                Keyword = "toola", Path = "editor.exe", Parameter = "{currentDirectory}",
+                UseCurrentDirectory = true, RunAsAdmin = true, MatchKeywordPrefix = true
+            };
+            ConfigureCommands(new() { normal, admin });
+            var provider = new CustomCommandsInstantProvider();
+            var results = provider.GetInlineResults("TOOL", directory).ToArray();
+
+            Assert.HasCount(2, results);
+            for (var i = 0; i < results.Length; i++)
+            {
+                Assert.StartsWith("cc_exec:", results[i].ActionArgument);
+                using var payload = JsonDocument.Parse(results[i].ActionArgument[8..]);
+                Assert.AreEqual(directory, payload.RootElement.GetProperty("WorkingDir").GetString());
+                Assert.AreEqual(i == 1, payload.RootElement.GetProperty("RunAsAdmin").GetBoolean());
+                Assert.AreEqual((i == 0 ? "--new-window " : "") + ArgQuoting.Quote(directory), payload.RootElement.GetProperty("Arguments").GetString());
+            }
+            Assert.AreEqual("tool", results[0].TabCompletion);
+            Assert.AreEqual("toola", results[1].TabCompletion);
+            Assert.AreEqual(@"C:\fixed", normal.WorkingDir);
+            Assert.AreEqual("--new-window {currentDirectory}", normal.Parameter);
+            Assert.HasCount(1, provider.GetInlineResults("toola", directory).ToList());
+            Assert.IsEmpty(provider.GetInstantResults("tool"));
+            Assert.IsEmpty(provider.GetInlineResults("tool", Path.Combine(directory, "missing")));
+            Assert.IsEmpty(provider.GetInlineResults("tool", ""));
+        }
+        finally { Directory.Delete(directory); }
+    }
+
+    [TestMethod]
+    public void PrefixMatching_IsOptIn_AndDoesNotMatchPartialWordWithArguments()
+    {
+        ConfigureCommands(new() { new() { Keyword = "toola", Path = "tool.exe" } });
+        var provider = new CustomCommandsInstantProvider();
+        Assert.IsEmpty(provider.GetInstantResults("tool"));
+
+        ConfigureCommands(new() { new() { Keyword = "toola", Path = "tool.exe", MatchKeywordPrefix = true } });
+        Assert.HasCount(1, provider.GetInstantResults("tool").ToList());
+        Assert.IsEmpty(provider.GetInstantResults("tool argument"));
+        Assert.IsEmpty(provider.GetInstantResults("toolax"));
+        Assert.IsEmpty(provider.GetInstantResults(" "));
+    }
+
+    [TestMethod]
+    public void TriggerInventory_AndQuickNavigation_ExcludeUnavailableContextCommands()
+    {
+        ConfigureCommands(new()
+        {
+            new() { Keyword = "global", Path = "tool.exe", ShowInQuickNav = true },
+            new() { Keyword = "local", Path = "tool.exe", UseCurrentDirectory = true, ShowInQuickNav = true },
+            new() { Keyword = "parameter", Path = "tool.exe", Parameter = "{currentDirectory}", ShowInQuickNav = true },
+            new() { Keyword = "disabled", Path = "tool.exe", Enabled = false, UseCurrentDirectory = true },
+        });
+        var provider = new CustomCommandsInstantProvider();
+        CollectionAssert.AreEqual(new[] { "global" }, provider.GetQueryTriggerKeywords(Lertaro.PluginSdk.Abstractions.SearchWindowType.Main).ToArray());
+        CollectionAssert.AreEqual(new[] { "global" }, provider.GetQueryTriggerKeywords(Lertaro.PluginSdk.Abstractions.SearchWindowType.Quick).ToArray());
+        CollectionAssert.AreEqual(new[] { "local", "parameter" }, provider.GetQueryTriggerKeywords(Lertaro.PluginSdk.Abstractions.SearchWindowType.Inline).ToArray());
+        CollectionAssert.AreEqual(new[] { "global", "local", "parameter" }, provider.QueryTriggerKeywords.ToArray());
+
+        var navigation = new CustomCommandsQuickNavProvider();
+        Assert.IsTrue(navigation.CanProvide(null!));
+        ConfigureCommands(new()
+        {
+            new() { Keyword = "local", Path = "tool.exe", UseCurrentDirectory = true, ShowInQuickNav = true },
+            new() { Keyword = "parameter", Path = "tool.exe", Parameter = "{currentDirectory}", ShowInQuickNav = true }
+        });
+        navigation.ClearSession();
+        Assert.IsFalse(navigation.CanProvide(null!));
+        Assert.IsEmpty(navigation.GetMenuItems(null!, IntPtr.Zero));
+    }
+
+    [TestMethod]
+    public void InlineResults_PlaceholderAloneRequiresContext_ButKeepsFixedWorkingDirectory()
+    {
+        var directory = Directory.CreateTempSubdirectory("lertaro-inline-").FullName;
+        try
+        {
+            ConfigureCommands(new() { new() { Keyword = "tool", Path = "editor.exe", Parameter = "{currentDirectory}", WorkingDir = @"C:\fixed" } });
+            var provider = new CustomCommandsInstantProvider();
+            Assert.IsEmpty(provider.GetInstantResults("tool"));
+            using var payload = JsonDocument.Parse(provider.GetInlineResults("tool", directory).Single().ActionArgument[8..]);
+            Assert.AreEqual(@"C:\fixed", payload.RootElement.GetProperty("WorkingDir").GetString());
+            Assert.AreEqual(ArgQuoting.Quote(directory), payload.RootElement.GetProperty("Arguments").GetString());
+        }
+        finally { Directory.Delete(directory); }
+    }
+
+
+    [TestMethod]
+    public void LegacyConfiguration_NewOptionsRemainOff_AndNoCommandsArePreconfigured()
+    {
+        var command = JsonSerializer.Deserialize<CustomCommandsInstantProvider.CommandItem>("{\"Keyword\":\"tool\",\"Path\":\"tool.exe\"}")!;
+        Assert.IsFalse(command.UseCurrentDirectory);
+        Assert.IsFalse(command.MatchKeywordPrefix);
+        var commands = new CustomCommandsPlugin().GetConfigSchema().Fields.Single(f => f.Key == "Commands");
+        Assert.IsEmpty((List<object>)commands.DefaultValue!);
+        Assert.AreEqual(false, commands.SubFields!.Single(f => f.Key == "UseCurrentDirectory").DefaultValue);
+        Assert.AreEqual(false, commands.SubFields!.Single(f => f.Key == "MatchKeywordPrefix").DefaultValue);
+    }
 }

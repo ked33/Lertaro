@@ -15,6 +15,16 @@ public interface IInstantResultProvider : IPluginComponent
     IEnumerable<InstantResultItem> GetInstantResults(string query);
 
     /// <summary>
+    /// Opt-in results for an inline window. The directory belongs to this search, not to a global
+    /// active-window service. Existing providers remain absent from inline search by default.
+    /// </summary>
+    IEnumerable<InstantResultItem> GetInlineResults(string query, string currentDirectory) => [];
+
+    /// <summary>Window-specific trigger inventory; the property remains the inventory for all windows.</summary>
+    IReadOnlyList<string> GetQueryTriggerKeywords(SearchWindowType windowType) =>
+        windowType == SearchWindowType.Inline ? [] : QueryTriggerKeywords;
+
+    /// <summary>
     /// Returns a custom highlight mask if supported.
     /// </summary>
     bool[]? GetHighlightMask(string text, string query) => null;

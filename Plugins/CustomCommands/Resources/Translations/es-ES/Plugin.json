@@ -11,7 +11,7 @@
   "CustomCommands_Config_TitleLabel": "Título",
   "CustomCommands_Config_PathLabel": "Ruta (Programa o Archivo)",
   "CustomCommands_Config_ParameterLabel": "Parámetros",
-  "CustomCommands_Config_ParameterDesc": "Admite sustitución de parámetros:\n· %s1, %s2 … (o {1}, {2} …): el 1.º, 2.º … argumento\n· %s (o {}): toda la entrada como un único argumento\n· La entrada solo se usa mediante marcadores de posición; si no hay ninguno, los parámetros configurados se ejecutan tal cual\n· Los marcadores de posición se entrecomillan automáticamente; no añadas comillas tú mismo",
+  "CustomCommands_Config_ParameterDesc": "Admite sustitución de parámetros:\n· %s1, %s2 … (o {1}, {2} …): el 1.º, 2.º … argumento\n· %s (o {}): toda la entrada como un único argumento\n· La entrada solo se usa mediante marcadores de posición; si no hay ninguno, los parámetros configurados se ejecutan tal cual\n· Los marcadores de posición se entrecomillan automáticamente; no añadas comillas tú mismo\n· {currentDirectory}:directorio de búsqueda integrada, entrecomillado automáticamente; no añadas comillas. Solo disponible en la búsqueda integrada.",
   "CustomCommands_Config_IconLabel": "Icono (Datos de Ruta SVG)",
   "CustomCommands_Config_WorkingDirLabel": "Directorio de Trabajo",
   "CustomCommands_Config_RunSilentlyLabel": "Ejecutar en Segundo Plano",
@@ -23,5 +23,9 @@
   "CustomCommands_PluginDesc": "Complemento de comandos personalizados. Permite a los usuarios definir atajos, alias y activadores de comandos externos.",
   "Plugin_Comp_Desc_CustomCommandsInstantProvider": "Ejecuta comandos de script personalizados, alias cortos o aplicaciones directamente al escribirlos en el cuadro de búsqueda.",
   "Plugin_Comp_Desc_CustomCommandsQuickNavProvider": "Lista los comandos personalizados marcados como \"Mostrar en Navegación Rápida\" como entradas (opcionalmente anidadas en submenús) en el menú de Navegación Rápida.",
-  "Plugin_Comp_Desc_CustomCommandsTranslationProvider": "Ofrece mapas de traducción para Comandos Personalizados y activadores de scripts."
+  "Plugin_Comp_Desc_CustomCommandsTranslationProvider": "Ofrece mapas de traducción para Comandos Personalizados y activadores de scripts.",
+  "CustomCommands_Config_UseCurrentDirectoryLabel": "Usar el directorio actual de búsqueda integrada",
+  "CustomCommands_Config_UseCurrentDirectoryDesc": "Usa el directorio de búsqueda integrada como directorio de trabajo, ignorando el fijo. Esta opción o el argumento {currentDirectory} limita el comando a la búsqueda integrada; no aparece en la búsqueda principal, rápida ni en la navegación rápida.",
+  "CustomCommands_Config_MatchKeywordPrefixLabel": "Coincidir con prefijos de palabras clave",
+  "CustomCommands_Config_MatchKeywordPrefixDesc": "Muestra el comando al escribir parte de su palabra clave: tool coincide con tool y toola. Desactivado por defecto para conservar la coincidencia completa."
 }

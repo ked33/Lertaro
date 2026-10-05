@@ -11,7 +11,7 @@
   "CustomCommands_Config_TitleLabel": "标题",
   "CustomCommands_Config_PathLabel": "路径 (程序或文件)",
   "CustomCommands_Config_ParameterLabel": "参数",
-  "CustomCommands_Config_ParameterDesc": "支持参数替换:\n· %s1、%s2 …(或 {1}、{2} …):第 1、2 … 个参数\n· %s(或 {}):把全部输入作为一个参数\n· 仅通过占位符使用输入;未使用占位符则按配置的参数原样运行\n· 占位符会自动加引号,请勿自行包引号",
+  "CustomCommands_Config_ParameterDesc": "支持参数替换:\n· %s1、%s2 …(或 {1}、{2} …):第 1、2 … 个参数\n· %s(或 {}):把全部输入作为一个参数\n· 仅通过占位符使用输入;未使用占位符则按配置的参数原样运行\n· 占位符会自动加引号,请勿自行包引号\n· {currentDirectory}:内联搜索当前目录，自动加引号，请勿自行包引号；仅在内联窗口可用",
   "CustomCommands_Config_IconLabel": "图标 (SVG Path 数据)",
   "CustomCommands_Config_WorkingDirLabel": "工作目录",
   "CustomCommands_Config_RunSilentlyLabel": "静默执行",
@@ -23,5 +23,9 @@
   "CustomCommands_PluginDesc": "自定义命令插件。允许用户定义快捷指令、别名与外部命令触发器。",
   "Plugin_Comp_Desc_CustomCommandsInstantProvider": "通过在搜索框中键入自定义缩写、快捷别名，极速触发对应的命令行脚本或应用程序。",
   "Plugin_Comp_Desc_CustomCommandsQuickNavProvider": "把标记了\"在快速导航中显示\"的自定义命令，作为条目（可选嵌套子菜单）列在快速导航菜单里。",
-  "Plugin_Comp_Desc_CustomCommandsTranslationProvider": "为自定义命令行和别名控制台提供翻译转换字典。"
+  "Plugin_Comp_Desc_CustomCommandsTranslationProvider": "为自定义命令行和别名控制台提供翻译转换字典。",
+  "CustomCommands_Config_UseCurrentDirectoryLabel": "使用内联当前目录",
+  "CustomCommands_Config_UseCurrentDirectoryDesc": "开启后，以内联搜索所在目录作为工作目录，忽略固定工作目录。此选项或 {currentDirectory} 参数仅在内联窗口可用，不显示在主搜索、快速搜索及快速导航中。",
+  "CustomCommands_Config_MatchKeywordPrefixLabel": "关键词前缀匹配",
+  "CustomCommands_Config_MatchKeywordPrefixDesc": "开启后，输入关键词的前半部分也会显示此命令；例如 tool 同时匹配 tool 和 toola。默认关闭，保留完整关键词匹配。"
 }

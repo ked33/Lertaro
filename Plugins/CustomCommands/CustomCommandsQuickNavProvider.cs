@@ -119,7 +119,8 @@ public class CustomCommandsQuickNavProvider : IQuickNavigationProvider
         {
             var cmds = PluginSettingsService.GetSetting<List<CustomCommandsInstantProvider.CommandItem>>(
                 "Lertaro.Plugins.CustomCommands", "Commands", null!);
-            _cache = cmds?.Where(c => c.Enabled && c.ShowInQuickNav && !string.IsNullOrWhiteSpace(c.Path)).ToList()
+            _cache = cmds?.Where(c => c.Enabled && c.ShowInQuickNav && !string.IsNullOrWhiteSpace(c.Path)
+                && !CommandRunner.RequiresCurrentDirectory(c)).ToList()
                      ?? new List<CustomCommandsInstantProvider.CommandItem>();
         }
         catch
