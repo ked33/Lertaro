@@ -19,13 +19,13 @@ internal static class RecentFoldersMenu
             .DistinctBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase).ToArray();
         provider.RecentFolderSnapshot = new(entries, Math.Clamp(snapshot.MenuLimit, 1, 100));
         if (historyShown) items.Add(new DynamicMenuItem { IsSeparator = true });
+        items.AddRange(entries.Take(RootLimit).Select(entry => CreateFolder(provider, entry.Path)));
         items.Add(new DynamicMenuItem
         {
             Text = TranslationService.Get("FolderCascader_RecentFolders"), HasSubMenu = true,
             SubMenuHandle = provider.AllocateHandle(HandlePath), IsPathAvailable = false,
             HBitmapItem = IconBitmapCache.HistoryHBitmap
         });
-        items.AddRange(entries.Take(RootLimit).Select(entry => CreateFolder(provider, entry.Path)));
     }
 
     internal static List<DynamicMenuItem> BuildSubmenu(Provider provider, Func<string, bool>? exists = null)

@@ -82,65 +82,42 @@ public sealed class QuickNavigationHoveredFolderMenuTests
     }
 
     [TestMethod]
-    [Timeout(5000)]
-    public async Task RootDoesNotWaitForEitherCaptureAndSubmenuUsesTheFreshSnapshot()
+    public void HoverRootIsImmediateAndDoesNotEnumerateChildrenUntilExpanded()
     {
-        var hover = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var opened = new TaskCompletionSource<IReadOnlyList<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var hovered = Directory.CreateDirectory(Path.Combine(_directory.Path, "Hovered")).FullName;
+        var captures = 0;
+        var result = new FakeResult
+        {
+            FullPath = _directory.Path, HoveredFolderPath = hovered,
+            OpenedFolderPathsLoader = () => { captures++; return Task.FromResult<IReadOnlyList<string>>([_directory.Path]); }
+        };
         var provider = new Provider();
-        var result = new FakeResult
-        {
-            FullPath = _directory.Path, HoveredFolderPathTask = hover.Task, OpenedFolderPathsLoader = () => opened.Task
-        };
-        var items = provider.GetMenuItems(result, IntPtr.Zero).ToArray();
-        Assert.HasCount(2, items);
-        Assert.IsTrue(items[0].IsPinnedToTop);
-        Assert.IsFalse(hover.Task.IsCompleted);
-        Assert.IsFalse(opened.Task.IsCompleted);
-        Assert.IsTrue(items[0].IsDisabled);
-        Assert.AreEqual(string.Empty, items[0].Text, "Unconfirmed hover must use a collapsed insertion marker.");
+        var root = provider.GetMenuItems(result, IntPtr.Zero).ToArray();
+        Assert.IsTrue(root[0].IsPinnedToTop);
+        Assert.IsFalse(root[0].IsDisabled);
+        Assert.IsFalse(string.IsNullOrEmpty(root[0].Text));
+        Assert.IsNull(root[0].LoadDeferredItem);
+        Assert.AreEqual(0, captures);
 
-        var pendingHover = items[0].LoadDeferredItem!(CancellationToken.None);
-        Assert.IsFalse(pendingHover.IsCompleted);
-        hover.SetResult(_directory.Path);
-        var resolved = await pendingHover;
-        Assert.IsNotNull(resolved);
-        Assert.AreEqual(_directory.Path, GetPath(provider, resolved.SubMenuHandle));
-
-        opened.SetResult([@"C:\Fresh"]);
-        Assert.IsNull(items[1].LoadDeferredItem);
-        var folders = provider.GetMenuItems(result, items[1].SubMenuHandle).ToArray();
-        Assert.HasCount(1, folders);
-        Assert.AreEqual(@"C:\Fresh", GetPath(provider, folders[0].SubMenuHandle));
+        // A child created after the root was shown must appear on first expansion. An eager snapshot
+        // would have captured the empty directory and would miss it for this entire popup session.
+        var child = Directory.CreateDirectory(Path.Combine(hovered, "CreatedAfterRoot")).FullName;
+        var children = provider.GetMenuItems(result, root[0].SubMenuHandle).ToArray();
+        Assert.IsTrue(children.Any(item => item.HasSubMenu && GetPath(provider, item.SubMenuHandle) == child));
+        Assert.AreEqual(0, captures, "Expanding hover must not enumerate the opened-folder section.");
     }
 
     [TestMethod]
-    public async Task DeferredHoverCanBeCancelledBeforeTheCaptureCompletes()
+    public void PendingLegacyCapture_DoesNotInsertAnAsynchronousRootRow()
     {
-        var hover = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var result = new FakeResult { FullPath = _directory.Path, HoveredFolderPathTask = hover.Task };
-        var items = new Provider().GetMenuItems(result, IntPtr.Zero).ToArray();
-        using var cancellation = new CancellationTokenSource();
-        var pending = items[0].LoadDeferredItem!(cancellation.Token);
-        cancellation.Cancel();
-        try { await pending; Assert.Fail("A closed menu must not allocate a deferred folder handle."); }
-        catch (OperationCanceledException) { }
-        hover.SetResult(_directory.Path);
-    }
-
-    [TestMethod]
-    public async Task EmptyHoverIsRemovedButCurrentDirectoryHeadingStays()
-    {
-        var result = new FakeResult
+        var capture = new TaskCompletionSource<string?>();
+        var provider = new Provider();
+        var root = provider.GetMenuItems(new FakeResult
         {
-            FullPath = _directory.Path,
-            HoveredFolderPathTask = Task.FromResult<string?>(null),
-            OpenedFolderPathsLoader = () => Task.FromResult<IReadOnlyList<string>>([])
-        };
-        var items = new Provider().GetMenuItems(result, IntPtr.Zero).ToArray();
-        Assert.HasCount(2, items);
-        Assert.IsTrue(items[0].IsPinnedToTop);
-        Assert.IsNull(items[1].LoadDeferredItem);
-        Assert.IsNull(await items[0].LoadDeferredItem!(CancellationToken.None));
+            FullPath = _directory.Path, HoveredFolderPathTask = capture.Task
+        }, IntPtr.Zero).ToArray();
+        Assert.HasCount(1, root);
+        Assert.IsTrue(root.All(item => item.LoadDeferredItem == null));
+        Assert.IsFalse(root.Any(item => item.IsPinnedToTop));
     }
 }

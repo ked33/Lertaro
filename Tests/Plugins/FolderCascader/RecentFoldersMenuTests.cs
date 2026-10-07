@@ -18,17 +18,18 @@ public sealed class RecentFoldersMenuTests
         var items = new List<DynamicMenuItem>();
         RecentFoldersMenu.AppendRoot(items, provider, false, new(entries, 20));
         Assert.HasCount(16, items);
+        Assert.AreEqual(RecentFoldersMenu.HandlePath, GetPath(provider, items[^1].SubMenuHandle));
         Assert.IsTrue(items.All(item => item.LoadDeferredItem == null));
         Assert.IsFalse(provider.TryGetPath(new IntPtr(18), out _), "Only the category and fifteen root handles are allocated.");
         CollectionAssert.AreEqual(Enumerable.Range(26, 15).Reverse().Select(i => $@"C:\Folder{i}").ToArray(),
-            items.Skip(1).Select(item => GetPath(provider, item.SubMenuHandle)).ToArray());
+            items.Take(items.Count - 1).Select(item => GetPath(provider, item.SubMenuHandle)).ToArray());
         var checkedPaths = new List<string>();
         var submenu = RecentFoldersMenu.BuildSubmenu(provider, path => { checkedPaths.Add(path); return path != @"C:\Folder25"; });
         Assert.HasCount(20, submenu);
         Assert.HasCount(21, checkedPaths);
         Assert.AreEqual(@"C:\Folder24", GetPath(provider, submenu[0].SubMenuHandle));
         Assert.AreEqual(@"C:\Folder5", GetPath(provider, submenu[^1].SubMenuHandle));
-        Assert.IsFalse(checkedPaths.Intersect(items.Skip(1).Select(item => GetPath(provider, item.SubMenuHandle))).Any());
+        Assert.IsFalse(checkedPaths.Intersect(items.Take(items.Count - 1).Select(item => GetPath(provider, item.SubMenuHandle))).Any());
     }
 
     [TestMethod]
@@ -49,7 +50,7 @@ public sealed class RecentFoldersMenuTests
         Assert.HasCount(Math.Max(1, submenuCount), submenu);
         if (submenuCount == 0) Assert.IsTrue(submenu[0].IsDisabled && !submenu[0].HasSubMenu);
         CollectionAssert.AreEqual(Entries(count).OrderByDescending(entry => entry.OpenedUtcTicks).Select(entry => entry.Path).ToArray(),
-            items.Skip(1).Concat(submenu.Where(item => !item.IsDisabled)).Select(item => GetPath(provider, item.SubMenuHandle)).ToArray());
+            items.Take(items.Count - 1).Concat(submenu.Where(item => !item.IsDisabled)).Select(item => GetPath(provider, item.SubMenuHandle)).ToArray());
     }
 
     [TestMethod]
@@ -64,6 +65,7 @@ public sealed class RecentFoldersMenuTests
         var items = new List<DynamicMenuItem>();
         RecentFoldersMenu.AppendRoot(items, provider, false, new(Entries(150), limit));
         Assert.HasCount(16, items);
+        Assert.AreEqual(RecentFoldersMenu.HandlePath, GetPath(provider, items[^1].SubMenuHandle));
         Assert.HasCount(expectedSubmenuCount, RecentFoldersMenu.BuildSubmenu(provider, _ => true));
     }
 

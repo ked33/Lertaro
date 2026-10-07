@@ -38,7 +38,9 @@ public sealed class QuickNavigationRootPreparationTests
             Assert.IsTrue(items.Any(item => item.Text == "Configured" && !item.IsDisabled));
             Assert.IsTrue(items.Any(item => item.HasSubMenu && GetPath(provider, item.SubMenuHandle) == "foldercascader://favorites"));
             var recentIndex = Array.FindIndex(items, item => item.HasSubMenu && GetPath(provider, item.SubMenuHandle) == RecentFoldersMenu.HandlePath);
-            Assert.AreEqual(15, items.Length - recentIndex - 1);
+            Assert.AreEqual(items.Length - 1, recentIndex, "The overflow menu follows the recent folder list.");
+            Assert.AreEqual(15, items.Take(recentIndex).Count(item => item.HasSubMenu &&
+                GetPath(provider, item.SubMenuHandle).StartsWith(@"C:\Recent", StringComparison.Ordinal)));
             var current = items.Single(item => item.HasSubMenu && GetPath(provider, item.SubMenuHandle) == "foldercascader://opened-folders");
             var paths = provider.GetMenuItems(result, current.SubMenuHandle).ToArray();
             Assert.AreEqual(1, captures);

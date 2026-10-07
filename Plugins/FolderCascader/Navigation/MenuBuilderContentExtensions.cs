@@ -108,30 +108,7 @@ internal static class MenuBuilderContentExtensions
             items.RemoveAt(items.Count - 1);
         }
 
-        if (context?.HoveredFolderPathTask is { } hoveredTask)
-        {
-            items.Insert(0, new DynamicMenuItem
-            {
-                IsPinnedToTop = true,
-                // An optional hover must not reserve visible space before it is confirmed.
-                Text = string.Empty,
-                IsDisabled = true,
-                LoadDeferredItem = async cancellation =>
-                {
-                    var path = await hoveredTask.WaitAsync(cancellation);
-                    cancellation.ThrowIfCancellationRequested();
-                    // The capture already validated the physical directory off the UI thread.
-                    return string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path) ? null : new DynamicMenuItem
-                    {
-                        IsPinnedToTop = true,
-                        Text = TranslationService.Get("FolderCascader_HoveredFolder"),
-                        HasSubMenu = true,
-                        SubMenuHandle = provider.AllocateHandle(path), IsPathAvailable = true
-                    };
-                }
-            });
-        }
-        else if (!string.IsNullOrWhiteSpace(hoveredFolder) && Path.IsPathFullyQualified(hoveredFolder) && Directory.Exists(hoveredFolder))
+        if (!string.IsNullOrWhiteSpace(hoveredFolder) && Path.IsPathFullyQualified(hoveredFolder) && Directory.Exists(hoveredFolder))
         {
             items.Insert(0, new DynamicMenuItem
             {

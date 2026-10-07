@@ -56,12 +56,28 @@ internal static class QuickNavigationHookHandlers
             {
                 var hoveredFolder = !host.Value.IsDesktop && host.Value.Process.Equals("explorer", StringComparison.OrdinalIgnoreCase)
                     ? ExplorerHoveredFolder.CaptureAsync(host.Value.Hwnd, x, y) : null;
-                dispatcher.BeginInvoke(() =>
-                {
-                    if (generation != Volatile.Read(ref _middleClickGeneration)) return;
-                    QuickNavigationMenu.Show(x, y, hoveredFolder);
-                });
+                _ = ShowAfterHoverCaptureAsync(dispatcher, x, y, generation, hoveredFolder);
             }
+        });
+    }
+
+    private static async Task ShowAfterHoverCaptureAsync(Dispatcher dispatcher, int x, int y, int generation, Task<string?>? capture)
+    {
+        string? hoveredFolder = null;
+        try
+        {
+            // Finish the bounded hit-test before constructing the root menu: no late insertion or
+            // shifted rows under the pointer. Directory contents still load only on submenu expansion.
+            if (capture != null) hoveredFolder = await capture.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"[QuickNavigation] Hover capture failed: {ex.Message}", LogLevel.Debug);
+        }
+        dispatcher.BeginInvoke(() =>
+        {
+            if (generation != Volatile.Read(ref _middleClickGeneration)) return;
+            QuickNavigationMenu.Show(x, y, hoveredFolder);
         });
     }
 

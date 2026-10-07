@@ -27,7 +27,7 @@ public static class QuickNavigationMenu
 
     public static void Show(int mouseX, int mouseY) => Show(mouseX, mouseY, null);
 
-    internal static void Show(int mouseX, int mouseY, Task<string?>? hoveredFolder)
+    internal static void Show(int mouseX, int mouseY, string? hoveredFolder)
     {
         var tracker = InlineSearchManager.Instance.ExplorerTracker;
 
@@ -64,7 +64,7 @@ public static class QuickNavigationMenu
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
     }
 
-    private static void ShowCore(int mouseX, int mouseY, QuickNavTriggerContext trigger, string path, Task<string?>? hoveredFolder = null)
+    private static void ShowCore(int mouseX, int mouseY, QuickNavTriggerContext trigger, string path, string? hoveredFolder = null)
     {
         var generation = ++_sessionGeneration;
         ShowMenu(mouseX, mouseY, generation, trigger, path, hoveredFolder);
@@ -88,13 +88,13 @@ public static class QuickNavigationMenu
         return PluginSdk.Services.ExplorerPathService.GetOpenedFolderPaths();
     }
 
-    private static void ShowMenu(int mouseX, int mouseY, int generation, QuickNavTriggerContext trigger, string path, Task<string?>? hoveredFolder)
+    private static void ShowMenu(int mouseX, int mouseY, int generation, QuickNavTriggerContext trigger, string path, string? hoveredFolder)
     {
-        // Hover detection is asynchronous; opened-folder capture starts only when its submenu is expanded.
+        // Hover identity is already resolved; all directory contents load only on submenu expansion.
         var dummyResult = new AppSearchResult
         {
             FullPath = path, Name = Path.GetFileName(path), IsDir = true,
-            HoveredFolderPathTask = hoveredFolder, OpenedFolderPathsLoader = CaptureOpenedFoldersAsync
+            HoveredFolderPath = hoveredFolder, OpenedFolderPathsLoader = CaptureOpenedFoldersAsync
         };
         var contextMenu = new ContextMenu();
         contextMenu.PreviewKeyDown += (_, e) => QuickNavigationMenuKeyHandler.HandleShortcutKeyDown(contextMenu, e);

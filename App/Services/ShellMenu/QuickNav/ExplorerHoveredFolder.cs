@@ -16,7 +16,7 @@ internal static class ExplorerHoveredFolder
         var tab = ExplorerFolderPathReader.GetActiveTab(hwnd);
         var completion = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
         ShellThread.Run("QuickNavigationHover", () => completion.TrySetResult(Read(hwnd, under, tab, x, y)));
-        // Accessibility providers and shell extensions can stall. The optional item must not hold up the menu.
+        // Bound the hit-test wait before the root menu is shown; a stalled provider must not freeze the UI.
         try { return await completion.Task.WaitAsync(TimeSpan.FromMilliseconds(750)).ConfigureAwait(false); }
         catch (TimeoutException) { return null; }
     }
