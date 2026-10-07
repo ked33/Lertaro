@@ -48,4 +48,49 @@ public sealed class ExplorerFolderPathReaderTests
         }
         Assert.ThrowsExactly<TimeoutException>(() => ExplorerFolderPathReader.ResolveUniqueFolder(Incomplete(), _ => true));
     }
+
+    [TestMethod]
+    public void AFileHitStopsScanningAndDisposesTheShellEnumerator()
+    {
+        var disposed = false;
+        IEnumerable<(string Path, bool IsFolder)> Matches()
+        {
+            try
+            {
+                yield return (@"C:\Work\Report.txt", false);
+                throw new AssertFailedException("A file hit must not request another Shell item.");
+            }
+            finally { disposed = true; }
+        }
+        Assert.IsNull(ExplorerFolderPathReader.ResolveUniqueFolder(Matches(),
+            _ => throw new AssertFailedException("A file hit must not probe the filesystem.")));
+        Assert.IsTrue(disposed);
+    }
+
+    [TestMethod]
+    public void AnAmbiguousFolderHitStopsAtTheSecondMatchAndDisposesTheEnumerator()
+    {
+        var disposed = false;
+        IEnumerable<(string Path, bool IsFolder)> Matches()
+        {
+            try
+            {
+                yield return (@"C:\Work\Report", true);
+                yield return (@"C:\Work\Report.txt", false);
+                throw new AssertFailedException("Ambiguity must stop further Shell enumeration.");
+            }
+            finally { disposed = true; }
+        }
+        Assert.IsNull(ExplorerFolderPathReader.ResolveUniqueFolder(Matches(),
+            _ => throw new AssertFailedException("An ambiguous hit must not probe the filesystem.")));
+        Assert.IsTrue(disposed);
+    }
+
+    [TestMethod]
+    public void ACancelledHoverProbeReturnsNoFolder()
+    {
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        Assert.IsNull(ExplorerFolderPathReader.Read(IntPtr.Zero, IntPtr.Zero, "Report", cancelled.Token));
+    }
 }

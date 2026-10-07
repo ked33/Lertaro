@@ -152,13 +152,12 @@ public static class QuickNavigationMenu
         var helperWin = new MenuHelperWindow(mouseX * dpiScaleX, mouseY * dpiScaleY);
         helperWin.Deactivated += (s, e) => { if (!IsShowingShellMenu) contextMenu.IsOpen = false; };
         helperWin.Show();
-        helperWin.Activate();
 
         var hwnd = new WindowInteropHelper(helperWin).Handle;
-        // useAltTapBypass: false -- this call is triggered by a mouse click the Hook's own mouse hook just
-        // processed, which already satisfies SetForegroundWindow's foreground-lock check on its own. See
-        // ForceForeground's own comment for why simulating Alt here caused this popup to self-deactivate.
-        if (hwnd != IntPtr.Zero) QuickSearchWindowController.ForceForeground(hwnd, useAltTapBypass: false);
+        // Show() normally activates this window. Avoid a second, asynchronous focus grab after
+        // the popup has taken keyboard focus; keep the hook fallback only when activation failed.
+        if (hwnd != IntPtr.Zero && QuickSearchWindowNative.GetForegroundWindow() != hwnd)
+            QuickSearchWindowController.ForceForeground(hwnd, useAltTapBypass: false);
 
         contextMenu.PlacementTarget = helperWin;
         contextMenu.Placement = PlacementMode.AbsolutePoint;

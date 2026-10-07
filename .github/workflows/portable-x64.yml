@@ -71,7 +71,7 @@ jobs:
           $checks = @{
             "Tests/Core/Core.csproj" = "FullyQualifiedName~FileTypeFilterSearchTests|FullyQualifiedName~SearchRequestBinarySerializerTests|FullyQualifiedName~HotkeyStringFormatTests|FullyQualifiedName~FzfTopNTests"
             "Tests/App/App.csproj" = "FullyQualifiedName~SearchFilterShortcutTests|FullyQualifiedName~WpfUiHelperTests|FullyQualifiedName~PluginConfig|FullyQualifiedName~QueryTokenResultComposerTests"
-            "Tests/PluginSdk/PluginSdk.csproj" = "FullyQualifiedName~FileTypeFilterTests"
+            "Tests/PluginSdk/PluginSdk.csproj" = "FullyQualifiedName~FileTypeFilterTests|FullyQualifiedName~ExplorerFolderPathReaderTests"
             "Tests/Plugins/CoreExtensions/CoreExtensions.csproj" = "FullyQualifiedName~CustomFilterQueryTokenProviderTests"
           }
           foreach ($check in $checks.GetEnumerator()) {

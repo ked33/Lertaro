@@ -25,16 +25,20 @@ public static class ExplorerFolderPathReader
     public static string? Read(IntPtr target, IntPtr activeTab) => Read(target, activeTab, null);
 
     /// <summary>Resolves an exact displayed item name in the specified tab; ambiguous names are rejected.</summary>
-    public static string? Read(IntPtr target, IntPtr activeTab, string? itemName)
+    public static string? Read(IntPtr target, IntPtr activeTab, string? itemName) => Read(target, activeTab, itemName, default);
+
+    public static string? Read(IntPtr target, IntPtr activeTab, string? itemName, CancellationToken cancellationToken)
     {
         object? windows = null;
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var type = Type.GetTypeFromCLSID(new Guid("9BA05972-F6A8-11CF-A442-00A0C90A8F39"));
             if (type == null || (windows = Activator.CreateInstance(type)) == null) return null;
             var count = (int)((dynamic)windows).Count;
             for (var i = 0; i < count; i++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 object? window = null, document = null, folder = null, item = null;
                 try
                 {
@@ -44,7 +48,7 @@ public static class ExplorerFolderPathReader
                     document = ((dynamic)window).Document;
                     folder = ((dynamic)document!).Folder;
                     if (itemName != null)
-                        return ResolveUniqueFolder(ReadMatchingItems(folder!, itemName));
+                        return ResolveUniqueFolder(ReadMatchingItems(folder!, itemName, cancellationToken));
                     item = ((dynamic)folder!).Self;
                     string? path = ((dynamic)item!).Path;
                     if (!string.IsNullOrWhiteSpace(path) && Path.IsPathFullyQualified(path)
@@ -61,11 +65,12 @@ public static class ExplorerFolderPathReader
         return null;
     }
 
-    private static IEnumerable<(string Path, bool IsFolder)> ReadMatchingItems(object folder, string name)
+    private static IEnumerable<(string Path, bool IsFolder)> ReadMatchingItems(object folder, string name, CancellationToken cancellationToken)
     {
         object? items = null;
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             items = ((dynamic)folder).Items();
             var count = (int)((dynamic)items!).Count;
             var timer = Stopwatch.StartNew();
@@ -73,6 +78,7 @@ public static class ExplorerFolderPathReader
             // For very large views, omit the optional hover entry; use native item identity if needed later.
             for (var i = 0; i < count; i++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (timer.ElapsedMilliseconds > 250) throw new TimeoutException();
                 object? item = null;
                 try
@@ -93,9 +99,12 @@ public static class ExplorerFolderPathReader
     internal static string? ResolveUniqueFolder(IEnumerable<(string Path, bool IsFolder)> matches,
         Func<string, bool>? directoryExists = null)
     {
-        var candidates = matches.Take(2).ToArray();
-        if (candidates.Length != 1 || !candidates[0].IsFolder) return null;
-        var path = candidates[0].Path;
+        using var candidates = matches.GetEnumerator();
+        // A matching file can never resolve to a unique folder, even if more names follow.
+        // Stop immediately instead of scanning the rest of a large Explorer view for that case.
+        if (!candidates.MoveNext() || !candidates.Current.IsFolder) return null;
+        var path = candidates.Current.Path;
+        if (candidates.MoveNext()) return null;
         return !string.IsNullOrWhiteSpace(path) && Path.IsPathFullyQualified(path)
             && !UserPathResolver.IsVirtualPath(path) && !path.Contains("::{", StringComparison.Ordinal)
             && (directoryExists ?? Directory.Exists)(path) ? path : null;
