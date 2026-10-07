@@ -255,7 +255,7 @@ internal static class QuickNavigationMenuContentExtensions
             contextMenu.IsOpen = false;
             (contextMenu.PlacementTarget as Window)?.Hide();
             Application.Current.Dispatcher.BeginInvoke(new Action(() =>
-                FileExecutor.OpenFolderInNewExplorerTab(itemPath!, trigger.ActiveHwnd)),
+                FileExecutor.OpenFolderWithShell(itemPath!)),
                 System.Windows.Threading.DispatcherPriority.Background);
         });
 
