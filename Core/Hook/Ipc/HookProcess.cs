@@ -370,6 +370,7 @@ public sealed class HookProcess : IDisposable
             _keyboardHook.Start();
 
             _mouseHook = new MouseHookService();
+            _mouseHook.OnMouseInput += () => _keyboardHook.NotifyMouseInput();
             _mouseHook.OnRightButtonDown += time => _keyboardHook.NotifyRightButtonDown(time);
             _mouseHook.OnMouseClick += (x, y) => _ipcServer.SendMessage(new IpcMessage { Id = IpcMessageId.MouseClick, MouseX = x, MouseY = y });
             _mouseHook.OnMouseDoubleClick += (x, y) =>

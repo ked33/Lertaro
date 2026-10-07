@@ -57,6 +57,7 @@ public class MouseHookService : IDisposable
     private int _lastClickX;
     private int _lastClickY;
 
+    public event Action? OnMouseInput;
     public event Action<int, int>? OnMouseClick;
     public event Action<int, int>? OnMouseDoubleClick;
     public event Action<int, int>? OnMouseMiddleClick;
@@ -95,6 +96,8 @@ public class MouseHookService : IDisposable
         {
             if (nCode >= 0)
             {
+                // Buttons (including X buttons) and both wheels cancel taps; movement alone does not.
+                if (IsTapCancellingMessage((int)wParam)) OnMouseInput?.Invoke();
                 if (wParam == (IntPtr)WM_LBUTTONDOWN)
                 {
                     var hookStruct = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
@@ -135,6 +138,8 @@ public class MouseHookService : IDisposable
 
         return CallNextHookEx(_hookId, nCode, wParam, lParam);
     }
+
+    internal static bool IsTapCancellingMessage(int message) => message is >= 0x0201 and <= 0x020E;
 
     public void Dispose() => Stop();
 }

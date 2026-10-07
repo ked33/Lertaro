@@ -30,39 +30,51 @@ public sealed class GlobalHotkeyDetector
     internal bool CheckModifiersMatchOnly(string expectedModifier) =>
         KeyboardUtils.CheckModifiersMatch(expectedModifier, _modifierKeyState, "CONTROL");
 
-    /// <summary>Call on WM_KEYUP / WM_SYSKEYUP to reset the "was released" flags.</summary>
-    public void OnKeyUp(int vkCode)
-    {
-        _modifierKeyState.OnKeyUp(vkCode);
-        if (HotkeyStringFormat.IsBareModifier(_settings.Hotkeys.ToggleWindowHotkey, out var toggleModifier) &&
-            KeyboardUtils.IsModifierKey(vkCode, toggleModifier))
-        {
-            _toggleWindowTapDetector.OnModifierKeyUp();
-        }
+    public void OnKeyUp(int vkCode) => _modifierKeyState.OnKeyUp(vkCode);
 
-        if (HotkeyStringFormat.IsBareModifier(_settings.Hotkeys.QuickSwitchHotkey, out var quickSwitchModifier) &&
-            KeyboardUtils.IsModifierKey(vkCode, quickSwitchModifier))
-        {
-            _quickSwitchTapDetector.OnModifierKeyUp();
-        }
+    internal bool IsTapModifierKey(int vkCode) =>
+        IsTapModifier(_settings.Hotkeys.ToggleWindowHotkey, vkCode)
+        || IsTapModifier(_settings.Hotkeys.QuickSwitchHotkey, vkCode);
+
+    private static bool IsTapModifier(string hotkey, int vkCode) =>
+        HotkeyStringFormat.IsBareModifier(hotkey, out var modifier) && KeyboardUtils.IsModifierKey(vkCode, modifier);
+
+    internal void CancelModifierTaps()
+    {
+        _toggleWindowTapDetector.ResetOnOtherInput();
+        _quickSwitchTapDetector.ResetOnOtherInput();
+    }
+
+    // Feed every event before any early-return/consumption in the keyboard hook. Mouse cancellation
+    // runs on the same hook thread. Suppressed and injected events cancel but never complete a tap.
+    internal (bool ToggleWindow, bool QuickSwitch) ProcessModifierTaps(int vkCode, uint time,
+        bool isDown, bool isInjected, bool allowed, bool allowQuickSwitch, IntPtr foreground, Func<int, bool> isKeyDown)
+    {
+        var toggleModifier = IsTapModifier(_settings.Hotkeys.ToggleWindowHotkey, vkCode);
+        var switchModifier = IsTapModifier(_settings.Hotkeys.QuickSwitchHotkey, vkCode);
+        var clean = allowed && !isInjected && (toggleModifier || switchModifier)
+            && !HasOtherInputDown(vkCode, isKeyDown);
+        var toggle = _toggleWindowTapDetector.ProcessKey(vkCode, time, isDown, toggleModifier, clean, isInjected, foreground);
+        var quickSwitch = _quickSwitchTapDetector.ProcessKey(vkCode, time, isDown, switchModifier,
+            clean && allowQuickSwitch, isInjected, foreground);
+        return (toggle, quickSwitch);
+    }
+
+    internal static bool HasOtherInputDown(int modifierVk, Func<int, bool> isKeyDown)
+    {
+        // The current edge has not updated GetAsyncKeyState yet. Ignore its generic alias,
+        // but include the opposite side, other keys and mouse buttons. Sample only at tap edges.
+        var generic = modifierVk switch { 0xA0 or 0xA1 => 0x10, 0xA2 or 0xA3 => 0x11, 0xA4 or 0xA5 => 0x12, _ => modifierVk };
+        for (var vk = 1; vk < 0xFF; vk++)
+            if (vk != modifierVk && vk != generic && isKeyDown(vk)) return true;
+        return false;
     }
 
     public bool CheckToggleWindowHotkey(int vkCode, uint time, out bool consumeKey, Action? onDoubleCtrl)
     {
         consumeKey = false;
         var triggered = false;
-        if (HotkeyStringFormat.IsBareModifier(_settings.Hotkeys.ToggleWindowHotkey, out var clickModifier))
-        {
-            if (KeyboardUtils.IsModifierKey(vkCode, clickModifier))
-            {
-                triggered = _toggleWindowTapDetector.OnModifierKeyDown(vkCode, time);
-            }
-            else
-            {
-                _toggleWindowTapDetector.ResetOnOtherKey();
-            }
-        }
-        else
+        if (!HotkeyStringFormat.IsBareModifier(_settings.Hotkeys.ToggleWindowHotkey, out _))
         {
             HotkeyStringFormat.ParseCombo(_settings.Hotkeys.ToggleWindowHotkey, out var modifier, out var key);
             var targetVk = KeyboardUtils.GetKeyVirtualCode(key);
@@ -118,18 +130,7 @@ public sealed class GlobalHotkeyDetector
     {
         consumeKey = false;
         var triggered = false;
-        if (HotkeyStringFormat.IsBareModifier(_settings.Hotkeys.QuickSwitchHotkey, out var clickModifier))
-        {
-            if (KeyboardUtils.IsModifierKey(vkCode, clickModifier))
-            {
-                triggered = _quickSwitchTapDetector.OnModifierKeyDown(vkCode, time);
-            }
-            else
-            {
-                _quickSwitchTapDetector.ResetOnOtherKey();
-            }
-        }
-        else
+        if (!HotkeyStringFormat.IsBareModifier(_settings.Hotkeys.QuickSwitchHotkey, out _))
         {
             HotkeyStringFormat.ParseCombo(_settings.Hotkeys.QuickSwitchHotkey, out var modifier, out var key);
             var targetVk = KeyboardUtils.GetKeyVirtualCode(key);
@@ -149,7 +150,7 @@ public sealed class GlobalHotkeyDetector
     // the active (dialog) Explorer-like window back to the last folder that was active outside it. Kept as
     // its own method so the gesture-detection above (shared via ModifierDoubleTapDetector) and this
     // navigation policy read as two separate steps, even though they still live in the same class.
-    private bool TryHandleQuickSwitchNavigation(bool triggered, out bool consumeKey)
+    internal bool TryHandleQuickSwitchNavigation(bool triggered, out bool consumeKey)
     {
         consumeKey = false;
         // Bounded exactly like ExplorerTracker.ReclassifyActiveWindowBounded: this runs inside the

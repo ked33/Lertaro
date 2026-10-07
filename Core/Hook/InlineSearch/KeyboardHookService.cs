@@ -80,6 +80,8 @@ public class KeyboardHookService : IDisposable
     // give it a short grace window regardless.
     public void NotifyRightButtonDown(uint time) => MarkPendingContextMenuTrigger(time);
 
+    public void NotifyMouseInput() => _hotkeyDetector.CancelModifierTaps();
+
     private void MarkPendingContextMenuTrigger(uint time)
     {
         _hasPendingContextMenuTrigger = true;
@@ -122,16 +124,32 @@ public class KeyboardHookService : IDisposable
 
     private IntPtr HookCallbackCore(int nCode, IntPtr wParam, IntPtr lParam)
     {
-        if (nCode >= 0 && (wParam == (IntPtr)KeyboardNativeMethods.WM_KEYUP || wParam == (IntPtr)KeyboardNativeMethods.WM_SYSKEYUP))
+        var isDown = wParam == (IntPtr)KeyboardNativeMethods.WM_KEYDOWN || wParam == (IntPtr)KeyboardNativeMethods.WM_SYSKEYDOWN;
+        var isUp = wParam == (IntPtr)KeyboardNativeMethods.WM_KEYUP || wParam == (IntPtr)KeyboardNativeMethods.WM_SYSKEYUP;
+        if (nCode < 0 || (!isDown && !isUp))
+            return KeyboardNativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);
+
+        var hookStruct = Marshal.PtrToStructure<KeyboardNativeMethods.KBDLLHOOKSTRUCT>(lParam);
+        var vkCode = (int)hookStruct.vkCode;
+        var time = hookStruct.time;
+        var foreground = KeyboardNativeMethods.GetForegroundWindow();
+        var needsGate = isDown || _hotkeyDetector.IsTapModifierKey(vkCode);
+        var isFullscreenBlocking = needsGate && !_settings.Hotkeys.AllowHotkeysInFullscreen && FullscreenHelper.IsForegroundWindowFullScreen();
+        var shouldDisableAllHooks = needsGate && (IsHotkeysDisabledTemporarily
+            || ForegroundProcessGate.IsForegroundProcessBlacklisted(_settings.BlacklistedProcesses) || isFullscreenBlocking)
+            && !_explorerTracker.IsActiveWindowDialog;
+
+        // Always observe taps before another hotkey consumes an event. Releases never get swallowed.
+        var taps = _hotkeyDetector.ProcessModifierTaps(vkCode, time, isDown,
+            (hookStruct.flags & KeyboardNativeMethods.LLKHF_INJECTED) != 0, !shouldDisableAllHooks,
+            !IsQuickSearchWindowVisible, foreground,
+            key => (KeyboardNativeMethods.GetAsyncKeyState(key) & 0x8000) != 0);
+        if (isUp) _hotkeyDetector.OnKeyUp(vkCode);
+        if (taps.ToggleWindow) OnDoubleCtrl?.Invoke();
+        if (taps.QuickSwitch) _hotkeyDetector.TryHandleQuickSwitchNavigation(true, out _);
+
+        if (isDown)
         {
-            var hookStruct = Marshal.PtrToStructure<KeyboardNativeMethods.KBDLLHOOKSTRUCT>(lParam);
-            _hotkeyDetector.OnKeyUp((int)hookStruct.vkCode);
-        }
-        if (nCode >= 0 && (wParam == (IntPtr)KeyboardNativeMethods.WM_KEYDOWN || wParam == (IntPtr)KeyboardNativeMethods.WM_SYSKEYDOWN))
-        {
-            var hookStruct = Marshal.PtrToStructure<KeyboardNativeMethods.KBDLLHOOKSTRUCT>(lParam);
-            var vkCode = (int)hookStruct.vkCode;
-            var time = hookStruct.time;
             _hotkeyDetector.OnKeyDown(vkCode);
             _hotkeyDetector.SynchronizeModifierState();
 
@@ -181,9 +199,6 @@ public class KeyboardHookService : IDisposable
             // quick-window toggle, Quick Switch, and inline-search invocation below, and still yields
             // to an active file dialog (IsActiveWindowDialog) same as the blacklist does. Key-up
             // tracking and Explorer-tracker bookkeeping run unconditionally either way.
-            var isFullscreenBlocking = !_settings.Hotkeys.AllowHotkeysInFullscreen && FullscreenHelper.IsForegroundWindowFullScreen();
-            var shouldDisableAllHooks = (IsHotkeysDisabledTemporarily || ForegroundProcessGate.IsForegroundProcessBlacklisted(_settings.BlacklistedProcesses) || isFullscreenBlocking)
-                                         && !_explorerTracker.IsActiveWindowDialog;
             // The quick panel first: a plain combination with no bare-modifier form, so nothing below
             // is waiting to see whether this key turns out to be part of a tap.
             if (!shouldDisableAllHooks && _hotkeyDetector.CheckQuickPanelHotkey(vkCode, out var consumeQuickPanel))
