@@ -48,7 +48,8 @@ internal static class ServiceConnectionMonitor
         {
             if (_sharedStatusTimer == null) return;
             var detailed = ActiveSubscribers.Any(s => s._needsDetailedStatus);
-            var target = (detailed || !reachable) ? FastPollIntervalMs_NoLock() : SteadyPollIntervalMs;
+            var exhausted = ActiveSubscribers.Count > 0 && ActiveSubscribers.All(s => s.HasReportedFailure);
+            var target = !exhausted && (detailed || !reachable) ? FastPollIntervalMs_NoLock() : SteadyPollIntervalMs;
             if ((int)_sharedStatusTimer.Interval.TotalMilliseconds != target)
                 _sharedStatusTimer.Interval = TimeSpan.FromMilliseconds(target);
         }
@@ -84,7 +85,7 @@ internal static class ServiceConnectionMonitor
                         try
                         {
                             NotifySubscribers(subscriber => subscriber.ProcessStatus(status));
-                            ApplyPollInterval(reachable: true);
+                            ApplyPollInterval(reachable: status.State != "error");
                         }
                         finally
                         {

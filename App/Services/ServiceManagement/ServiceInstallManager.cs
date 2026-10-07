@@ -9,6 +9,7 @@ public static class ServiceInstallManager
     private const int InstallerTimeoutMs = 30000;
     private const int StartTimeoutMs = 10000;
     private static int _silentInstallInFlight;
+    internal static bool IsSilentInstallInProgress => Volatile.Read(ref _silentInstallInFlight) != 0;
 
     public enum SilentInstallResult
     {
@@ -178,9 +179,26 @@ public static class ServiceInstallManager
 
     /// <summary>
     /// Starts the service without elevation, relying on the START permission granted to authenticated
-    /// users at install time. Returns true if the service is running afterwards.
+    /// users at install time. True means the start command was accepted or it was already running;
+    /// callers must still wait for a successful pipe response before treating it as ready.
     /// </summary>
-    public static bool TryStartWithoutElevation()
+    public static bool TryStartWithoutElevation() => TryStartWithRetry(RunStartCommand, Thread.Sleep);
+
+    internal static bool TryStartWithRetry(Func<int?> start, Action<int> wait)
+    {
+        // 1061 = ERROR_SERVICE_CANNOT_ACCEPT_CTRL: a quick close/reopen can catch STOP_PENDING.
+        // Retry only that transient state, off the UI thread; access denied/missing service needs repair.
+        for (var attempt = 0; attempt < 21; attempt++)
+        {
+            var exitCode = start();
+            if (exitCode is 0 or 1056) return true;
+            if (exitCode != 1061 || attempt == 20) return false;
+            wait(500);
+        }
+        return false;
+    }
+
+    private static int? RunStartCommand()
     {
         try
         {
@@ -193,22 +211,22 @@ public static class ServiceInstallManager
             };
             using var proc = Process.Start(psi);
             if (proc == null)
-                return false;
+                return null;
             if (!proc.WaitForExit(StartTimeoutMs))
             {
                 Logger.Log($"[ServiceInstallManager] Non-elevated start timed out after {StartTimeoutMs}ms.", LogLevel.Warn);
                 TryKill(proc);
-                return false;
+                return null;
             }
             // 0 = started; 1056 = ERROR_SERVICE_ALREADY_RUNNING.
             var success = proc.ExitCode == 0 || proc.ExitCode == 1056;
             Logger.Log($"[ServiceInstallManager] Non-elevated start exited with code {proc.ExitCode}.", success ? LogLevel.Info : LogLevel.Warn);
-            return success;
+            return proc.ExitCode;
         }
         catch (Exception ex)
         {
             Logger.Log($"[ServiceInstallManager] Non-elevated start failed: {ex.Message}", LogLevel.Warn);
-            return false;
+            return null;
         }
     }
 

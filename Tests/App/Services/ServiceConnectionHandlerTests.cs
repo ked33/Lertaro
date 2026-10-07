@@ -31,6 +31,9 @@ public sealed class ServiceConnectionHandlerTests
     {
         MakeHandler().ClearServiceReconnectState();
         SetGlobalField("_globalAutoInstallingService", false);
+        // Each STA test has its own Dispatcher; never reuse a timer owned by a previous test thread.
+        ServiceConnectionMonitor._sharedStatusTimer = null;
+        ServiceConnectionMonitor._sharedSearchService = null;
     }
 
     [TestMethod]
@@ -131,4 +134,72 @@ public sealed class ServiceConnectionHandlerTests
     public void Constructor_NullOnServiceReachable_Throws() =>
         Assert.ThrowsExactly<ArgumentNullException>(() =>
             new ServiceConnectionHandler(new SearchService(), _ => { }, () => { }, () => { }, _ => { }, () => { }, null!));
+
+    [StaTestMethod]
+    public void FailedPing_KeepsMonitoringAndNotifiesAgainAfterRecovery()
+    {
+        var failures = 0;
+        var recoveries = 0;
+        using var search = new SearchService();
+        using var handler = new ServiceConnectionHandler(search, _ => { }, () => { }, () => { }, _ => { },
+            () => failures++, () => recoveries++);
+        handler.Start();
+        SetGlobalField("_globalAutoInstallAttempted", true); // Do not invoke an installer in a test.
+
+        handler.ProcessPingResult(true);
+        handler.ProcessPingResult(false);
+        handler.ProcessPingResult(false);
+        Assert.AreEqual(1, failures, "report degradation once, without repeated UI callbacks");
+        Assert.IsTrue(ServiceConnectionMonitor.ActiveSubscribers.Contains(handler));
+        Assert.IsTrue(handler.HasReportedFailure);
+        ServiceConnectionMonitor.ApplyPollInterval(false);
+        Assert.AreEqual(ServiceConnectionMonitor.SteadyPollIntervalMs,
+            (int)ServiceConnectionMonitor._sharedStatusTimer!.Interval.TotalMilliseconds);
+
+        handler.ProcessPingResult(true);
+        Assert.AreEqual(2, recoveries, "a successful ping after failure must restart bootstrap");
+        Assert.IsFalse(handler.HasReportedFailure);
+    }
+
+    [StaTestMethod]
+    public void FailedStatus_KeepsMonitoringUntilServiceBecomesReady()
+    {
+        var failures = 0;
+        var statuses = new List<string>();
+        using var search = new SearchService();
+        using var handler = new ServiceConnectionHandler(search, status => statuses.Add(status.State),
+            () => { }, () => { }, _ => { }, () => failures++, () => { });
+        handler.Start(requireDetailedStatus: true);
+        SetGlobalField("_globalAutoInstallAttempted", true);
+
+        handler.ProcessStatus(new() { State = "error" });
+        handler.ProcessStatus(new() { State = "error" });
+        Assert.AreEqual(1, failures);
+        Assert.IsTrue(ServiceConnectionMonitor.ActiveSubscribers.Contains(handler));
+        ServiceConnectionMonitor.ApplyPollInterval(false);
+        Assert.AreEqual(ServiceConnectionMonitor.SteadyPollIntervalMs,
+            (int)ServiceConnectionMonitor._sharedStatusTimer!.Interval.TotalMilliseconds);
+
+        handler.ProcessStatus(new() { State = "loading-cache" });
+        ServiceConnectionMonitor.ApplyPollInterval(true);
+        Assert.AreEqual(400, (int)ServiceConnectionMonitor._sharedStatusTimer!.Interval.TotalMilliseconds);
+        handler.ProcessStatus(new() { State = "ready" });
+        CollectionAssert.AreEqual(new[] { "loading-cache", "ready" }, statuses);
+        Assert.IsFalse(handler.HasReportedFailure);
+    }
+
+    [TestMethod]
+    public void BootstrapInstallerInProgress_PreventsCompetingRecovery()
+    {
+        var field = typeof(ServiceInstallManager).GetField("_silentInstallInFlight", BindingFlags.NonPublic | BindingFlags.Static)!;
+        try
+        {
+            field.SetValue(null, 1);
+            Assert.IsTrue(MakeHandler().ShouldWaitForServiceReconnect());
+        }
+        finally
+        {
+            field.SetValue(null, 0);
+        }
+    }
 }

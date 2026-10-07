@@ -22,6 +22,7 @@ public class ServiceConnectionHandler : IDisposable
     private bool _isMonitoringActive;
     internal bool _needsDetailedStatus;
     private bool _reachableCallbackIssued;
+    internal bool HasReportedFailure { get; private set; }
 
     public bool IsAutoInstallingService => _globalAutoInstallingService;
     public bool HasAttemptedAutoInstall => _globalAutoInstallAttempted;
@@ -60,6 +61,7 @@ public class ServiceConnectionHandler : IDisposable
             _isMonitoringActive = true;
             _needsDetailedStatus = requireDetailedStatus;
             _reachableCallbackIssued = false;
+            HasReportedFailure = false;
             if (!ActiveSubscribers.Contains(this))
                 ActiveSubscribers.Add(this);
 
@@ -77,6 +79,7 @@ public class ServiceConnectionHandler : IDisposable
             _isMonitoringActive = false;
             _needsDetailedStatus = false;
             _reachableCallbackIssued = false;
+            HasReportedFailure = false;
             ActiveSubscribers.Remove(this);
             if (ActiveSubscribers.Count == 0)
                 StopSharedTimer_NoLock();
@@ -85,7 +88,7 @@ public class ServiceConnectionHandler : IDisposable
 
     public void BeginServiceReconnectGracePeriod() => _globalReconnectUntilUtc = DateTime.UtcNow.Add(ServiceReconnectGracePeriod);
 
-    public bool ShouldWaitForServiceReconnect() => _globalAutoInstallingService || DateTime.UtcNow < _globalReconnectUntilUtc;
+    public bool ShouldWaitForServiceReconnect() => _globalAutoInstallingService || ServiceInstallManager.IsSilentInstallInProgress || DateTime.UtcNow < _globalReconnectUntilUtc;
 
     public void ClearServiceReconnectState()
     {
@@ -101,23 +104,26 @@ public class ServiceConnectionHandler : IDisposable
         if (_globalAutoInstallingService)
             return;
 
-        // Fast path: if the service is already installed at the current exe path, start it without
-        // elevation instead of prompting for a reinstall.
-        if (ServiceInstallManager.TryStartExistingService())
-        {
-            BeginServiceReconnectGracePeriod();
-            NotifySubscribers(subscriber => subscriber._onServiceInstallCompleted());
-            return;
-        }
-
         _globalAutoInstallingService = true;
         BeginServiceReconnectGracePeriod();
-        NotifySubscribers(subscriber => subscriber._onServiceInstallStarted());
 
         // Run the installer off the UI thread: RunElevatedInstaller waits for the elevated process to
         // exit (up to 30s), so calling it synchronously from a Dispatcher poll tick would freeze the UI.
         _ = Task.Run(() =>
         {
+            // sc start may wait for STOP_PENDING to finish. Never run that wait on the Dispatcher.
+            if (ServiceInstallManager.TryStartExistingService())
+            {
+                Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    _globalAutoInstallingService = false;
+                    BeginServiceReconnectGracePeriod();
+                    NotifySubscribers(subscriber => subscriber._onServiceInstallCompleted());
+                }));
+                return;
+            }
+            Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
+                NotifySubscribers(subscriber => subscriber._onServiceInstallStarted())));
             var result = ServiceInstallManager.SilentInstall(
                 onCompleted: () =>
                 {
@@ -150,7 +156,11 @@ public class ServiceConnectionHandler : IDisposable
                 var dispatcher = Application.Current?.Dispatcher;
                 if (dispatcher == null)
                     return;
-                dispatcher.BeginInvoke(new Action(BeginServiceReconnectGracePeriod));
+                dispatcher.BeginInvoke(new Action(() =>
+                {
+                    _globalAutoInstallingService = false;
+                    BeginServiceReconnectGracePeriod();
+                }));
             }
         });
     }
@@ -189,12 +199,20 @@ public class ServiceConnectionHandler : IDisposable
                 return;
             }
 
-            Stop();
-            _onServiceFailedToStart();
+            ReportFailureAndKeepMonitoring();
             return;
         }
 
+        HasReportedFailure = false;
         _onStatusUpdated(status);
+    }
+
+    private void ReportFailureAndKeepMonitoring()
+    {
+        _reachableCallbackIssued = false;
+        if (HasReportedFailure) return;
+        HasReportedFailure = true;
+        _onServiceFailedToStart();
     }
 
     internal void ProcessPingResult(bool isReachable)
@@ -215,11 +233,11 @@ public class ServiceConnectionHandler : IDisposable
                 return;
             }
 
-            Stop();
-            _onServiceFailedToStart();
+            ReportFailureAndKeepMonitoring();
             return;
         }
 
+        HasReportedFailure = false;
         if (_needsDetailedStatus || _reachableCallbackIssued)
             return;
 

@@ -27,9 +27,6 @@ internal sealed class SearchPipeClient
             pipe.Dispose();
             throw;
         }
-        // The service listening is the readiness signal: until this first succeeds, connect
-        // failures elsewhere log as cold-start noise instead of real faults.
-        ServicePipeReadinessGate.Instance.MarkConnected();
         return pipe;
     }
 
@@ -88,7 +85,38 @@ internal sealed class SearchPipeClient
         if (resp.Kind == PipeResponseKind.Error) Logger.Log($"[SearchService] CLEAR_PATH_CACHES failed: {resp.Message}", LogLevel.Error);
     }
 
-    public async Task<PipeResponse> SendPipeCommandAsync(SearchRequestMessage msg, CancellationToken token)
+    public Task<PipeResponse> SendPipeCommandAsync(SearchRequestMessage msg, CancellationToken token) =>
+        SendWithProbeRetryAsync(msg, SendPipeCommandOnceAsync, token);
+
+    // Only idempotent health probes may be replayed. A connection alone is not readiness:
+    // a stopping service can accept it and then close before writing even the response header.
+    internal static async Task<PipeResponse> SendWithProbeRetryAsync(SearchRequestMessage msg,
+        Func<SearchRequestMessage, CancellationToken, Task<PipeResponse>> send, CancellationToken token,
+        int probeTimeoutMs = 3000, int retryDelayMs = 200)
+    {
+        var isProbe = msg.Id is SearchRequestId.Ping or SearchRequestId.Status;
+        for (var attempt = 0; ; attempt++)
+        {
+            token.ThrowIfCancellationRequested();
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+            if (isProbe) timeout.CancelAfter(probeTimeoutMs);
+            PipeResponse response;
+            try
+            {
+                response = await send(msg, timeout.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (isProbe && !token.IsCancellationRequested && timeout.IsCancellationRequested)
+            {
+                response = new PipeResponse { Kind = PipeResponseKind.Error, IsTransportError = true,
+                    Message = $"Service probe timed out after {probeTimeoutMs}ms." };
+            }
+            token.ThrowIfCancellationRequested();
+            if (!isProbe || !response.IsTransportError || attempt >= 2) return response;
+            await Task.Delay(retryDelayMs, token).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<PipeResponse> SendPipeCommandOnceAsync(SearchRequestMessage msg, CancellationToken token)
     {
         try
         {
@@ -104,9 +132,14 @@ internal sealed class SearchPipeClient
             if (verboseLog)
                 Logger.Log("[PipeClient] Command written. Reading response...", LogLevel.Debug);
             var resp = await PipeResponseBinarySerializer.ReadAsync(pipe, token).ConfigureAwait(false);
+            ServicePipeReadinessGate.Instance.MarkConnected();
             if (verboseLog)
                 Logger.Log($"[PipeClient] Response received: {resp.Kind}.", LogLevel.Debug);
             return resp;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -152,5 +185,6 @@ internal sealed class SearchPipeClient
             token.ThrowIfCancellationRequested();
             onResult(result);
         }, token, onNotIndexed).ConfigureAwait(false);
+        ServicePipeReadinessGate.Instance.MarkConnected();
     }
 }
