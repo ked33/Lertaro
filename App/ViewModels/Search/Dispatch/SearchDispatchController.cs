@@ -221,15 +221,16 @@ internal sealed class SearchDispatchController
             _bypassExclusions = false;
             _engine.CancelPendingSearch();
             _setIsSearching(false);
-            var suggestion = ExplorerJumpSuggestionHelper.TryBuildSuggestion(_getIsInlineSearchContext(), _getSearchScope());
-            var openedFolderPaths = _getIsInlineSearchContext() && UserSettings.Load().ShowOpenedFoldersInInlineSearch && InlineSearchManager.Instance.ExplorerTracker.IsActiveWindowDialog
+            var isDialog = _getIsInlineSearchContext() && InlineSearchManager.Instance.ExplorerTracker.IsActiveWindowDialog;
+            var openedFolderPaths = isDialog
                 ? ExplorerPathService.GetOpenedFolderPaths()
                 : Array.Empty<string>();
             var emptyStateResults = InlineEmptyStateResultHelper.Build(
-                suggestion,
+                isDialog ? RecentFoldersService.GetSnapshot().Entries.Select(entry => entry.Path) : Array.Empty<string>(),
                 openedFolderPaths,
                 TranslationManager.Instance["Search_LastDirectoryHeader"],
-                TranslationManager.Instance["Search_OpenedFoldersHeader"]);
+                TranslationManager.Instance["Search_OpenedFoldersHeader"],
+                _getSearchScope(), UserSettings.Load().ShowOpenedFoldersInInlineSearch);
             if (emptyStateResults.Count > 0)
             {
                 _replaceResults(emptyStateResults);

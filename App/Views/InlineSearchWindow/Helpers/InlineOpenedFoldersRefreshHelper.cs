@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Windows;
 using Lertaro.Core.Wire;
+using Lertaro.Core;
 
 namespace Lertaro.App.Views.InlineSearchWindow.Helpers;
 
@@ -22,6 +23,7 @@ internal static class InlineOpenedFoldersRefreshHelper
     public static void Attach(Lertaro.App.InlineSearchWindow window)
     {
         var hookClient = App.HookClient;
+        var history = RecentFoldersStore.Instance;
 
         void RequestSnapshotOnce()
         {
@@ -54,8 +56,18 @@ internal static class InlineOpenedFoldersRefreshHelper
         {
             // Queue behind PluginSdkBridge.UpdateOpenedFolders, which is subscribed to the same event
             // and updates the store that ExplorerPathService reads.
-            if (!window.Dispatcher.HasShutdownStarted)
-                window.Dispatcher.BeginInvoke(new Action(RefreshEmptyState));
+            QueueRefresh();
+        }
+
+        var refreshQueued = 0;
+        void QueueRefresh()
+        {
+            if (window.Dispatcher.HasShutdownStarted || Interlocked.Exchange(ref refreshQueued, 1) != 0) return;
+            window.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                Interlocked.Exchange(ref refreshQueued, 0);
+                RefreshEmptyState();
+            }));
         }
 
         void OnClosed(object? sender, EventArgs args)
@@ -63,11 +75,13 @@ internal static class InlineOpenedFoldersRefreshHelper
             window.IsVisibleChanged -= OnVisibleChanged;
             window.Closed -= OnClosed;
             hookClient?.OnOpenedFoldersCaptured -= OnSnapshotCaptured;
+            history.Changed -= QueueRefresh;
             SnapshotRequested.Remove(window);
         }
 
         window.IsVisibleChanged += OnVisibleChanged;
         window.Closed += OnClosed;
         hookClient?.OnOpenedFoldersCaptured += OnSnapshotCaptured;
+        history.Changed += QueueRefresh;
     }
 }

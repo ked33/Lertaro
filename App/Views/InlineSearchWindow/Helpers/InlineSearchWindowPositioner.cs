@@ -31,6 +31,9 @@ public class InlineSearchWindowPositioner
     private double _cachedWindowWidth;
     private double _cachedWindowHeight;
     private bool _cachedIsResultsVisible;
+    private InlineDialogDock? _cachedOutsideDock;
+    private System.Drawing.Rectangle _cachedWorkingArea;
+    private (double X, double Y) _cachedDpi;
 
     public InlineSearchWindowPositioner(Lertaro.App.InlineSearchWindow window)
     {
@@ -122,17 +125,6 @@ public class InlineSearchWindowPositioner
             hasValidRect = tracker.TryGetActiveWindowRect(out rect) && (rect.Right - rect.Left > 100 && rect.Bottom - rect.Top > 100);
         }
 
-        // Which part of that window the card's own text lands in, and that dialog's own file list. Only a
-        // dialog's adapter can answer either, and only the ones that opt in do; no answer leaves the card on
-        // the anchored window's own edges, which is also where a plain window's card goes. Not answered here,
-        // on this thread: for a dialog whose widgets have no window handles of their own it would be a call
-        // into that other process, which is how a closing WPS dialog once took the whole application down
-        // with it -- InlineDialogGeometryProbe.
-        var geometry = hasValidRect
-            ? _geometry.Request(tracker.ActiveHwnd, rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top)
-            : default;
-        var anchor = geometry.Anchor;
-        var fileList = geometry.FileList;
         var mousePosition = System.Windows.Forms.Control.MousePosition;
 
         var hwnd = new WindowInteropHelper(_window).Handle;
@@ -155,11 +147,25 @@ public class InlineSearchWindowPositioner
                 : DefaultWindowWidth;
         var workingArea = InlineCardSpace.WorkingAreaFor(_window, mousePosition);
         desiredWidth = ResolveWindowWidth(_customWidth, desiredWidth, workingArea.Width / targetDpiScaleX);
+        var outsideDock = hasValidRect && tracker.IsActiveWindowDialog
+            ? InlineDialogDock.Find(rect, workingArea, desiredWidth * targetDpiScaleX,
+                _window.CardSizing.FullCardHeight() * targetDpiScaleY,
+                200 * targetDpiScaleX, 12 * targetDpiScaleX, 12 * targetDpiScaleY, 4 * targetDpiScaleX)
+            : null;
+        if (outsideDock is { } outside) desiredWidth = outside.WindowWidth / targetDpiScaleX;
         if (Math.Abs(_window.Width - desiredWidth) > 0.5)
         {
             _window.Width = desiredWidth;
             _window.UpdateLayout();
         }
+
+        // Exterior docking needs only the native frame. Probe foreign controls asynchronously only for
+        // the inside fallback, where the file-list corner keeps the address and filename fields clear.
+        var geometry = hasValidRect && outsideDock == null
+            ? _geometry.Request(tracker.ActiveHwnd, rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top)
+            : default;
+        var anchor = geometry.Anchor;
+        var fileList = geometry.FileList;
 
         var windowHeight = double.IsNaN(_window.Height) || _window.Height <= 0
             ? (_window.ActualHeight > 0 ? _window.ActualHeight : 550.0)
@@ -176,6 +182,9 @@ public class InlineSearchWindowPositioner
             && _cachedWindowWidth == windowWidth
             && _cachedWindowHeight == windowHeight
             && _cachedIsResultsVisible == isResultsVisible
+            && _cachedOutsideDock == outsideDock
+            && _cachedWorkingArea == workingArea
+            && _cachedDpi == (targetDpiScaleX, targetDpiScaleY)
             && (!tracker.IsDesktop || _cachedMousePosition == mousePosition))
         {
             return;
@@ -214,6 +223,7 @@ public class InlineSearchWindowPositioner
         var physWindowHeight = windowHeight * targetDpiScaleY;
         var physXamlMargin = xamlMargin * targetDpiScaleX;
         var physXamlMarginY = xamlMargin * targetDpiScaleY;
+        var fitsOutside = outsideDock?.Fits(physWindowHeight, physXamlMarginY) == true;
 
         double targetPhysLeft = 0;
         double targetPhysTop = 0;
@@ -260,6 +270,11 @@ public class InlineSearchWindowPositioner
                 // and loosening this bound only let the card run past the bottom of the screen.
                 targetPhysTop = Math.Clamp(targetPhysTop, minTop, Math.Max(minTop, maxTop));
 
+                // Outside coordinates are already constrained to the chosen exterior region. Never run
+                // the old monitor clamp afterwards: that would move a side-docked card back inside.
+                if (fitsOutside && outsideDock is { } dock)
+                    (targetPhysLeft, targetPhysTop) = dock.Position(rect, physWindowHeight, physXamlMargin, physXamlMarginY);
+
                 // The placement math in one line, at Debug: both reports about where the card lands were
                 // diagnosed from outside the process, and this would have settled the second one at once. It
                 // sits behind the input guard above, so it only speaks when something changed.
@@ -270,7 +285,7 @@ public class InlineSearchWindowPositioner
                     + $"anchor={(anchor is { } a ? $"{a.Left},{a.Top},{a.Right},{a.Bottom}" : "none")} "
                     + $"list={(fileList is { } listRect ? $"{listRect.Right},{listRect.Top}" : "none")} "
                     + $"dpi={targetDpiScaleX:F2} window={windowWidth:F0}x{windowHeight:F0} "
-                    + $"below={hangsBelow} boundsBottom={screen.Bounds.Bottom} work={workingArea.Left},{workingArea.Top},{workingArea.Right},{workingArea.Bottom} "
+                    + $"outside={(fitsOutside ? outsideDock?.Edge.ToString() : "none")} below={hangsBelow} boundsBottom={screen.Bounds.Bottom} work={workingArea.Left},{workingArea.Top},{workingArea.Right},{workingArea.Bottom} "
                     + $"bound={minTop:F0}..{maxTop:F0} at={targetPhysLeft:F0},{targetPhysTop:F0} drag={_dragOffset.IsSet}",
                     LogLevel.Debug);
             }
@@ -292,6 +307,8 @@ public class InlineSearchWindowPositioner
         {
             (targetPhysLeft, targetPhysTop) = _dragOffset.ApplyPhysical(
                 targetPhysLeft, targetPhysTop, targetDpiScaleX, targetDpiScaleY, workingArea, physWindowWidth, physWindowHeight);
+            if (fitsOutside && outsideDock is { } dragDock)
+                (targetPhysLeft, targetPhysTop) = dragDock.Clamp(targetPhysLeft, targetPhysTop, physWindowHeight, physXamlMargin, physXamlMarginY);
             targetLeft = targetPhysLeft / targetDpiScaleX;
             targetTop = targetPhysTop / targetDpiScaleY;
         }
@@ -325,6 +342,11 @@ public class InlineSearchWindowPositioner
         _cachedWindowWidth = windowWidth;
         _cachedWindowHeight = windowHeight;
         _cachedIsResultsVisible = isResultsVisible;
+        _cachedOutsideDock = outsideDock;
+        _cachedWorkingArea = workingArea;
+        _cachedDpi = (targetDpiScaleX, targetDpiScaleY);
+        // A moved/resized host changes the available row budget even when the result list is unchanged.
+        _window.CardSizing.RequestCardHeight();
     }
 
     // The card's internal order follows the direction it grows in: a drop-down puts the search box on top

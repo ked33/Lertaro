@@ -95,6 +95,15 @@ internal static class InlineCardSpace
             && rect.Bottom - rect.Top > 100 && rect.Right - rect.Left > 100)
         {
             activeWindowHeight = (rect.Bottom - rect.Top) / dpiScaleY;
+            if (tracker.IsActiveWindowDialog)
+            {
+                var (targetX, targetY) = DpiScaleFor(MonitorForWindow(tracker.ActiveHwnd));
+                var outside = InlineDialogDock.Find(rect, screen.WorkingArea, window.Width * targetX,
+                    fullCardHeight * targetY, 200 * targetX, 12 * targetX, 12 * targetY, 4 * targetX);
+                if (outside is { } dock)
+                    return Math.Min(screen.WorkingArea.Height * InlineCardMetrics.WorkingAreaHeightShare,
+                        dock.Bottom - dock.Top + 24 * targetY) / targetY;
+            }
             // To the MONITOR's bottom edge, taskbar included: the placement's room-below question is answered
             // the same way, and a budget measured from one line with the card hung from another is what made
             // a card sized to sit outside a window get drawn over it.
