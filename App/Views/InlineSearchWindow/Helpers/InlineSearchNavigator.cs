@@ -174,7 +174,8 @@ public static class InlineSearchNavigator
                 {
                     Id = IpcMessageId.NavigateDialog,
                     Hwnd = tracker.ActiveHwnd.ToInt64(),
-                    StringVal1 = dialogTarget
+                    StringVal1 = (isDir == true || tracker.ActiveAdapter?.TargetIsFolderOnly == true)
+                        && !Path.EndsInDirectorySeparator(dialogTarget) ? dialogTarget + "\\" : dialogTarget
 
                 });
 

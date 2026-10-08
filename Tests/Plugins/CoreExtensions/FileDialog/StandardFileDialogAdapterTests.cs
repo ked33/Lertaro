@@ -42,6 +42,18 @@ public sealed class StandardFileDialogAdapterTests
         Assert.IsFalse(adapter.TargetIsFolderOnly);
     }
 
+    [TestMethod]
+    public void FileNameLookupSkipsEarlierAddressAndSearchEdits()
+    {
+        using var dialog = FakeCommonDialog.WithNameCombo();
+        CreateWindow("Edit", dialog.Hwnd, WS_CHILD, 0xA205);
+        CreateWindow("Edit", dialog.Hwnd, WS_CHILD, 999);
+        var fileName = CreateWindow("Edit", dialog.Hwnd, WS_CHILD, NameFieldId);
+
+        Assert.AreNotEqual(IntPtr.Zero, fileName);
+        Assert.AreEqual(fileName, StandardDialogNavigation.FindEdit(dialog.Hwnd, NameFieldId));
+    }
+
     private const int NameFieldId = 1148;
     private const int FolderEditId = 1152;
 

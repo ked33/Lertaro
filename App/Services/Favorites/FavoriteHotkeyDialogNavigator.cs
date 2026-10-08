@@ -77,7 +77,7 @@ internal static class FavoriteHotkeyDialogNavigator
         {
             Id = IpcMessageId.NavigateDialog,
             Hwnd = dialogWindow.ToInt64(),
-            StringVal1 = folderPath
+            StringVal1 = System.IO.Path.EndsInDirectorySeparator(folderPath) ? folderPath : folderPath + "\\"
         });
     }
 }

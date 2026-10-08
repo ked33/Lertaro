@@ -51,7 +51,7 @@ public static class QuickNavigationNavigator
             {
                 Id = IpcMessageId.NavigateDialog,
                 Hwnd = trigger.DialogHwnd.ToInt64(),
-                StringVal1 = dialogTarget
+                StringVal1 = Path.EndsInDirectorySeparator(dialogTarget) ? dialogTarget : dialogTarget + "\\"
             });
             return;
         }

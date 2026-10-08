@@ -84,24 +84,8 @@ public class StandardFileDialogAdapter : IFileDialogAdapter
                     // SMTO_ABORTIFHUNG degrades a wedged dialog to an empty read instead.
                     if (SendMessageTimeout(child, WM_GETTEXT, (IntPtr)textSb.Capacity, textSb, SMTO_ABORTIFHUNG, GetTextTimeoutMs, out _) == IntPtr.Zero)
                         return null;
-                    var text = textSb.ToString().Trim();
-                    var potentialPath = text;
-                    var colonIndex = text.IndexOf(':');
-                    if (colonIndex >= 0)
-                    {
-                        var isDriveLetter = colonIndex == 1 && text.Length >= 2 &&
-                            ((text[0] >= 'a' && text[0] <= 'z') || (text[0] >= 'A' && text[0] <= 'Z'));
-                        if (!isDriveLetter && colonIndex + 1 < text.Length)
-                            potentialPath = text.Substring(colonIndex + 1).Trim();
-                    }
-
-                    if (!string.IsNullOrEmpty(potentialPath))
-                    {
-                        var resolved = ShellPathHelper.ResolveSpecialFolder(potentialPath);
-                        var isValid = Path.IsPathRooted(resolved);
-
-                        if (isValid) return resolved;
-                    }
+                    var path = ParseBreadcrumbPath(textSb.ToString());
+                    if (path != null) return path;
                     child = FindWindowEx(breadcrumbParent, child, "ToolbarWindow32", null);
                 }
             }
@@ -110,60 +94,27 @@ public class StandardFileDialogAdapter : IFileDialogAdapter
         return null;
     }
 
+    internal static string? ParseBreadcrumbPath(string text)
+    {
+        var path = text.Trim();
+        if (!Path.IsPathFullyQualified(path))
+        {
+            var colon = path.IndexOfAny([':', '：']);
+            if (colon >= 0) path = path[(colon + 1)..].Trim();
+            if (!Path.IsPathFullyQualified(path)) path = ShellPathHelper.ResolveSpecialFolder(path);
+        }
+        return Path.IsPathFullyQualified(path) ? path : null;
+    }
+
     public bool NavigateTo(IntPtr hwnd, string targetPath)
+        => NavigateTo(hwnd, Directory.Exists(targetPath) && !Path.EndsInDirectorySeparator(targetPath)
+            ? targetPath + "\\" : targetPath, CancellationToken.None);
+
+    public bool NavigateTo(IntPtr hwnd, string targetPath, CancellationToken cancellationToken)
     {
         try
         {
-            var targetEdit = FindSubEditBox(hwnd);
-            if (targetEdit == IntPtr.Zero) return false;
-
-            if (Directory.Exists(targetPath) && !targetPath.EndsWith("\\"))
-                targetPath += "\\";
-
-            var currentPath = GetCurrentPath(hwnd);
-            if (currentPath != null && string.Equals(currentPath.TrimEnd('\\'), targetPath.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
-                return true;
-
-            SendMessage(targetEdit, WM_SETTEXT, IntPtr.Zero, targetPath);
-            var parent = GetParent(targetEdit);
-            var ctrlId = GetDlgCtrlID(targetEdit);
-            if (parent != IntPtr.Zero)
-            {
-                var wParamChange = (IntPtr)((EN_CHANGE << 16) | (uint)ctrlId);
-                SendMessage(parent, WM_COMMAND, wParamChange, targetEdit);
-            }
-
-            Task.Run(async () =>
-            {
-                await Task.Delay(300);
-                var currentActive = GetForegroundWindow();
-                var isAllowed = (currentActive == hwnd);
-
-                if (isAllowed)
-                {
-                    var targetThread = GetWindowThreadProcessId(targetEdit, out var _);
-                    var currentThread = GetCurrentThreadId();
-                    var attached = false;
-                    try
-                    {
-                        if (targetThread != 0 && targetThread != currentThread)
-                            attached = AttachThreadInput(currentThread, targetThread, true);
-
-                        SetForegroundWindow(hwnd);
-                        SetFocus(targetEdit);
-                        PostMessage(targetEdit, WM_KEYDOWN, (IntPtr)VK_RETURN, IntPtr.Zero);
-                        PostMessage(targetEdit, WM_KEYUP, (IntPtr)VK_RETURN, IntPtr.Zero);
-                        PostMessage(targetEdit, WM_LBUTTONDOWN, (IntPtr)1, IntPtr.Zero);
-                        PostMessage(targetEdit, WM_LBUTTONUP, IntPtr.Zero, IntPtr.Zero);
-                        PostMessage(targetEdit, EM_SETSEL, IntPtr.Zero, (IntPtr)(-1));
-                    }
-                    finally
-                    {
-                        if (attached) AttachThreadInput(currentThread, targetThread, false);
-                    }
-                }
-            });
-            return true;
+            return StandardDialogNavigation.Navigate(hwnd, targetPath, () => GetCurrentPath(hwnd), cancellationToken);
         }
         catch { return false; }
     }
@@ -191,7 +142,9 @@ public class StandardFileDialogAdapter : IFileDialogAdapter
     {
         try
         {
-            var targetEdit = FindSubEditBox(hwnd);
+            var targetEdit = StandardDialogNavigation.FindEdit(hwnd, 1148);
+            if (targetEdit == IntPtr.Zero) targetEdit = StandardDialogNavigation.FindEdit(hwnd, 1001);
+            if (targetEdit == IntPtr.Zero) targetEdit = StandardDialogNavigation.FindEdit(hwnd, 1152);
             if (targetEdit == IntPtr.Zero) return false;
             var targetThread = GetWindowThreadProcessId(targetEdit, out var _);
             var currentThread = GetCurrentThreadId();
@@ -219,26 +172,16 @@ public class StandardFileDialogAdapter : IFileDialogAdapter
     private static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string? lpszClass, string? lpszWindow);
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
     private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
-    [DllImport("user32.dll", CharSet = CharSet.Auto)]
-    private static extern int SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, StringBuilder lParam);
-    [DllImport("user32.dll", CharSet = CharSet.Auto)]
-    private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, string lParam);
-    [DllImport("user32.dll", CharSet = CharSet.Auto)]
-    private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, StringBuilder lParam, uint fuFlags, uint uTimeout, out IntPtr lpdwResult);
     private const uint SMTO_ABORTIFHUNG = 0x0002;
     private const uint GetTextTimeoutMs = 500;
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetParent(IntPtr hWnd);
     [DllImport("user32.dll")]
     private static extern int GetDlgCtrlID(IntPtr hWnd);
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
     [DllImport("dwmapi.dll")]
     private static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out RECT pvAttribute, int cbAttribute);
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
     [DllImport("kernel32.dll")]
@@ -253,15 +196,7 @@ public class StandardFileDialogAdapter : IFileDialogAdapter
     private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
     private const uint WM_GETTEXT = 0x000D;
-    private const uint WM_SETTEXT = 0x000C;
-    private const uint WM_COMMAND = 0x0111;
-    private const uint EN_CHANGE = 0x0300;
-    private const uint WM_KEYDOWN = 0x0100;
-    private const uint WM_KEYUP = 0x0101;
-    private const uint WM_LBUTTONDOWN = 0x0201;
-    private const uint WM_LBUTTONUP = 0x0202;
     private const uint EM_SETSEL = 0x00B1;
-    private const int VK_RETURN = 0x0D;
     private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
 
     [StructLayout(LayoutKind.Sequential)]
@@ -308,22 +243,5 @@ public class StandardFileDialogAdapter : IFileDialogAdapter
         return result;
     }
 
-    private static IntPtr FindSubEditBox(IntPtr parent)
-    {
-        if (parent == IntPtr.Zero) return IntPtr.Zero;
-        var result = IntPtr.Zero;
-        EnumChildWindows(parent, (childHwnd, lParam) =>
-        {
-            var classNameSb = new StringBuilder(256);
-            GetClassName(childHwnd, classNameSb, classNameSb.Capacity);
-            if (classNameSb.ToString().Equals("Edit", StringComparison.OrdinalIgnoreCase))
-            {
-                result = childHwnd;
-                return false;
-            }
-            return true;
-        }, IntPtr.Zero);
-        return result;
-    }
     #endregion
 }

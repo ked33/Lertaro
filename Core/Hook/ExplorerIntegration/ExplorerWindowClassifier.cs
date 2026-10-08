@@ -64,8 +64,7 @@ internal sealed class ExplorerWindowClassifier
             var dialogHwnd = FindMatchingDialogWindow(hwnd, pluginTimeoutMs, out var adapter);
             if (dialogHwnd != IntPtr.Zero && adapter != null)
             {
-                var previousWasPathProvider = _tracker.IsExplorerOrDesktopActive && !_tracker.IsActiveWindowDialog;
-                TrackFileDialogWindow(dialogHwnd, previousWasPathProvider, TimeSpan.FromMilliseconds(pluginTimeoutMs));
+                TrackFileDialogWindow(dialogHwnd, TimeSpan.FromMilliseconds(pluginTimeoutMs));
                 return;
             }
 
@@ -113,6 +112,9 @@ internal sealed class ExplorerWindowClassifier
                 {
                     if (collector.CanHandle(rootHwnd, windowClassName, processName))
                     {
+                        // Capture identity before a newly opened manager can return an empty path.
+                        if (ExplorerNativeHooks.GetForegroundWindow() == rootHwnd)
+                            _dialogTracker.SetSource(rootHwnd);
                         // Bounded dispatch: plugin code can hang in cross-process COM calls, and
                         // this runs under the tracker lock (the LL hook thread contends on it).
                         // A timeout keeps the last known path instead of wiping it -- a hung read
@@ -121,6 +123,9 @@ internal sealed class ExplorerWindowClassifier
                         var activePath = ExplorerStaInvoker.RunOnStaWithTimeout(
                             () => collector.TryGetPath(focusedHwnd, activeClassName, rootHwnd, windowClassName, processName),
                             (string?)null, pluginReadTimeout, out var collectorTimedOut);
+                        // Classification now runs off the WinEvent thread. A late COM answer must not
+                        // publish the window the user already left as the current source or dialog.
+                        if (ExplorerNativeHooks.GetForegroundWindow() != hwnd) return;
                         handledByPlugin = true;
                         _tracker.ActiveHwnd = rootHwnd;
                         _tracker.IsExplorerOrDesktopActive = true;
@@ -218,18 +223,19 @@ internal sealed class ExplorerWindowClassifier
         }
     }
 
-    private void TrackFileDialogWindow(IntPtr mainDialog, bool previousWasPathProvider, TimeSpan pluginReadTimeout)
+    private void TrackFileDialogWindow(IntPtr mainDialog, TimeSpan pluginReadTimeout)
     {
         _tracker.IsExplorerOrDesktopActive = true;
         _tracker.IsDesktop = false;
         _tracker.ActiveHwnd = mainDialog;
 
-        _dialogTracker.HandleDialogSeen(mainDialog, _tracker.ActiveAdapter, previousWasPathProvider);
+        _dialogTracker.HandleDialogSeen(mainDialog);
 
         // Bounded dispatch (see the collector loop above). On timeout the null fallback flows into the
         // keep-last-known branch below, matching the empty-result handling.
         var activePath = ExplorerStaInvoker.RunOnStaWithTimeout(
             () => _tracker.ActiveAdapter?.GetCurrentPath(mainDialog), null, pluginReadTimeout);
+        if (ExplorerNativeHooks.GetForegroundWindow() != mainDialog) return;
         if (string.IsNullOrEmpty(activePath))
         {
             // The adapter couldn't determine a path (e.g. FolderBrowserDialogAdapter always returns

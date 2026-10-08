@@ -152,43 +152,7 @@ public sealed class GlobalHotkeyDetector
     // navigation policy read as two separate steps, even though they still live in the same class.
     internal bool TryHandleQuickSwitchNavigation(bool triggered, out bool consumeKey)
     {
-        consumeKey = false;
-        // Bounded exactly like ExplorerTracker.ReclassifyActiveWindowBounded: this runs inside the
-        // low-level keyboard hook callback, while the WinEvent tracker thread holds StateLock across
-        // plugin reads budgeted at ExplorerWindowClassifier.DefaultPluginTimeoutMs (2s). Blocking on it
-        // here stalls keyboard input for that long, and a hook that overruns LowLevelHooksTimeout is
-        // silently dropped by Windows. On contention there is nothing to skip past: the tracker's own
-        // state is authoritative and keeps updating, so this keystroke simply does not navigate.
-        if (!Monitor.TryEnter(_explorerTracker.StateLock, 50))
-        {
-            Logger.Log("[GlobalHotkeyDetector] Tracker state contended; skipping Quick Switch this keystroke.", LogLevel.Debug);
-            return false;
-        }
-
-        try
-        {
-            if (!_explorerTracker.IsActiveWindowDialog || !triggered || _explorerTracker.ActiveAdapter == null)
-                return false;
-
-            var lastExplorerPath = _explorerTracker.LastActiveExplorerPath;
-            if (string.IsNullOrEmpty(lastExplorerPath) || !Path.IsPathRooted(lastExplorerPath))
-                return false;
-
-            var navPath = lastExplorerPath.EndsWith("\\") ? lastExplorerPath : lastExplorerPath + "\\";
-            var adapter = _explorerTracker.ActiveAdapter;
-            var hwnd = _explorerTracker.ActiveHwnd;
-            ThreadPool.QueueUserWorkItem(_ =>
-            {
-                // The HWND can be recycled after the snapshot; do not navigate a dead window.
-                if (ExplorerNativeHooks.IsWindow(hwnd))
-                    adapter.NavigateTo(hwnd, navPath);
-            });
-            consumeKey = true;
-            return true;
-        }
-        finally
-        {
-            Monitor.Exit(_explorerTracker.StateLock);
-        }
+        consumeKey = triggered && _explorerTracker.RequestQuickSwitch();
+        return consumeKey;
     }
 }

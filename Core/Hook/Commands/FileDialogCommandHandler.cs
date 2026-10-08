@@ -17,17 +17,7 @@ internal static class FileDialogCommandHandler
         var navPath = msg.StringVal1;
         if (dialogHwnd == IntPtr.Zero || string.IsNullOrEmpty(navPath)) return;
 
-        ThreadPool.QueueUserWorkItem(_ =>
-        {
-            try
-            {
-                ResolveAdapter(process, dialogHwnd)?.NavigateTo(dialogHwnd, navPath);
-            }
-            catch (Exception ex)
-            {
-                Logger.Log($"[FileDialogCommandHandler] NavigateTo threw: {ex.Message}", LogLevel.Error);
-            }
-        });
+        process.ExplorerTracker?.RequestDialogNavigation(dialogHwnd, navPath);
     }
 
     public static void HandleRestoreDialogFocus(HookProcess process, IpcMessage msg)

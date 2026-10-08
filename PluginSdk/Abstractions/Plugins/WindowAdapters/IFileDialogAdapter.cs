@@ -19,6 +19,14 @@ public interface IFileDialogAdapter : IPluginComponent
     bool NavigateTo(IntPtr hwnd, string targetPath);
 
     /// <summary>
+    /// Cancellable navigation used by the Hook's serialized queue. Directory targets carry a trailing
+    /// separator so elevated adapters need not probe the user's mapped drives. Existing plugins retain
+    /// their original implementation; adapters with multi-step input should check cancellation between steps.
+    /// </summary>
+    bool NavigateTo(IntPtr hwnd, string targetPath, CancellationToken cancellationToken)
+        => !cancellationToken.IsCancellationRequested && NavigateTo(hwnd, targetPath);
+
+    /// <summary>
     /// True for a dialog whose target field can only ever hold a folder (e.g. an archive tool's "extract
     /// to" destination) -- never a specific file, unlike an Open/Save dialog's filename box. Callers that
     /// resolve a picked search result to a target path (see InlineSearchNavigator.RunFallbackChain) use

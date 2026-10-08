@@ -21,13 +21,16 @@ public class ExplorerTracker : IDisposable
     private IntPtr _hNameChangeHook = IntPtr.Zero;
     private IntPtr _hLocationChangeHook = IntPtr.Zero;
     private IntPtr _hFocusHook = IntPtr.Zero;
-    private bool _isRunning;
+    private IntPtr _hDestroyHook = IntPtr.Zero;
+    private volatile bool _isRunning;
     private readonly ExplorerRecentFolderTracker _recentFolders;
     public event Action<IntPtr, string, long>? OnRecentFolderVisited;
     public void ConfigureRecentFolders(bool enabled) => _recentFolders.Configure(enabled);
     private readonly FileDialogNavigationTracker _dialogTracker = new();
     private readonly ExplorerWindowClassifier _classifier;
     private readonly ExplorerActivePathPoller _pathPoller;
+    private readonly QuietPeriodScheduler _windowEvents;
+    private int _foregroundReadPending;
     // Internal state exposed to ExplorerWindowClassifier
     public string? LastPath { get; set; }
     public Func<string, string?>? PathNormalizer { get; set; }
@@ -43,6 +46,7 @@ public class ExplorerTracker : IDisposable
     public IFileDialogAdapter? ActiveAdapter { get; private set; }
     public IInlineSearchAdapter? ActiveInlineAdapter { get; private set; }
     private IntPtr _activeHwnd;
+    private IntPtr _matchedDialogHwnd;
     public IntPtr ActiveHwnd
     {
         get => _activeHwnd;
@@ -56,6 +60,7 @@ public class ExplorerTracker : IDisposable
     /// <summary>Re-evaluates the cached adapters after settings or component enablement changes.</summary>
     public void RefreshActiveWindowAdapters()
     {
+        Volatile.Write(ref _matchedDialogHwnd, IntPtr.Zero);
         _rederivedFor = IntPtr.Zero;
         if (_activeHwnd == IntPtr.Zero)
         {
@@ -75,6 +80,7 @@ public class ExplorerTracker : IDisposable
 
         ActiveAdapter = MatchFileDialogAdapter(hwnd, className, processName, budget);
         _isActiveWindowDialog = ActiveAdapter != null;
+        if (_isActiveWindowDialog) Volatile.Write(ref _matchedDialogHwnd, hwnd);
         ActiveInlineAdapter = ExplorerStaInvoker.RunOnStaWithTimeout(
             () => InlineSearchAdapterRegistry.GetMatchingAdapter(hwnd, className, processName),
             (IInlineSearchAdapter?)null, budget);
@@ -179,6 +185,7 @@ public class ExplorerTracker : IDisposable
                     if (_activeHwnd != hwnd) return;
                     ActiveAdapter = fresh;
                     _isActiveWindowDialog = true;
+                    Volatile.Write(ref _matchedDialogHwnd, hwnd);
                 }
 
                 Logger.Log(
@@ -217,7 +224,7 @@ public class ExplorerTracker : IDisposable
     }
     // Re-broadcasts whatever this tracker already believes is currently active, without re-deriving
     // anything -- used to bring a freshly (re)connected IPC client up to date. Needed because Start()'s
-    // very first activation check runs synchronously at Hook-process startup, which routinely completes
+    // very first activation check runs at Hook-process startup, which routinely completes
     // before the App has finished connecting over the pipe; that one-time startup snapshot was the only
     // chance the App had to learn the true initial state, and HookIpcServer discards anything queued
     // before a connection completes (see its own comment), so silently missing it left the App's mirror
@@ -289,6 +296,18 @@ public class ExplorerTracker : IDisposable
     public void ReclassifyActiveWindowBounded(IntPtr hwnd)
         => _classifier.CheckActiveWindow(hwnd, lockWaitMs: 50, pluginTimeoutMs: 300);
 
+    // The keyboard callback must not wait for classification or the tracker's StateLock.
+    public void RequestActiveWindowRefresh() => _windowEvents.RunWhenQuiet();
+    public void RequestDialogNavigation(IntPtr hwnd, string? path = null) => _dialogTracker.RequestNavigation(hwnd, path);
+    public bool RequestQuickSwitch()
+    {
+        var foreground = ExplorerNativeHooks.GetForegroundWindow();
+        // A single published HWND avoids combining a new ActiveHwnd with the previous dialog flag.
+        if (!FileDialogNavigationNative.MayBeDialog(foreground, Volatile.Read(ref _matchedDialogHwnd), true)) return false;
+        _dialogTracker.RequestNavigation(foreground);
+        return true;
+    }
+
     // Who is waiting for the tracked host's path. The poller consults this before entering the target
     // process, because entering it is not free for the target: a host that answers a path query by running a
     // script on its own UI thread loses the tooltip/preview it was in the middle of showing. Pointer
@@ -335,6 +354,17 @@ public class ExplorerTracker : IDisposable
     {
         _classifier = new ExplorerWindowClassifier(this, _dialogTracker);
         _pathPoller = new ExplorerActivePathPoller(_classifier);
+        _windowEvents = new QuietPeriodScheduler(() =>
+        {
+            if (!_isRunning) return;
+            var foreground = ExplorerNativeHooks.GetForegroundWindow();
+            var foregroundChanged = Interlocked.Exchange(ref _foregroundReadPending, 0) != 0;
+            if (foregroundChanged || foreground != ActiveHwnd) _classifier.CheckActiveWindow(foreground);
+            if (!_isRunning) return;
+            var eventType = foregroundChanged
+                ? ExplorerNativeHooks.EVENT_SYSTEM_FOREGROUND : ExplorerNativeHooks.EVENT_OBJECT_FOCUS;
+            _pathPoller.Poll(this, eventType, foreground);
+        }, 25);
         _recentFolders = new ExplorerRecentFolderTracker(GetProcessName,
             (hwnd, path, time) => OnRecentFolderVisited?.Invoke(hwnd, path, time));
     }
@@ -354,7 +384,10 @@ public class ExplorerTracker : IDisposable
         _hFocusHook = ExplorerNativeHooks.SetWinEventHook(
             ExplorerNativeHooks.EVENT_OBJECT_FOCUS, ExplorerNativeHooks.EVENT_OBJECT_FOCUS,
             IntPtr.Zero, _winEventDelegate, 0, 0, ExplorerNativeHooks.WINEVENT_OUTOFCONTEXT);
-        if (_hForegroundHook == IntPtr.Zero || _hNameChangeHook == IntPtr.Zero || _hLocationChangeHook == IntPtr.Zero || _hFocusHook == IntPtr.Zero)
+        _hDestroyHook = ExplorerNativeHooks.SetWinEventHook(
+            0x8001 /* EVENT_OBJECT_DESTROY */, 0x8001,
+            IntPtr.Zero, _winEventDelegate, 0, 0, ExplorerNativeHooks.WINEVENT_OUTOFCONTEXT);
+        if (_hForegroundHook == IntPtr.Zero || _hNameChangeHook == IntPtr.Zero || _hLocationChangeHook == IntPtr.Zero || _hFocusHook == IntPtr.Zero || _hDestroyHook == IntPtr.Zero)
         {
             Stop();
             Logger.Log("[ExplorerTracker] Failed to register WinEvent hooks!", LogLevel.Error);
@@ -363,17 +396,21 @@ public class ExplorerTracker : IDisposable
         _isRunning = true;
         ConfigureRecentFolders(UserSettings.Load().RecentFolders?.Enabled ?? true);
         Logger.Log("[ExplorerTracker] Started.");
-        _classifier.CheckActiveWindow(ExplorerNativeHooks.GetForegroundWindow());
+        _dialogTracker.ObserveForeground(ExplorerNativeHooks.GetForegroundWindow());
+        Interlocked.Exchange(ref _foregroundReadPending, 1);
+        _windowEvents.RunWhenQuiet();
     }
     public void Stop()
     {
+        _isRunning = false;
+        _windowEvents.Cancel();
         _recentFolders.Configure(false);
         if (_hForegroundHook != IntPtr.Zero) { ExplorerNativeHooks.UnhookWinEvent(_hForegroundHook); _hForegroundHook = IntPtr.Zero; }
         if (_hNameChangeHook != IntPtr.Zero) { ExplorerNativeHooks.UnhookWinEvent(_hNameChangeHook); _hNameChangeHook = IntPtr.Zero; }
         if (_hLocationChangeHook != IntPtr.Zero) { ExplorerNativeHooks.UnhookWinEvent(_hLocationChangeHook); _hLocationChangeHook = IntPtr.Zero; }
         if (_hFocusHook != IntPtr.Zero) { ExplorerNativeHooks.UnhookWinEvent(_hFocusHook); _hFocusHook = IntPtr.Zero; }
+        if (_hDestroyHook != IntPtr.Zero) { ExplorerNativeHooks.UnhookWinEvent(_hDestroyHook); _hDestroyHook = IntPtr.Zero; }
         _winEventDelegate = null;
-        _isRunning = false;
         LastPath = null;
         LastActiveHwnd = IntPtr.Zero;
         IsExplorerOrDesktopActive = false;
@@ -456,17 +493,25 @@ public class ExplorerTracker : IDisposable
         int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
     {
         if (!_isRunning || hwnd == IntPtr.Zero) return;
+        if (eventType == 0x8001 /* EVENT_OBJECT_DESTROY */)
+        {
+            if (idObject == 0 && idChild == 0) _dialogTracker.ForgetWindow(hwnd);
+            return;
+        }
         // Recent-folder capture also needs client/list focus events (OBJID_CLIENT), particularly tabs.
         _recentFolders.Observe(eventType, hwnd);
         if (idObject != 0) return;
         if (eventType == ExplorerNativeHooks.EVENT_SYSTEM_FOREGROUND)
         {
-            _classifier.CheckActiveWindow(hwnd);
+            _dialogTracker.ObserveForeground(hwnd);
+            Interlocked.Exchange(ref _foregroundReadPending, 1);
+            _windowEvents.RunWhenQuiet();
+            return;
         }
         else if (eventType == ExplorerNativeHooks.EVENT_OBJECT_NAMECHANGE)
         {
             if (hwnd == ExplorerNativeHooks.GetForegroundWindow())
-                _classifier.CheckActiveWindow(hwnd);
+                _windowEvents.RunWhenQuiet();
         }
         else if (eventType == ExplorerNativeHooks.EVENT_OBJECT_LOCATIONCHANGE)
         {
@@ -477,7 +522,7 @@ public class ExplorerTracker : IDisposable
         {
             var root = ExplorerNativeHooks.GetAncestor(hwnd, ExplorerNativeHooks.GA_ROOTOWNER);
             if (root == ExplorerNativeHooks.GetForegroundWindow())
-                _classifier.CheckActiveWindow(root);
+                _windowEvents.RunWhenQuiet();
         }
         _pathPoller.Poll(this, eventType, hwnd);
     }
@@ -499,6 +544,7 @@ public class ExplorerTracker : IDisposable
         // Only on Dispose, not in Stop: Stop/Start is a restart, and the poller's deferred-poll timer is
         // owned for the tracker's whole life.
         _pathPoller.Dispose();
+        _windowEvents.Dispose();
         _recentFolders.Dispose();
     }
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
