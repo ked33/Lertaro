@@ -1,4 +1,5 @@
 using System.IO;
+using System.Xml.Linq;
 
 namespace Lertaro.App.Tests.Views.QuickSearchWindow;
 
@@ -117,23 +118,18 @@ public sealed class StayOpenGateTests
         var control = Source("App/Views/Controls/SearchBoxControl.xaml.cs");
         var window = Source("App/Views/QuickSearchWindow/QuickSearchWindow.xaml.cs");
 
-        Assert.HasCount(2, System.Text.RegularExpressions.Regex.Matches(xaml, @"MouseUp=""Icon_MouseUp"""),
-            "both window logos should carry the middle-click handler");
-
-        var leftIcon = xaml.IndexOf(@"Grid.Column=""0""", StringComparison.Ordinal);
-        var rightIcon = xaml.IndexOf(@"Grid.Column=""3""", StringComparison.Ordinal);
-        var firstHandler = xaml.IndexOf(@"MouseUp=""Icon_MouseUp""", StringComparison.Ordinal);
-        var secondHandler = xaml.IndexOf(@"MouseUp=""Icon_MouseUp""", firstHandler + 1, StringComparison.Ordinal);
-        var afterLeft = xaml.IndexOf("</Grid>", leftIcon, StringComparison.Ordinal);
-        var afterRight = xaml.IndexOf("</Grid>", rightIcon, StringComparison.Ordinal);
-        Assert.IsGreaterThan(-1, leftIcon, "could not find the left icon grid");
-        Assert.IsGreaterThan(-1, rightIcon, "could not find the right icon grid");
-        Assert.IsGreaterThan(-1, firstHandler, "could not find the left icon handler");
-        Assert.IsGreaterThan(-1, secondHandler, "could not find the right icon handler");
-        Assert.IsLessThan(firstHandler, leftIcon, "the first handler must be on the left icon");
-        Assert.IsLessThan(afterLeft, firstHandler, "the left handler must be inside the left icon grid");
-        Assert.IsLessThan(secondHandler, rightIcon, "the second handler must be on the right icon");
-        Assert.IsLessThan(afterRight, secondHandler, "the right handler must be inside the right icon grid");
+        // Identify the actual logos: inserting the filter badge shifted the right logo's column,
+        // and a string search for the old column then inspected an unrelated control.
+        var markup = XElement.Parse(xaml);
+        var wpf = markup.GetDefaultNamespace();
+        foreach (var size in new[] { "LeftIconSize", "RightIconSize" })
+        {
+            var icon = markup.Descendants(wpf + "Border").Single(element =>
+                (string?)element.Attribute("Width") == $"{{Binding {size}, ElementName=root}}");
+            Assert.AreEqual(wpf + "Grid", icon.Parent?.Name, $"{size} must belong to an icon grid");
+            Assert.AreEqual("Icon_MouseUp", (string?)icon.Parent?.Attribute("MouseUp"),
+                $"the {size} logo's own grid must handle middle clicks");
+        }
 
         // WPF has no middle-button event, so the filter has to be explicit or every click would toggle.
         Assert.Contains("e.ChangedButton != MouseButton.Middle", control,
