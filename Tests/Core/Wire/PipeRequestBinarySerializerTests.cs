@@ -251,6 +251,46 @@ public sealed class PipeRequestBinarySerializerTests
             + "are silently dropped: " + string.Join(", ", unnamed));
     }
 
+    [TestMethod]
+    public async Task SearchActivation_GenerationAndFocusedHandleSurviveBothDirections()
+    {
+        using var stream = new MemoryStream();
+        await PipeRequestBinarySerializer.WriteMessageAsync(stream,
+            new IpcMessage { Id = IpcMessageId.Activate, IntVal = int.MaxValue });
+        await PipeRequestBinarySerializer.WriteMessageAsync(stream,
+            new IpcMessage { Id = IpcMessageId.CompleteSearchActivation, IntVal = int.MaxValue, Hwnd = 0x123456789L });
+        await PipeRequestBinarySerializer.WriteMessageAsync(stream,
+            new IpcMessage { Id = IpcMessageId.CompleteSearchActivation, IntVal = 1, Hwnd = 0 });
+        stream.Position = 0;
+        var activation = await PipeRequestBinarySerializer.ReadMessageAsync(stream);
+        var ready = await PipeRequestBinarySerializer.ReadMessageAsync(stream);
+        var cancelled = await PipeRequestBinarySerializer.ReadMessageAsync(stream);
+        Assert.AreEqual(IpcMessageId.Activate, activation.Id);
+        Assert.AreEqual(int.MaxValue, activation.IntVal);
+        Assert.AreEqual(IpcMessageId.CompleteSearchActivation, ready.Id);
+        Assert.AreEqual(int.MaxValue, ready.IntVal);
+        Assert.AreEqual(0x123456789L, ready.Hwnd);
+        Assert.AreEqual(IpcMessageId.CompleteSearchActivation, cancelled.Id);
+        Assert.AreEqual(1, cancelled.IntVal);
+        Assert.AreEqual(0L, cancelled.Hwnd);
+        Assert.AreEqual(stream.Length, stream.Position);
+    }
+
+    [TestMethod]
+    public async Task SearchActivation_OldPayloadlessProtocolIsRejected()
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true))
+        {
+            writer.Write(0x51504C53);
+            writer.Write(3); // The old Activate message carried no generation.
+            writer.Write(1);
+            writer.Write((byte)IpcMessageId.Activate);
+        }
+        stream.Position = 0;
+        await Assert.ThrowsExactlyAsync<InvalidDataException>(() => PipeRequestBinarySerializer.ReadMessageAsync(stream));
+    }
+
     private static string SerializerSource()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

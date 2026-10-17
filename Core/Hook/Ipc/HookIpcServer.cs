@@ -77,7 +77,7 @@ public sealed class HookIpcServer : IDisposable
     /// </summary>
     public void SendMessage(IpcMessage msg) => _sendChannel.Writer.TryWrite(msg);
 
-    public void SendActivate() => SendMessage(new IpcMessage { Id = IpcMessageId.Activate });
+    public void SendActivate(int request) => SendMessage(new IpcMessage { Id = IpcMessageId.Activate, IntVal = request });
     public void SendQuickPanelHotkey() => SendMessage(new IpcMessage { Id = IpcMessageId.QuickPanelHotkey });
     public void SendQuickNavigationHotkey() => SendMessage(new IpcMessage { Id = IpcMessageId.QuickNavigationHotkey });
 

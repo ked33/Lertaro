@@ -20,9 +20,10 @@ internal sealed class QuickSearchWindowShowSupport
 
     internal QuickSearchWindowShowSupport(QuickSearchWindowController controller) => _controller = controller;
 
-    internal void ShowWindow(string? initialQuery, bool caretAtEnd = false)
+    internal void ShowWindow(string? initialQuery, bool caretAtEnd = false, int activationId = 0)
     {
-        _controller.VisibilityOperationToken++;
+        _controller.CancelPendingFocus();
+        var opToken = ++_controller.VisibilityOperationToken;
         PowerThrottlingHelper.WindowShowing("quick");
         IdleWorkingSetTrimmer.WindowShowing();
         ShellOverlayDismissHelper.DismissOverlayIfForeground();
@@ -65,6 +66,8 @@ internal sealed class QuickSearchWindowShowSupport
         fadeContent?.Opacity = AnimationSettings.Instance.Transitions ? 0 : (ThemeManager.Instance.ActiveTheme?.WindowOpacity ?? 1.0);
         window.Show();
         window.WindowState = WindowState.Normal;
+        _controller.ActivateAndFocus(useClipboardText, caretAtEnd, activationId);
+        if (opToken != _controller.VisibilityOperationToken) return;
         _controller.PositionWindow();
 
         if (fadeContent != null)
@@ -76,6 +79,5 @@ internal sealed class QuickSearchWindowShowSupport
         }
 
         _controller.ForegroundWatcher.Start();
-        _controller.ActivateAndFocus(useClipboardText, caretAtEnd);
     }
 }

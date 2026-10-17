@@ -71,7 +71,9 @@ public enum IpcMessageId : byte
     // file -- it has to ask. Carries nothing, and like every other command here is only reachable by the
     // App the hook actually launched (see HookPipePeer).
     ClearHookLog = 46,
-    RecentFolderVisited = 47
+    RecentFolderVisited = 47,
+    // App -> Hook: matching activation generation and focused HWND (zero cancels).
+    CompleteSearchActivation = 48
 }
 
 public struct IpcMessage

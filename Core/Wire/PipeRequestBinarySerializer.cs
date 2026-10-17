@@ -8,7 +8,7 @@ public static class PipeRequestBinarySerializer
     private const int Magic = 0x51504C53; // SLPQ
 
     private const int VersionString = 1;
-    private const int VersionIpc = 3;
+    private const int VersionIpc = 4;
 
     public static Task WriteStringAsync(Stream stream, string command, CancellationToken token = default)
     {
@@ -50,7 +50,6 @@ public static class PipeRequestBinarySerializer
             case IpcMessageId.Stop:
             case IpcMessageId.ReloadSettings:
             case IpcMessageId.RequestOpenedFolders:
-            case IpcMessageId.Activate:
             case IpcMessageId.ExplorerDeactivated:
             case IpcMessageId.ActiveWindowMoved:
             case IpcMessageId.KeyBackspace:
@@ -64,6 +63,13 @@ public static class PipeRequestBinarySerializer
             case IpcMessageId.KeyRight:
             case IpcMessageId.FocusInlineSearch:
             case IpcMessageId.ClearHookLog:
+                break;
+            case IpcMessageId.Activate:
+                writer.Write(msg.IntVal);
+                break;
+            case IpcMessageId.CompleteSearchActivation:
+                writer.Write(msg.IntVal);
+                writer.Write(msg.Hwnd);
                 break;
             case IpcMessageId.SetAppProcessId:
             case IpcMessageId.KillProcess:
@@ -179,7 +185,6 @@ public static class PipeRequestBinarySerializer
             case IpcMessageId.Stop:
             case IpcMessageId.ReloadSettings:
             case IpcMessageId.RequestOpenedFolders:
-            case IpcMessageId.Activate:
             case IpcMessageId.ExplorerDeactivated:
             case IpcMessageId.ActiveWindowMoved:
             case IpcMessageId.KeyBackspace:
@@ -195,6 +200,13 @@ public static class PipeRequestBinarySerializer
             case IpcMessageId.ClearHookLog:
                 break;
 
+            case IpcMessageId.Activate:
+                msg.IntVal = reader.ReadInt32();
+                break;
+            case IpcMessageId.CompleteSearchActivation:
+                msg.IntVal = reader.ReadInt32();
+                msg.Hwnd = reader.ReadInt64();
+                break;
             case IpcMessageId.SetAppProcessId:
             case IpcMessageId.KillProcess:
                 msg.ProcessId = reader.ReadUInt32();

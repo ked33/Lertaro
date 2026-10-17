@@ -47,7 +47,7 @@ public sealed class HookIpcClient : IDisposable
         catch (ObjectDisposedException) { }
     }
 
-    public event Action? OnActivated;
+    public event Action<int>? OnActivated;
     public event Action? OnQuickPanelHotkey;
     public event Action? OnQuickNavigationHotkey;
     public event Action<char>? OnCharacterTyped;
@@ -311,7 +311,7 @@ public sealed class HookIpcClient : IDisposable
         {
             switch (msg.Id)
             {
-                case IpcMessageId.Activate: OnActivated?.Invoke(); break;
+                case IpcMessageId.Activate: OnActivated?.Invoke(msg.IntVal); break;
                 case IpcMessageId.QuickPanelHotkey: OnQuickPanelHotkey?.Invoke(); break;
                 case IpcMessageId.QuickNavigationHotkey: OnQuickNavigationHotkey?.Invoke(); break;
                 case IpcMessageId.KeyBackspace: OnBackspacePressed?.Invoke(); break;

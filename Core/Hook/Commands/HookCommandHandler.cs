@@ -90,6 +90,9 @@ public sealed class HookCommandHandler
         {
             switch (msg.Id)
             {
+                case IpcMessageId.CompleteSearchActivation:
+                    _process.CompleteSearchActivation(msg.IntVal, (IntPtr)msg.Hwnd);
+                    break;
                 case IpcMessageId.SetQuickSearchVisible:
                     _process.KeyboardHook?.IsQuickSearchWindowVisible = msg.BoolVal;
                     break;

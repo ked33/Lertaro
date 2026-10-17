@@ -125,17 +125,18 @@ public partial class App : Application
         HookClient.OnRecentFolderVisited += (_, path, time) => recentFolders.Record(path, time);
         QuickNavigationHookHandlers.AttachTo(HookClient, Dispatcher);
 
-        HookClient.OnActivated += () => Dispatcher.BeginInvoke(new Action(() =>
+        HookClient.OnActivated += activationId => Dispatcher.BeginInvoke(new Action(() =>
         {
             if (InlineSearchManager.Instance.IsInlineSearchActive)
             {
+                Views.QuickSearchWindow.Helpers.QuickSearchWindowFocusHelper.CompleteActivation(activationId, IntPtr.Zero);
                 InlineSearchManager.Instance.FocusSearchBox();
             }
             else
             {
                 // The manager decides, not a settings check here: the full window is reachable even with
                 // the "open full panel by default" option off, so it has to be considered before it.
-                AppWindowManager.HandleGlobalSummonHotkey();
+                AppWindowManager.HandleGlobalSummonHotkey(activationId);
             }
         }));
         HookClient.OnQuickPanelHotkey += () => Dispatcher.BeginInvoke(

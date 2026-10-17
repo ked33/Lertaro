@@ -104,7 +104,9 @@ public static class AppWindowManager
     /// to the QUICK window's own visibility toggle -- the full window stayed on screen, so the key read as
     /// doing nothing.
     /// </remarks>
-    public static void HandleGlobalSummonHotkey()
+    public static void HandleGlobalSummonHotkey() => HandleGlobalSummonHotkey(0);
+
+    internal static void HandleGlobalSummonHotkey(int activationId)
     {
         if (System.Windows.Application.Current == null) return;
 
@@ -112,6 +114,13 @@ public static class AppWindowManager
         {
             var settings = UserSettings.Load();
             var visible = System.Windows.Application.Current.Windows.OfType<SearchWindow>().FirstOrDefault(w => w.IsVisible);
+            // A handoff belongs to the quick window; other routes cancel it rather than replaying
+            // characters into whichever other search box that route happens to activate.
+            if (visible != null)
+            {
+                QuickSearchWindowFocusHelper.CompleteActivation(activationId, IntPtr.Zero);
+                activationId = 0;
+            }
             switch (DetermineSearchWindowHotkeyAction(visible != null, visible?.IsActive == true, settings.MainWindow.CloseOnRepeatHotkey))
             {
                 case SearchWindowHotkeyAction.CloseFullWindow:
@@ -130,9 +139,17 @@ public static class AppWindowManager
             }
 
             if (settings.Hotkeys.OpenFullWindowByDefault)
+            {
+                QuickSearchWindowFocusHelper.CompleteActivation(activationId, IntPtr.Zero);
                 ShowSearchWindowCore(bringToFront: true);
+            }
             else
-                (System.Windows.Application.Current.MainWindow as QuickSearchWindow)?.ToggleVisibility();
+            {
+                if (System.Windows.Application.Current.MainWindow is QuickSearchWindow quick)
+                    quick.ToggleVisibility(activationId);
+                else
+                    QuickSearchWindowFocusHelper.CompleteActivation(activationId, IntPtr.Zero);
+            }
         });
     }
 

@@ -34,6 +34,7 @@ public sealed class HookProcess : IDisposable
 
     private const uint WM_QUIT = 0x0012;
     private const uint WM_REFRESH_ACTIVE_ADAPTERS = 0x8001;
+    private const uint WM_COMPLETE_SEARCH_ACTIVATION = 0x8002;
 
     private readonly HookIpcServer _ipcServer;
     private readonly HookCommandHandler _commandHandler;
@@ -67,6 +68,13 @@ public sealed class HookProcess : IDisposable
     }
 
     internal void PublishOpenedFolders() => _openedFolderSnapshots.Publish();
+
+    internal void CompleteSearchActivation(int request, IntPtr hwnd)
+    {
+        // Serialize acknowledgements with input on the hook thread; never block a low-level hook.
+        if (_nativeThreadId != 0)
+            PostThreadMessage(_nativeThreadId, WM_COMPLETE_SEARCH_ACTIVATION, (IntPtr)request, hwnd);
+    }
 
     /// <summary>
     /// The App-side half of <see cref="ToolRunService.RunDopusPathsFunc"/>: the App runs
@@ -219,6 +227,7 @@ public sealed class HookProcess : IDisposable
             if (_keyboardHook == null)
                 return;
 
+            CompleteSearchActivation(0, IntPtr.Zero);
             _keyboardHook.IsInlineSearchVisible = false;
             _keyboardHook.IsInlineWindowOnScreen = false;
             _keyboardHook.IsQuickSearchWindowVisible = false;
@@ -350,12 +359,19 @@ public sealed class HookProcess : IDisposable
                 // must not be mistaken for the separate quick window, or the hook will pass through all
                 // following keys while the inline window is still on screen.
                 var inlineWindowIsActive = _keyboardHook.IsInlineSearchVisible || _keyboardHook.IsInlineWindowOnScreen;
+                var request = 0;
+                // A combo may still have modifiers held; a repeat summon dismisses a visible window.
+                if (!inlineWindowIsActive && !_keyboardHook.IsQuickSearchWindowVisible
+                    && !_keyboardHook._settings.Hotkeys.OpenFullWindowByDefault && IntPtr.Size == 8
+                    && HotkeyStringFormat.IsBareModifier(_keyboardHook._settings.Hotkeys.ToggleWindowHotkey, out var modifier)
+                    && modifier.Equals("Control", StringComparison.OrdinalIgnoreCase))
+                    request = _keyboardHook.ActivationInput.Begin(KeyboardNativeMethods.GetForegroundWindow(), Environment.TickCount64);
                 _keyboardHook.IsQuickSearchWindowVisible = !inlineWindowIsActive;
                 if (_appProcessId != 0)
                 {
                     AllowSetForegroundWindow((int)_appProcessId);
                 }
-                _ipcServer.SendActivate();
+                _ipcServer.SendActivate(request);
             };
             _keyboardHook.OnCharacterTyped += ch => _ipcServer.SendMessage(new IpcMessage { Id = IpcMessageId.KeyChar, CharVal = ch });
             _keyboardHook.OnBackspacePressed += () => _ipcServer.SendMessage(new IpcMessage { Id = IpcMessageId.KeyBackspace });
@@ -393,6 +409,18 @@ public sealed class HookProcess : IDisposable
             {
                 var result = GetMessage(out var msg, IntPtr.Zero, 0, 0);
                 if (result <= 0) break;
+                if (msg.message == WM_COMPLETE_SEARCH_ACTIVATION)
+                {
+                    if (msg.wParam == IntPtr.Zero) _keyboardHook.ActivationInput.Cancel();
+                    else
+                    {
+                        KeyboardNativeMethods.GetWindowThreadProcessId(msg.lParam, out var targetPid);
+                        var target = targetPid == _appProcessId ? msg.lParam : IntPtr.Zero;
+                        _keyboardHook.ActivationInput.Complete(msg.wParam.ToInt32(), target,
+                            KeyboardNativeMethods.GetForegroundWindow(), Environment.TickCount64);
+                    }
+                    continue;
+                }
                 TranslateMessage(ref msg);
                 DispatchMessage(ref msg);
             }

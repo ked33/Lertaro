@@ -53,6 +53,8 @@ public class KeyboardHookService : IDisposable
     internal void RaiseCtrlNumberPressed(int num) => OnCtrlNumberPressed?.Invoke(num);
     internal void RaiseFocusInlineSearchRequested() => OnFocusInlineSearchRequested?.Invoke();
 
+    internal SearchActivationInputBuffer ActivationInput { get; } = new(SearchActivationInputNative.Send);
+
     public bool IsQuickSearchWindowVisible { get; set; }
     public bool IsInlineSearchVisible { get; set; }
 
@@ -80,7 +82,11 @@ public class KeyboardHookService : IDisposable
     // give it a short grace window regardless.
     public void NotifyRightButtonDown(uint time) => MarkPendingContextMenuTrigger(time);
 
-    public void NotifyMouseInput() => _hotkeyDetector.CancelModifierTaps();
+    public void NotifyMouseInput()
+    {
+        _hotkeyDetector.CancelModifierTaps();
+        ActivationInput.Cancel();
+    }
 
     private void MarkPendingContextMenuTrigger(uint time)
     {
@@ -133,6 +139,20 @@ public class KeyboardHookService : IDisposable
         var vkCode = (int)hookStruct.vkCode;
         var time = hookStruct.time;
         var foreground = KeyboardNativeMethods.GetForegroundWindow();
+        var isInjected = (hookStruct.flags & KeyboardNativeMethods.LLKHF_INJECTED) != 0;
+        var key = new SearchActivationInputBuffer.Key(vkCode, (int)hookStruct.scanCode, isUp, (hookStruct.flags & 1) != 0);
+        if (isInjected && SearchActivationInputNative.TryGetRequest(hookStruct.dwExtraInfo, out var replayRequest))
+            return ActivationInput.AllowReplay(replayRequest, key, foreground, Environment.TickCount64)
+                ? KeyboardNativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam) : (IntPtr)1;
+
+        if (isInjected && ActivationInput.NeedsInput) ActivationInput.Cancel();
+        if (!isInjected && ActivationInput.NeedsInput)
+        {
+            KeyboardNativeMethods.GetWindowThreadProcessId(foreground, out var foregroundPid);
+            if (ActivationInput.HandlePhysical(key, foreground, AppProcessId != 0 && foregroundPid == AppProcessId, Environment.TickCount64))
+                return (IntPtr)1;
+        }
+
         var needsGate = isDown || _hotkeyDetector.IsTapModifierKey(vkCode);
         var isFullscreenBlocking = needsGate && !_settings.Hotkeys.AllowHotkeysInFullscreen && FullscreenHelper.IsForegroundWindowFullScreen();
         var shouldDisableAllHooks = needsGate && (IsHotkeysDisabledTemporarily

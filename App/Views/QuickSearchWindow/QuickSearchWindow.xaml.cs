@@ -183,6 +183,7 @@ public partial class QuickSearchWindow : Window, ISearchWindow, IHasVisibleConte
     public void SuppressNextForegroundRestore() => _controller.SuppressNextRestore();
     public void ToggleStayOpen() => _controller.ToggleStayOpen();
     public void ToggleVisibility() => _controller.ToggleVisibility();
+    internal void ToggleVisibility(int activationId) => _controller.ToggleVisibility(activationId);
     public void OpenFileOrFolderExternal(string path)
     {
         RecordKeywordHistory();
@@ -276,6 +277,7 @@ public partial class QuickSearchWindow : Window, ISearchWindow, IHasVisibleConte
     }
     protected override void OnClosed(EventArgs e)
     {
+        _controller.CancelPendingFocus();
         if (_scaleChangedHandler != null)
             UiMetrics.ScaleChanged -= _scaleChangedHandler;
         _viewModel.Dispose();

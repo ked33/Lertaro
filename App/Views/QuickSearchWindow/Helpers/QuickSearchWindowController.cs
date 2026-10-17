@@ -63,14 +63,21 @@ public class QuickSearchWindowController
     // no saved position (or it's off-screen).
     public void ResetPosition() => _positioner.ResetPosition();
 
-    public void ToggleVisibility() => _window.Dispatcher.Invoke(() =>
+    public void ToggleVisibility() => ToggleVisibility(0);
+    internal void ToggleVisibility(int activationId) => _window.Dispatcher.Invoke(() =>
     {
         switch (DetermineToggleAction(_window.IsVisible, _window.IsActive, _window.WindowState, UserSettings.Load().SearchWindow.ReopenAsFullWindowOnRepeatHotkey, _stayOpen))
         {
-            case ToggleAction.Show: ShowWindow(); break;
-            case ToggleAction.Focus: FocusWindow(); break;
-            case ToggleAction.ReopenAsFullWindow: ReopenAsFullWindow(); break;
-            default: HideWindow(); break;
+            case ToggleAction.Show: _showSupport.ShowWindow(null, activationId: activationId); break;
+            case ToggleAction.Focus: FocusWindow(activationId); break;
+            case ToggleAction.ReopenAsFullWindow:
+                QuickSearchWindowFocusHelper.CompleteActivation(activationId, IntPtr.Zero);
+                ReopenAsFullWindow();
+                break;
+            default:
+                QuickSearchWindowFocusHelper.CompleteActivation(activationId, IntPtr.Zero);
+                HideWindow();
+                break;
         }
     });
 
@@ -138,7 +145,8 @@ public class QuickSearchWindowController
     /// SearchQuery, which would wipe the half-assembled query this whole feature exists to protect. All
     /// that is wanted here is the activation half.
     /// </remarks>
-    public void FocusWindow()
+    public void FocusWindow() => FocusWindow(0);
+    private void FocusWindow(int activationId)
     {
         // First, before anything here touches the window, for the reason ShowWindow gives at its own call:
         // once Show/Activate/ForceForeground has run, GetForegroundWindow() reports THIS window and the
@@ -151,21 +159,19 @@ public class QuickSearchWindowController
         IdleWorkingSetTrimmer.WindowShowing();
         _window.Topmost = false;
         _window.Topmost = true;
-        ActivateAndFocus();
+        ActivateAndFocus(false, activationId: activationId);
     }
 
     // The activation half of a summon, shared with ShowWindow so the two cannot drift apart.
     internal void ActivateAndFocus() => ActivateAndFocus(false);
-    internal void ActivateAndFocus(bool selectSearchText, bool caretAtEnd = false) => _window.Dispatcher.BeginInvoke(new Action(() =>
+    internal void CancelPendingFocus() => _focusHelper.Cancel();
+    internal void ActivateAndFocus(bool selectSearchText, bool caretAtEnd = false, int activationId = 0)
     {
+        // Use the hook's foreground grant immediately on the UI thread, without another IPC trip
+        // or an injected Alt tap that could interfere with the user's first keystroke.
         var hwnd = new WindowInteropHelper(_window).Handle;
-        if (hwnd != IntPtr.Zero) QuickSearchWindowNative.ForceForeground(hwnd);
-
-        _window.Activate();
-        _window.Focus();
-
-        _focusHelper.FocusWhenForeground(hwnd, selectSearchText, caretAtEnd);
-    }), DispatcherPriority.Input);
+        _focusHelper.FocusWhenForeground(hwnd, selectSearchText, caretAtEnd, activationId);
+    }
 
     /// <summary>
     /// The hide that happens because focus went elsewhere, as opposed to one the user asked for.
@@ -188,6 +194,7 @@ public class QuickSearchWindowController
 
     public void HideWindow(bool restoreFocus = true)
     {
+        CancelPendingFocus();
         var opToken = ++_visibilityOpToken;
 
         _foregroundWatcher.Stop();
