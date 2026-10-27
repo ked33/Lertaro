@@ -29,7 +29,7 @@
                 <Setter Property="BorderBrush" Value="{DynamicResource ControlBorderBrush}"/>
                 <Setter Property="BorderThickness" Value="1"/>
                 <Setter Property="Cursor" Value="Hand"/>
-                <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+                <Setter Property="FontFamily" Value="{DynamicResource AppIconFontFamily}"/>
                 <Setter Property="FontSize" Value="14"/>
                 <Setter Property="Template">
                     <Setter.Value>
@@ -97,6 +97,13 @@
                 <TextBlock Text="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[General_OrFirstPrecedenceDesc]}"
                            Style="{StaticResource SettingsHintText}" TextWrapping="Wrap"/>
 
+                <CheckBox x:Name="RowKeepSearchText"
+                          Content="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[General_KeepSearchText]}"
+                          IsChecked="{Binding General.KeepSearchText, Mode=TwoWay}"
+                          Margin="0,12,0,0"/>
+                <TextBlock Text="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[General_KeepSearchTextHint]}"
+                           Style="{StaticResource SettingsHintText}" TextWrapping="Wrap"/>
+
                 <Grid x:Name="RowGlobalTokenPrefix" Margin="0,12,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" SharedSizeGroup="GeneralLabel"/>
@@ -126,6 +133,11 @@
                               DisplayMemberPath="Label"
                               SelectedItem="{Binding General.SelectedLogLevel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                 </Grid>
+                <CheckBox x:Name="RowEnableRankingDetailsExport" Content="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[General_EnableRankingDetailsExport]}"
+                          IsChecked="{Binding General.EnableRankingDetailsExport, Mode=TwoWay}"
+                          Margin="0,12,0,0"/>
+                <TextBlock Text="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[General_EnableRankingDetailsExportDesc]}"
+                           Style="{StaticResource SettingsHintText}" TextWrapping="Wrap"/>
 
                 <Grid x:Name="RowLangSelect" Margin="0,12,0,0">
                     <Grid.ColumnDefinitions>
@@ -155,6 +167,39 @@
                            Margin="0,12,0,0"/>
                 <TextBlock Style="{StaticResource SettingsHintText}" TextWrapping="Wrap"
                            Text="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[General_ShowOpenedFoldersInInlineSearchDesc]}"/>
+
+                <Grid x:Name="RowInlineSearchWidth" Margin="0,12,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" SharedSizeGroup="GeneralLabel"/>
+                        <ColumnDefinition Width="150"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[General_InlineSearchWindowWidth]}" Margin="0,0,16,0" VerticalAlignment="Center"/>
+                    <TextBox Grid.Column="1" Style="{StaticResource SettingsTextBox}" Text="{Binding General.InlineSearchWindowWidthPercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, NotifyOnValidationError=True, ValidatesOnExceptions=True}"/>
+                </Grid>
+                <TextBlock Style="{StaticResource SettingsHintText}" TextWrapping="Wrap" Margin="0,4,0,0"
+                           Text="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[General_InlineSearchWindowWidthDesc]}"/>
+
+                <Grid x:Name="RowInlineSearchMaxRows" Margin="0,12,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" SharedSizeGroup="GeneralLabel"/>
+                        <ColumnDefinition Width="150"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[General_InlineSearchWindowMaxRows]}" Margin="0,0,16,0" VerticalAlignment="Center"/>
+                    <TextBox Grid.Column="1" Style="{StaticResource SettingsTextBox}" Text="{Binding General.InlineSearchWindowMaxRows, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, NotifyOnValidationError=True, ValidatesOnExceptions=True}"/>
+                </Grid>
+                <TextBlock Style="{StaticResource SettingsHintText}" TextWrapping="Wrap" Margin="0,4,0,0"
+                           Text="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[General_InlineSearchWindowMaxRowsDesc]}"/>
+
+                <Grid x:Name="RowInlineSearchDialogMaxRows" Margin="0,12,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" SharedSizeGroup="GeneralLabel"/>
+                        <ColumnDefinition Width="150"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[General_InlineSearchDialogMaxRows]}" Margin="0,0,16,0" VerticalAlignment="Center"/>
+                    <TextBox Grid.Column="1" Style="{StaticResource SettingsTextBox}" Text="{Binding General.InlineSearchDialogMaxRows, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, NotifyOnValidationError=True, ValidatesOnExceptions=True}"/>
+                </Grid>
+                <TextBlock Style="{StaticResource SettingsHintText}" TextWrapping="Wrap" Margin="0,4,0,0"
+                           Text="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[General_InlineSearchDialogMaxRowsDesc]}"/>
             </StackPanel>
         </Border>
 

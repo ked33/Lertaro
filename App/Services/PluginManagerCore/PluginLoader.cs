@@ -8,11 +8,9 @@ using Lertaro.Core.SearchIndex;
 namespace Lertaro.App.Services.PluginManagerCore;
 
 /// <summary>
-/// Scans the <c>Plugins/</c> directory for DLL assemblies and registers every
-/// recognised <see cref="PluginSdk.Abstractions.Plugins.IPlugin"/>, <see cref="IAliasProvider"/>,
-/// <see cref="PluginSdk.Abstractions.Plugins.IInstantResultProvider"/>, <see cref="PluginSdk.Abstractions.Plugins.IFullSearchFileResultProvider"/>,
-/// <see cref="PluginSdk.Abstractions.Plugins.ISidebarFilterProvider"/>,
-/// <see cref="PluginSdk.Abstractions.Plugins.IResultColumnProvider"/> and <see cref="PluginSdk.Abstractions.Plugins.ITranslationProvider"/>.
+/// Scans the <c>Plugins/</c> directory for DLL assemblies and registers every component type each
+/// registry accepts. <see cref="TryLoadAssembly"/> is the authoritative list of kinds -- enumerating
+/// them here as well only invites drift.
 /// </summary>
 internal static class PluginLoader
 {
@@ -36,11 +34,8 @@ internal static class PluginLoader
             // assembly loads; loading them here as if they were plugins can fail with
             // "Assembly with same name is already loaded" when two plugins bundle the same package
             // (e.g. Microsoft.Data.Sqlite in both BrowserData and ContentSearch).
-            foreach (var dllFile in Directory.GetFiles(pluginsDir, "*.dll", SearchOption.AllDirectories))
+            foreach (var dllFile in Core.Services.Plugin.Loading.ServicePluginLoader.EnabledAssemblyFiles(pluginsDir, UserSettings.Load().DisabledPluginAssemblies))
             {
-                var assemblyName = Path.GetFileNameWithoutExtension(dllFile);
-                if (!assemblyName.StartsWith("Lertaro.Plugins.", StringComparison.OrdinalIgnoreCase))
-                    continue;
                 TryLoadAssembly(dllFile, registry);
             }
         }
@@ -190,13 +185,18 @@ internal static class PluginLoader
                     registry.AddSearchScopeProvider(provider);
                     Logger.Log($"[PluginManager] Loaded search scope provider: '{type.Name}' from {fileName}");
                 }
+
+                if (typeof(PluginSdk.Abstractions.Plugins.ICalendarTextProvider).IsAssignableFrom(type))
+                {
+                    var provider = (PluginSdk.Abstractions.Plugins.ICalendarTextProvider)Activator.CreateInstance(type)!;
+                    registry.AddCalendarTextProvider(provider);
+                    Logger.Log($"[PluginManager] Loaded calendar text provider: '{type.Name}' from {fileName}");
+                }
             }
         }
         catch (BadImageFormatException)
         {
-            // Not a .NET assembly at all -- expected for a plugin's own bundled native dependency
-            // (e.g. a SQLite provider's e_sqlite3.dll) now that the scan is recursive into each
-            // plugin's own subdirectory. Not a failure, so not worth an Error-level log line.
+            // Not a .NET assembly (a plugin's bundled native dep, e.g. e_sqlite3.dll) -- expected, so Debug not Error.
             Logger.Log($"[PluginManager] Skipped non-.NET file: {fileName}", LogLevel.Debug);
         }
         catch (FileLoadException ex) when (ex.Message.Contains("same name is already loaded", StringComparison.OrdinalIgnoreCase))

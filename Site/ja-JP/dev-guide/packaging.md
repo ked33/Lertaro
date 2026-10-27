@@ -12,33 +12,35 @@ Lertaro/
 ├── Lertaro.PluginSdk.dll
 └── Plugins/
     └── MyCustomPlugin/
-        ├── MyCustomPlugin.dll           (プラグイン本体)
-        ├── ThirdParty.Managed.dll       (マネージド依存ライブラリ)
-        └── x64/
-            └── NativeLibrary.dll        (ネイティブ C/C++ DLL)
+        ├── Lertaro.Plugins.MyCustomPlugin.dll   (プラグイン本体)
+        ├── ThirdParty.Managed.dll              (マネージド依存ライブラリ)
+        └── NativeLibrary.dll                   (ネイティブ C/C++ 依存ライブラリ —— フラット配置)
 ```
 
 - **依存ライブラリの自動解決**：Lertaro のローダーが `Assembly.LoadFrom` でメイン DLL を読み込むと、.NET ランタイムが同一サブフォルダー内の依存ライブラリを自動的に探して読み込みます。
-- **ネイティブファイルの許容**：スキャン中にマネージドアセンブリ以外のファイル（例: `e_sqlite3.dll`）が検出された場合、ローダーは `Debug` レベルで安全にスキップし、不要な `Error` ログを出力しません。
+- **ネイティブ依存は DLL と並べ、`runtimes\<rid>\native` には置かない**：同梱のプラグイン プロジェクトは `<GenerateDependencyFile>false</GenerateDependencyFile>` を設定しているため `.deps.json` は生成されず、ランタイムには RID サブフォルダーを解決するための deps グラフがありません。したがってネイティブ ライブラリはアプリケーションのベースディレクトリで見付かる必要があり、フラットにコピーします。2 つのアーキテクチャを単一のインストーラーではなく別々の成果物として公開しているのも同じ理由で、フラットな読み込みディレクトリを占められるのは一方のアーキテクチャのネイティブコピーだけだからです。
+- App とユーザー別 Hook は `Lertaro.Plugins.*.dll` というファイル名で選別し、ロードやリフレクションの前に無効なアセンブリを除外します。`AssemblyName` にこの接頭辞を残し、SDK の別コピーを同梱しないでください。他のネイティブプラグインの入口 DLL を参照すると、標準の依存関係解決で無効な DLL がロードされる可能性があります。
 
 ## 2. ビルド後の自動コピー設定（PostBuild）
 
-`.csproj` に `PostBuild` ターゲットを追加すると、ビルド成功時に自動的に Lertaro のデバッグ用 `Plugins/` ディレクトリへ配置できます。
+`.csproj` に `PostBuild` ターゲットを追加すると、ビルド成功のたびに出力を Lertaro のデバッグ用ディレクトリへ配置できます。以下は本リポジトリーのプラグイン プロジェクトが実際に行っている内容です。コピー先が **フラット** であること、および **Service 向けの 2 つ目のコピー** に注目してください。この 2 つ目のコピーがあることで、エイリアス プロバイダーや翻訳プロバイダーは UI だけでなくインデクサーからも利用できるようになります。
 
 ```xml
 <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-  <ItemGroup>
-    <PluginOutputFiles Include="$(TargetDir)**\*.*" />
-  </ItemGroup>
-  <Copy SourceFiles="@(PluginOutputFiles)"
-        DestinationFolder="..\..\App\bin\$(Configuration)\net10.0-windows\Plugins\$(TargetName)\%(RecursiveDir)"
+  <Copy SourceFiles="$(TargetDir)$(TargetName).dll"
+        DestinationFolder="..\..\App\bin\$(Configuration)\net10.0-windows\Plugins\"
+        SkipUnchangedFiles="true" />
+  <Copy SourceFiles="$(TargetDir)$(TargetName).dll"
+        DestinationFolder="..\..\Service\bin\$(Configuration)\net10.0-windows\Plugins\"
         SkipUnchangedFiles="true" />
 </Target>
 ```
 
+プラグインの読み込み時にサードパーティ製のマネージドまたはネイティブ依存が必要なら、同じフォルダーへのコピーを `<Copy>` アイテムとして並べて追加してください。
+
 ## 3. 多言語リソースの埋め込み
 
-プラグインが [`ITranslationProvider`](./sdk/ui-extensions#itranslationprovider) を実装している場合、翻訳用 JSON ファイルを **埋め込みリソース** としてアセンブリ内に含めることを推奨します。
+プラグインが [`ITranslationProvider`](./sdk/ui-extensions) を実装している場合、翻訳用 JSON ファイルを **埋め込みリソース** としてアセンブリ内に含めることを推奨します。
 
 ```xml
 <ItemGroup>
@@ -46,28 +48,29 @@ Lertaro/
 </ItemGroup>
 ```
 
-ファイル構成は `Resources/Translations/{CultureName}/{TypeName}.json`（例: `ja-JP/MyCustomPlugin.json`, `en-US/MyCustomPlugin.json`）の配置に従います。コードから `TranslationService.LoadEmbeddedTranslations` を呼び出すことで、現在の UI 言語に応じて自動解決されます。
+ファイルは `Resources/Translations/{culture}/{type}.json` の構成で配置します。`{type}` は `TranslationService.LoadEmbeddedTranslations(assembly, cultureKey, typeName)` に渡す `typeName` です。本リポジトリーのすべてのプラグインは固定ファイル名 **`Plugin.json`**（`Resources/Translations/zh-CN/Plugin.json`、`Resources/Translations/en-US/Plugin.json` …）を使い、`"Plugin"` を渡しています。`App.json` はプラグインの慣習ではありません。CoreExtensions にだけ存在します（同プラグインはホスト自身の UI 文字列も供給しています）。カルチャーのフォルダーはアプリが扱う 7 ロケールに従います。要求したカルチャーのフォルダーがない場合、翻訳マネージャーはまずそのプラグインが対応する最初のカルチャーへ、次に `en-US` へフォールバックし、それでも見つからなければ `[key]` プレースホルダーになります。
 
 ## 4. バージョンとメタデータの指定
 
-`.csproj` にバージョン番号と説明を記述します。
+プラグインカードにはアセンブリのバージョンを表示します。無効なプラグインでもコードを実行せず名前と説明を表示できるよう、静的メタデータを宣言してください。
 
 ```xml
 <PropertyGroup>
   <Version>1.2.0</Version>
-  <AssemblyVersion>1.2.0.0</AssemblyVersion>
-  <FileVersion>1.2.0.0</FileVersion>
-  <Description>高速な検索ソースおよびコンテキストアクション拡張プラグイン。</Description>
 </PropertyGroup>
+<ItemGroup>
+  <AssemblyMetadata Include="Lertaro.Plugin.NameKey" Value="MyPlugin_Name" />
+  <AssemblyMetadata Include="Lertaro.Plugin.DescriptionKey" Value="MyPlugin_Description" />
+</ItemGroup>
 ```
 
-これらの情報は **設定 → プラグイン** の管理カードに自動的に表示されます。
+固定文字列には `Lertaro.Plugin.Name` と `Lertaro.Plugin.Description`、埋め込み翻訳 JSON のキーには `NameKey`/`DescriptionKey` を使い、実行時プロパティと一致させます。英語を読み込んだ後、選択言語で上書きします。ホストは `PEReader` を使い、属性やプラグインのインスタンスを生成しません。古い DLL は `AssemblyTitle`/`AssemblyDescription`、最後にファイル名へフォールバックします。宣言の追加後は DLL を再ビルドしてください。
 
 ## 5. リリースビルドとアーキテクチャ別成果物
 
-Windows でリポジトリのルートから `make.bat` を実行する前に、.NET SDK と[64 ビット版 Inno Setup 7](https://jrsoftware.org/isdl.php#v7)をインストールしてください。スクリプトは x64 と `win-arm64` の公開用出力を分けて作成し、`dist/` に次のファイルを生成します。
+Windows でリポジトリのルートから `make.bat` を実行する前に、.NET SDK と[64 ビット版 Inno Setup 7](https://jrsoftware.org/isdl.php#v7)をインストールしてください（スクリプトはコンパイラが実際に 7.x であることを検証します）。スクリプトは `:build_arch` を 2 回呼び出し、1 回目は `ARCH=x64`（従来どおり RID なしで公開）、2 回目は `ARCH=arm64`（`-r win-arm64 --self-contained false` でのクロス公開）を処理して、`dist/` に 4 つのファイルを生成します。
 
-- x64：`Lertaro-Setup.exe` と `Lertaro-Portable.zip`。
-- ARM64：`Lertaro-Setup-arm64.exe` と `Lertaro-Portable-arm64.zip`。
+- `Lertaro-Setup.exe` と `Lertaro-Portable.zip`（x64）。
+- `Lertaro-Setup-arm64.exe` と `Lertaro-Portable-arm64.zip`（arm64）。
 
-ARM64 成果物に含まれるアプリケーション本体はネイティブ ARM64 です。ARM64 インストーラーは互換性のある Inno Setup ブートストラッパーを使用し、x64 インストーラーは 64 ビット版 Inno Setup 7 のシェルを使用します。アーキテクチャ別のペイロードとファイル名サフィックスは、`make.bat`、`Installer/installer.iss`、リリースワークフローで一致させてください。
+2 つのアーキテクチャを 1 つのインストーラーにまとめず別の成果物として公開するのは、BrowserData プラグインがネイティブライブラリを同梱しており、そのフラットで `.deps.json` を持たない読み込みディレクトリに置けるネイティブコピーは 1 つのアーキテクチャ分だけだからです（スクリプト冒頭のコメントを参照）。arm64 インストーラーが x64 のものと異なるのは `Installer/installer.iss` 内の `ArchitecturesAllowed`（`arm64` と `x64compatible`）、`ArchitecturesInstallIn64BitMode`、`SetupArchitecture=x64`（x64 のみ設定）、同梱する .NET デスクトップランタイムのファイルとダウンロード URL、`PublishDir`、出力ファイル名であり、それぞれの内部にあるペイロードはそのアーキテクチャ向けのネイティブビルドです。リリース ワークフローはこの 4 つの名前をそのままハッシュ化してアップロードし、`UpdateAssetSelector` は名前で見分けられるため、成果物名を変えると既存のインストール先が更新を取り込めなくなります。成果物名は `make.bat`、`Installer/installer.iss`、リリース ワークフローの資産リストと一致させてください。

@@ -191,6 +191,21 @@ public sealed class PipeRequestBinarySerializerTests
         CollectionAssert.AreEqual(new[] { @"D:\Projects", @"C:\Work" }, result.StringList!.ToArray());
     }
 
+    [TestMethod]
+    public async Task WriteMessageAsync_RearmHooks_RoundTripsId()
+    {
+        // Same trap as QuickPanelHotkey above: a payload-less id round-trips even when the switches never
+        // name it, so the arms have to be pinned while the message is still empty.
+        using var stream = new MemoryStream();
+        await PipeRequestBinarySerializer.WriteMessageAsync(
+            stream, new IpcMessage { Id = IpcMessageId.RearmHooks });
+        stream.Position = 0;
+
+        var result = await PipeRequestBinarySerializer.ReadMessageAsync(stream);
+
+        Assert.AreEqual(IpcMessageId.RearmHooks, result.Id);
+    }
+
     // The Hook asks the App to run a tool (it cannot do so itself while elevated) and the App reports back
     // which output file it filled, so both directions have to survive the pipe intact.
     [TestMethod]
@@ -301,5 +316,27 @@ public sealed class PipeRequestBinarySerializerTests
         var path = Path.Combine(dir!.FullName, "Core", "Wire", "PipeRequestBinarySerializer.cs");
         Assert.IsTrue(File.Exists(path), $"expected the serializer at {path}");
         return path;
+    }
+    [TestMethod]
+    public async Task NavigateDialog_PreservesRestoreFocusAndFollowingFrame()
+    {
+        using var stream = new MemoryStream();
+        await PipeRequestBinarySerializer.WriteMessageAsync(stream,
+            new IpcMessage { Id = IpcMessageId.NavigateDialog, Hwnd = 123, StringVal1 = @"C:\work\", BoolVal = true });
+        await PipeRequestBinarySerializer.WriteMessageAsync(stream, new IpcMessage { Id = IpcMessageId.RearmHooks });
+        stream.Position = 0;
+        var navigation = await PipeRequestBinarySerializer.ReadMessageAsync(stream);
+        Assert.AreEqual(123L, navigation.Hwnd);
+        Assert.AreEqual(@"C:\work\", navigation.StringVal1);
+        Assert.IsTrue(navigation.BoolVal);
+        Assert.AreEqual(IpcMessageId.RearmHooks, (await PipeRequestBinarySerializer.ReadMessageAsync(stream)).Id);
+        Assert.AreEqual(stream.Length, stream.Position);
+    }
+
+    [TestMethod]
+    public void MessageIds_AreUniqueAcrossLocalAndUpstreamFeatures()
+    {
+        var ids = Enum.GetValues<IpcMessageId>();
+        Assert.AreEqual(ids.Length, ids.Distinct().Count());
     }
 }

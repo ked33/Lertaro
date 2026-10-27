@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Media;
 using Lertaro.App.Services;
 using Lertaro.App.Services.AppWindow;
 using Lertaro.App.Services.Pipe;
@@ -18,6 +19,7 @@ using Lertaro.Core.Services.Installation;
 using Lertaro.Core.Services;
 using Application = System.Windows.Application;
 namespace Lertaro.App;
+
 public partial class App : Application
 {
     [System.Runtime.InteropServices.DllImport("user32.dll")]
@@ -27,6 +29,8 @@ public partial class App : Application
     [System.Runtime.InteropServices.DllImport("shell32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
     private static extern int SetCurrentProcessExplicitAppUserModelID(string appId);
     private Mutex? _appMutex;
+    private bool _startupInitialized;
+    private System.IO.FileStream? _settingsSession;
     public static HookIpcClient? HookClient { get; private set; }
 
     // Held for the process lifetime so its hotkey registration and message window stay alive.
@@ -65,12 +69,13 @@ public partial class App : Application
         // under CPU contention without making the whole process compete unfairly against everything else.
         Thread.CurrentThread.Priority = ThreadPriority.Highest;
 
-        // Initialize logger first so we can log elevation decisions and issues
+        if (!await AppStartupServiceBootstrapper.PrepareUserSettingsAsync())
+        {
+            Shutdown(1);
+            return;
+        }
+        // Initialize logger only after the user's data is accessible.
         Logger.Initialize("app.log", overwrite: true);
-
-        // App-wide smooth wheel scrolling, keyed off ScrollViewer.CanContentScroll so virtualized lists
-        // stay item-based while pixel-scrolling lists get the glide (see SmoothWheelScrollBehavior).
-        Helpers.Visuals.SmoothWheelScrollBehavior.EnableGlobally();
 
         // Global exception handlers, registered as early as possible: anything thrown before the old
         // registration point (UserSettings.Load, hook client startup, ...) crashed with no log at all.
@@ -78,8 +83,39 @@ public partial class App : Application
         DispatcherUnhandledException += _dispatcherExceptionHandler.Handle;
         TaskScheduler.UnobservedTaskException += (s, args) => { Helpers.App.AppCrashHandler.LogException("TaskScheduler UnobservedTaskException", args.Exception); args.SetObserved(); };
 
-        var settings = UserSettings.Load();
+        string? transferMessage;
+        try { _settingsSession = SettingsTransferRestart.StartSession(e.Args, out transferMessage); }
+        catch (Exception ex)
+        {
+            // Logged before the box. This catch used to say nothing at all and show one hardcoded sentence
+            // about other instances, so a data folder that had merely been relocated to another drive was
+            // reported as a settings transfer in progress -- and left no trace to contradict it.
+            Logger.Log($"[App] The settings session could not be started (data={Logger.UserDataDir}): {ex}", LogLevel.Error);
+            System.Windows.MessageBox.Show(SettingsStartupFailure.Describe(ex), "Lertaro",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown(1);
+            return;
+        }
+
+        UserSettings settings;
+        // WPF resources can touch UserSettings before OnStartup; discard any pre-transfer cache.
+        try { settings = UserSettings.ForceReload(); }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show($"Unable to load settings:\n{UserSettings.SettingsPath}\n\n{ex.Message}", "Lertaro",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown(1);
+            return;
+        }
         Helpers.Visuals.AnimationPolicy.Initialize(settings);
+        AppTypography.Initialize(Resources, TranslationManager.Instance.CurrentCulture);
+        // The other process-wide rendering decision, and made here because it has to be made before any window
+        // exists: this is what the settings page's "enable hardware acceleration (requires restart)" switch has
+        // always said it does. Until now it only took the hardware off the quick window's own composition
+        // target, and since that window is now software-composed whatever the switch says (see CardRenderMode),
+        // the switch would otherwise govern nothing at all.
+        if (!settings.EnableHardwareAcceleration)
+            RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
         Logger.MinimumLevel = SettingsOptionGenerator.ParseLogLevel(settings.LogLevel);
         // Everything this process matches outside the search pipeline -- plugin catalog items,
         // favorites, shell-menu filtering, display highlighting -- reads this rather than the
@@ -144,6 +180,9 @@ public partial class App : Application
         HookClient.OnQuickNavigationHotkey += () => Dispatcher.BeginInvoke(
             new Action(QuickNavigationMenu.ShowFromKeyboard));
         HookClient.Start();
+        // Subscribed here rather than at first use: a hook dropped during a sleep has to be noticed by the
+        // very next resume, and the launcher spends its life hidden.
+        Services.HookResumeWatcher.EnsureWatching();
         // Set up the quick panel. Built here rather than lazily on the first hotkey so the handler above always
         // has something to call; it creates no window of its own until it is first opened.
         _quickPanelManager = new Services.QuickPanel.QuickPanelManager();
@@ -245,7 +284,10 @@ public partial class App : Application
                 return cachedSettingsSearchEntries;
             };
             PluginSdk.Logger.LogAction = (msg, lvl) => Logger.Log(msg, (LogLevel)(int)lvl);
-            TranslationManager.Instance.ReloadTranslations();
+            if (TranslationManager.Instance.CurrentCulture != settings.PreferredLanguage)
+                TranslationManager.Instance.CurrentCulture = settings.PreferredLanguage;
+            else
+                TranslationManager.Instance.ReloadTranslations();
             Logger.Log("[App] TranslationManager initialized.");
 
             // Preload app searchable items now that translations are fully loaded and settled
@@ -256,6 +298,7 @@ public partial class App : Application
                 : settings.Theme;
             ThemeManager.Instance.Initialize(startupThemeId);
             ThemeManager.Instance.InitializeSystemFollow();
+            ThemeManager.Instance.ThemeChanged += ThemedWindowIconHelper.RepaintBrandMarks;
             Logger.Log($"[App] ThemeManager initialized with theme: {startupThemeId}");
         }
         catch (Exception ex)
@@ -269,6 +312,9 @@ public partial class App : Application
         UrlProtocolManager.EnsureRegistered();
         Logger.Log("Starting normal WPF GUI client mode.");
         base.OnStartup(e);
+        _startupInitialized = true;
+        MainWindow = new QuickSearchWindow();
+        MainWindow.Show();
 
         _ = Dispatcher.BeginInvoke(new Action(() =>
         {
@@ -287,6 +333,11 @@ public partial class App : Application
 
         // LocalSend transfer service runs in App process
         Helpers.LocalSend.LocalSendAppEventHandler.Initialize(settings);
+        if (transferMessage != null)
+            _ = Dispatcher.BeginInvoke(new Action(() => Views.Controls.Dialogs.CustomMessageBox.Show(transferMessage, "Lertaro", MessageBoxButton.OK, MessageBoxImage.Information)));
+        // Nothing before this line may fail quietly, and the window alone was not enough to say the start
+        // worked: LocalSend's identity is built after Show() and it is exactly where a reduced token dies.
+        _dispatcherExceptionHandler.StartupCompleted = true;
     }
 
     public static void HideInlineSearch() => InlineSearchManager.Instance.CloseInlineSearch();
@@ -297,13 +348,26 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        if (!_startupInitialized)
+        {
+            _settingsSession?.Dispose();
+            _appMutex?.Dispose();
+            base.OnExit(e);
+            return;
+        }
         Core.Services.LocalSend.LocalSendServiceManager.Instance.Stop();
+        // Before anything else: a notification still open must be ended rather than left with a caller
+        // awaiting a task no one will ever complete.
+        Services.Notifications.NotificationService.Shutdown();
         _favoriteHotkeys?.Dispose(); _favoriteHotkeys = null;
         foreach (var provider in PluginManager.Instance.AllSearchScopeProviders.OfType<IDisposable>()) provider.Dispose();
+        Services.HookResumeWatcher.StopWatching();
         HookClient?.Stop(); HookClient?.Dispose(); HookClient = null;
         RecentFoldersStore.Shutdown();
         AppPipeService.StopServer(); AppSearchPipeService.StopServer(); Services.Everything.EverythingServiceBootstrapper.Stop(); InlineSearchManager.Instance.Dispose(); CloseAllManagedWindows();
         if (_appMutex != null) { try { _appMutex.ReleaseMutex(); } catch { } _appMutex.Dispose(); }
+        // ponytail: keep the runtime lease until OS process teardown, including any plugin
+        // Exit/ProcessExit callbacks that can still save after this OnExit method returns.
         base.OnExit(e);
     }
 }

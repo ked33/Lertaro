@@ -67,6 +67,33 @@ public static class ExplorerNativeHooks
     [DllImport("kernel32.dll")]
     public static extern uint GetCurrentThreadId();
 
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    /// <summary>
+    /// Top-level windows in Z order, topmost first. Windows keeps the window the user most recently used
+    /// highest among those that are still open, which is the closest thing to "the file manager I was just
+    /// in" that exists without having watched the user switch windows.
+    /// </summary>
+    /// <remarks>Enumerates only; callers filter, and the delegate stays alive for the synchronous call.</remarks>
+    public static IReadOnlyList<IntPtr> TopLevelWindowsInZOrder()
+    {
+        var windows = new List<IntPtr>();
+        EnumWindows((hwnd, _) => { windows.Add(hwnd); return true; }, IntPtr.Zero);
+        return windows;
+    }
+
     public const uint EM_SETSEL = 0x00B1;
     public const uint WM_LBUTTONDOWN = 0x0201;
     public const uint WM_LBUTTONUP = 0x0202;
@@ -77,6 +104,45 @@ public static class ExplorerNativeHooks
     public struct RECT
     {
         public int Left, Top, Right, Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT
+    {
+        public int X, Y;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+
+    /// <summary>
+    /// Where a window's client area starts on screen, in physical pixels -- the bottom edge of whatever the
+    /// system drew above it (its title bar, with the caption buttons at the right).
+    /// </summary>
+    /// <remarks>
+    /// Safe from the thread that places the inline card: both calls read window information win32k already
+    /// holds and neither sends a message into the owning process, which is the difference between these and
+    /// the WM_GETTEXT reads that a host with a busy UI thread can park a caller behind for seconds.
+    /// False for no window, a client area with no height (an iconic one), or a failed read, so a caller that
+    /// has no answer for the window simply does not apply the value.
+    /// </remarks>
+    public static bool TryGetClientTopOnScreen(IntPtr hwnd, out int top)
+    {
+        top = 0;
+        if (hwnd == IntPtr.Zero) return false;
+        if (!GetClientRect(hwnd, out var client) || client.Bottom <= 0) return false;
+
+        // The client area's own top-left, translated: (0,0) in client coordinates is that corner.
+        var origin = new POINT { X = 0, Y = 0 };
+        if (!ClientToScreen(hwnd, ref origin)) return false;
+
+        top = origin.Y;
+        return true;
     }
 
     public const uint EVENT_OBJECT_FOCUS = 0x8005;

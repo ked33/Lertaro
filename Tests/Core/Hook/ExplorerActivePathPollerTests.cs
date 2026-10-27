@@ -8,6 +8,123 @@ namespace Lertaro.Core.Tests.Hook;
 [TestClass]
 public sealed class ExplorerActivePathPollerTests
 {
+    private sealed class ScopeAdapter(Func<string?> read, bool isFileExplorer = false) : IInlineSearchAdapter
+    {
+        public string Name => "Scope test";
+        public bool IsFileExplorer => isFileExplorer;
+        public bool CanHandle(IntPtr hwnd, string className, string processName) => false;
+        public bool CanTrigger(IntPtr hwnd, string className) => false;
+        public string? GetSearchScope(IntPtr hwnd) => read();
+        public bool ExecuteItem(IntPtr hwnd, string path, string searchInput) => false;
+        public bool GetDockBounds(IntPtr hwnd, out AdapterRect rect) { rect = default; return false; }
+        public bool CanEnterActionsMode(IntPtr hwnd) => false;
+    }
+
+    [TestMethod]
+    public async Task CardShown_WithoutAnyWinEvent_ReadsAndPublishesScope()
+    {
+        var hwnd = NextSentinel();
+        using var tracker = new ExplorerTracker(() => hwnd);
+        tracker.SetActiveInlineAdapterDirectly(new ScopeAdapter(() => @"C:\Current"), hwnd);
+        tracker.UpdatePath(@"C:\Previous", false);
+        var captured = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        tracker.OnPathCaptured += (path, _, _) => captured.TrySetResult(path);
+
+        tracker.SetInlineWindowOnScreen(true);
+
+        Assert.AreEqual(@"C:\Current", await captured.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        tracker.SetInlineWindowOnScreen(false);
+    }
+
+    [TestMethod]
+    public async Task CardShown_WithOnlyDialogAdapter_ReadsAndPublishesScope()
+    {
+        var hwnd = NextSentinel();
+        FileDialogAdapterRegistry.Register(new LateMatchingAdapter(hwnd, 0, @"C:\Dialog"));
+        using var tracker = new ExplorerTracker(() => hwnd) { ActiveHwnd = hwnd, IsActiveWindowDialog = true };
+        var captured = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        tracker.OnPathCaptured += (path, _, _) => captured.TrySetResult(path);
+
+        tracker.SetInlineWindowOnScreen(true);
+
+        Assert.AreEqual(@"C:\Dialog", await captured.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.IsNull(tracker.ActiveInlineAdapter);
+    }
+
+    [TestMethod]
+    public async Task RequestInsideReadInterval_EventuallyPublishesWithoutAnotherEvent()
+    {
+        var hwnd = NextSentinel();
+        using var tracker = new ExplorerTracker(() => hwnd);
+        var path = @"C:\First";
+        tracker.SetActiveInlineAdapterDirectly(new ScopeAdapter(() => Volatile.Read(ref path)), hwnd);
+        var first = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var second = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        long firstAt = 0, secondAt = 0;
+        tracker.OnPathCaptured += (value, _, _) =>
+        {
+            if (value == @"C:\First") { firstAt = Stopwatch.GetTimestamp(); first.TrySetResult(); }
+            if (value == @"C:\Second") { secondAt = Stopwatch.GetTimestamp(); second.TrySetResult(); }
+        };
+        tracker.SetInlineWindowOnScreen(true);
+        await first.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Volatile.Write(ref path, @"C:\Second");
+
+        tracker.RequestHostPathRead();
+        await second.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.IsGreaterThan(1500d, Stopwatch.GetElapsedTime(firstAt, secondAt).TotalMilliseconds,
+            "Measure between callbacks, so a delayed test continuation cannot shorten the observed interval.");
+        Assert.AreEqual(path, tracker.ActivePath);
+        tracker.SetInlineWindowOnScreen(false);
+    }
+
+    [TestMethod]
+    public async Task ImmediateRequest_AnswersInsideTheReadInterval()
+    {
+        var hwnd = NextSentinel();
+        using var tracker = new ExplorerTracker(() => hwnd);
+        var path = @"C:\First";
+        tracker.SetActiveInlineAdapterDirectly(new ScopeAdapter(() => Volatile.Read(ref path)), hwnd);
+        var first = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var second = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        long firstAt = 0, secondAt = 0;
+        tracker.OnPathCaptured += (value, _, _) =>
+        {
+            if (value == @"C:\First") { firstAt = Stopwatch.GetTimestamp(); first.TrySetResult(); }
+            if (value == @"C:\Second") { secondAt = Stopwatch.GetTimestamp(); second.TrySetResult(); }
+        };
+        tracker.SetInlineWindowOnScreen(true);
+        await first.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Volatile.Write(ref path, @"C:\Second");
+
+        // A click that puts a menu on screen naming this folder cannot wait out MinHostReadMs.
+        tracker.RequestHostPathRead(immediate: true);
+        await second.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.IsLessThan(1500d, Stopwatch.GetElapsedTime(firstAt, secondAt).TotalMilliseconds,
+            "An immediate request has to answer inside the interval that a plain request waits out.");
+        Assert.AreEqual(path, tracker.ActivePath);
+        tracker.SetInlineWindowOnScreen(false);
+    }
+
+    [TestMethod]
+    public void UpdateObservedPath_AfterHostChanged_DoesNotOverwriteNewScope()
+    {
+        var oldHwnd = NextSentinel();
+        var currentHwnd = NextSentinel();
+        using var tracker = new ExplorerTracker();
+        tracker.SetActiveInlineAdapterDirectly(new ScopeAdapter(() => null), currentHwnd);
+        tracker.UpdatePath(@"D:\NewHost", false);
+        var events = 0;
+        tracker.OnPathCaptured += (_, _, _) => events++;
+
+        tracker.UpdateObservedPath(oldHwnd, @"C:\OldHost");
+
+        Assert.AreEqual(@"D:\NewHost", tracker.ActivePath);
+        Assert.AreEqual(0, events);
+    }
+
     // The registry is static and has no way to unregister one, so every stand-in below claims exactly its own
     // sentinel handle and stays inert for every other test that shares it.
     private static int _sentinels;
@@ -24,13 +141,14 @@ public sealed class ExplorerActivePathPollerTests
         private readonly int _asksBeforeMatch;
         private int _asks;
 
-        internal LateMatchingAdapter(IntPtr hwnd, int asksBeforeMatch)
-            => (_hwnd, _asksBeforeMatch) = (hwnd, asksBeforeMatch);
+        private readonly string? _path;
+        internal LateMatchingAdapter(IntPtr hwnd, int asksBeforeMatch, string? path = null)
+            => (_hwnd, _asksBeforeMatch, _path) = (hwnd, asksBeforeMatch, path);
 
         public bool CanHandle(IntPtr hwnd, string className, string processName) =>
             hwnd == _hwnd && Interlocked.Increment(ref _asks) > _asksBeforeMatch;
 
-        public string? GetCurrentPath(IntPtr hwnd) => null;
+        public string? GetCurrentPath(IntPtr hwnd) => _path;
         public bool NavigateTo(IntPtr hwnd, string targetPath) => false;
         public bool GetDockBounds(IntPtr hwnd, out AdapterRect rect) { rect = default; return false; }
         public bool RestoreFocus(IntPtr hwnd) => false;
@@ -152,6 +270,58 @@ public sealed class ExplorerActivePathPollerTests
 
         Assert.AreEqual(@"C:\Workspace", tracker.LastActiveExplorerPath);
         Assert.AreEqual(@"D:\Downloads", tracker.ActivePath);
+    }
+
+    [TestMethod]
+    public void RememberPathProvider_IgnoresWindowsThatAreNotPathProviders()
+    {
+        var hwnd = NextSentinel();
+        using var tracker = new ExplorerTracker();
+
+        // An adapter for a window that is not a file manager, and a handle that names no window at all, must
+        // not become the fallback Quick Switch navigates a dialog to.
+        tracker.RememberPathProvider(null, hwnd);
+        tracker.RememberPathProvider(new ScopeAdapter(() => @"D:\NotAFileManager"), hwnd);
+        tracker.RememberPathProvider(new ScopeAdapter(() => @"D:\NoWindow", isFileExplorer: true), IntPtr.Zero);
+
+        Assert.IsNull(tracker.LastPathProvider);
+    }
+
+    [TestMethod]
+    public void RememberPathProvider_KeepsTheLatestProviderTogetherWithItsOwnHandle()
+    {
+        var first = NextSentinel();
+        var second = NextSentinel();
+        using var tracker = new ExplorerTracker();
+        var firstProvider = new ScopeAdapter(() => @"C:\Same", isFileExplorer: true);
+        var secondProvider = new ScopeAdapter(() => @"C:\Same", isFileExplorer: true);
+
+        tracker.RememberPathProvider(firstProvider, first);
+        // The same folder on another window is still the window the user is browsing, so the memory moves with
+        // it: classifying a provider was never a reason to forget which window it was.
+        tracker.RememberPathProvider(secondProvider, second);
+
+        Assert.AreEqual(second, tracker.LastPathProvider?.Hwnd);
+        // One value, so no reader can pair one window's adapter with another window's handle and read a
+        // window nobody asked about. Asserting both halves is the point: either half alone would pass on a
+        // remembered provider whose adapter and handle had drifted apart.
+        Assert.AreSame(secondProvider, tracker.LastPathProvider?.Adapter);
+    }
+
+    [TestMethod]
+    public void RaisePathProviderScope_AFolderThatWasNotReadPublishesNothing()
+    {
+        using var tracker = new ExplorerTracker();
+        var published = new List<string>();
+        tracker.OnPathCaptured += (path, _, isDialog) => published.Add($"{(isDialog ? "dialog" : "provider")}:{path}");
+
+        // The App's mirror takes any non-dialog path at face value and Quick Switch gives up on an empty one,
+        // so a provider this process could not read has to leave the last browsed folder alone.
+        tracker.RaisePathProviderScope(null);
+        tracker.RaisePathProviderScope(string.Empty);
+        tracker.RaisePathProviderScope(@"D:\Browsed");
+
+        CollectionAssert.AreEqual(new[] { @"provider:D:\Browsed" }, published);
     }
 
     [TestMethod]

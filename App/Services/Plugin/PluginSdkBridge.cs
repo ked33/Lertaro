@@ -3,7 +3,6 @@ using Lertaro.Core.SearchIndex;
 using Lertaro.Core.Services.Plugin.DirectoryIndex;
 using Lertaro.App.Helpers;
 using Lertaro.App.Services.AppWindow;
-using Lertaro.App.Services.Tray;
 using Lertaro.App.ViewModels.Settings.Plugins;
 namespace Lertaro.App.Services.Plugin;
 
@@ -58,25 +57,11 @@ internal static class PluginSdkBridge
             (messageBoxText, caption, button, icon, _) =>
                 Views.Controls.Dialogs.CustomMessageBox.Show(messageBoxText, caption, button, icon);
 
-        // Route plugin background notifications through the host's own tray icon, so a plugin that needs to
-        // reach the user while the launcher is hidden does not have to add a second tray icon of its own.
-        // ShowBalloonTip is the one place the "hide tray icon" preference and the self-unsubscribing click
-        // callback are already handled, and LegacySettingsNoticeService is in-repo precedent that this is
-        // how the app gets attention from the background. The NotifyIcon was created on the WPF UI thread,
-        // so a call arriving on a plugin's own thread has to be handed over rather than made directly; the
-        // return value therefore means "accepted for display", not "rendered".
-        PluginSdk.Services.PluginNotificationService.ShowFunc = (title, text, onClick) =>
-        {
-            var tray = TrayIconService.Instance;
-            var dispatcher = System.Windows.Application.Current?.Dispatcher;
-            if (tray == null || dispatcher == null) return false;
-
-            if (dispatcher.CheckAccess())
-                tray.ShowBalloonTip(title, text, ToolTipIcon.Info, onClick);
-            else
-                dispatcher.BeginInvoke(() => tray.ShowBalloonTip(title, text, ToolTipIcon.Info, onClick));
-            return true;
-        };
+        // Plugin notifications are the launcher's own windows, not the shell's: the toast pipeline cannot be
+        // pointed at a chosen monitor, given an exact duration, or relied on to display at all outside a
+        // packaged app. Whatever the SDK hands over as the calling assembly is what names the sender on the
+        // card, so a plugin cannot pick the attribution a user reads.
+        PluginSdk.Services.PluginNotificationService.ShowRequestFunc = Notifications.NotificationService.Show;
 
         // Folder opens use the configured manager; naming an existing item requests selection instead.
         PluginSdk.Services.ExplorerService.OpenDirectoryFunc = (directoryPath, fileNameOrFilePath) =>
@@ -104,6 +89,10 @@ internal static class PluginSdkBridge
         // Wire up the history service delegate for plugins using Core SearchHistoryStore
         PluginSdk.Services.HistoryService.GetHistoryEntriesFunc = SearchHistoryStore.GetEntries;
         PluginSdk.Services.RecentFoldersService.GetSnapshotFunc = () => RecentFoldersStore.Instance.GetSnapshot();
+
+        // A plugin asking for the clipboard gets the same read the quick window's auto-fill does, rather
+        // than opening the clipboard itself on whichever thread it happens to be running.
+        PluginSdk.Services.ClipboardService.GetTextFunc = ReadClipboardText;
 
         // Wire up the search query modification delegate for plugins
         PluginSdk.Services.SearchQueryService.ChangeQueryFunc = (query, requery) => System.Windows.Application.Current?.Dispatcher.Invoke(() =>
@@ -248,6 +237,16 @@ internal static class PluginSdkBridge
 
         // Trigger CoreDirectoryIndexManager singleton instantiation to bind SDK DirectoryIndexerService delegates
         _ = CoreDirectoryIndexManager.Instance;
+    }
+
+    // ClipboardTextHelper needs an STA apartment, so the read is handed to the UI thread; called from
+    // there it just runs inline. With no running launcher to hand it to (a plugin hosted outside the
+    // app) it is attempted on the calling thread, where a clipboard WPF cannot open reads as no text.
+    private static string? ReadClipboardText()
+    {
+        string? ReadOnce() => ClipboardTextHelper.TryReadText(out var text) ? text : null;
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        return dispatcher == null ? ReadOnce() : dispatcher.Invoke(ReadOnce);
     }
 
     private static bool IsFavoritePath(string path)

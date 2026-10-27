@@ -243,10 +243,24 @@ public sealed class BuildDefaultFileManagerArgumentsTests
             FileExecutor.BuildDefaultFileManagerArguments(@"C:\Program Files", "/O /T /R={}"));
 
     [TestMethod]
+    public void BuildDefaultFileManagerArguments_PathContainingAPlaceholder_IsSubstitutedExactlyOnce() =>
+        // A folder name with "{}" in it, dropped in for %s, must not then be expanded again by the {} pass.
+        Assert.AreEqual(
+            "/R=\"C:\\odd {} folder\"",
+            FileExecutor.BuildDefaultFileManagerArguments(@"C:\odd {} folder", "/R=%s"));
+
+    [TestMethod]
     public void BuildDefaultFileManagerArguments_MultiplePlaceholders_SubstitutesAll() =>
         Assert.AreEqual(
             "/L=\"C:\\Program Files\" /R=\"C:\\Program Files\"",
             FileExecutor.BuildDefaultFileManagerArguments(@"C:\Program Files", "/L=%s /R={}"));
+
+    [TestMethod]
+    public void BuildDefaultFileManagerArguments_PercentFollowedByLetters_IsLeftAlone() =>
+        // "%s" only substitutes when no letter or digit follows it, so a shell variable written into the
+        // template survives whole -- the same guard CustomActions applies to its parameter.
+        Assert.AreEqual("/R=%systemroot% --open=C:\\a",
+            FileExecutor.BuildDefaultFileManagerArguments(@"C:\a", "/R=%systemroot% --open=%s"));
 
     [TestMethod]
     public void BuildDefaultFileManagerArguments_EmptyTemplate_QuotesPathAsSoleArgument() =>

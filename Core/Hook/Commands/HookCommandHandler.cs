@@ -198,11 +198,18 @@ public sealed class HookCommandHandler
                         _process.RefreshActiveWindowAdapters();
                     }
                     break;
+                case IpcMessageId.RearmHooks:
+                    // Handled on the hook process's own message thread: a low-level hook is dispatched to
+                    // the thread that installed it, so re-installing here on the pipe reader would put the
+                    // callback on a thread with no message pump and drop it all over again.
+                    _process.RearmHooks();
+                    break;
                 case IpcMessageId.SetHotkeysDisabled:
                     _process.IsHotkeysDisabledTemporarily = msg.BoolVal;
                     _process.KeyboardHook?.IsHotkeysDisabledTemporarily = msg.BoolVal;
                     break;
                 case IpcMessageId.ExecuteInlineItem:
+                case IpcMessageId.LocateInlineItem:
                 case IpcMessageId.InlineSelectionChanged:
                 case IpcMessageId.InlineSearchFinished:
                     InlineAdapterCommandHandler.Handle(_process, msg);
@@ -226,6 +233,8 @@ public sealed class HookCommandHandler
                                     // tool launched through it), and entireProcessTree:true would take
                                     // those down too even though the user only asked to end this one.
                                     using var proc = System.Diagnostics.Process.GetProcessById(pid);
+                                    if (!Services.Pipe.PipeClientIdentity.IsCurrentUsersProcess(proc))
+                                        throw new UnauthorizedAccessException("Cannot terminate another user's or session's process.");
                                     proc.Kill();
                                     Logger.Log($"[HookCommandHandler] Killed process {pid} successfully", LogLevel.Info);
                                 }

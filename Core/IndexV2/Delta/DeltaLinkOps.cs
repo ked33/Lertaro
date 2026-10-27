@@ -11,10 +11,13 @@ public static class DeltaLinkOps
 {
     private const FileRecordFlags IndexOnlyFlags = FileRecordFlags.SourceRoot | FileRecordFlags.Listed;
 
-    public static void AddLink(DeltaOverlay delta, UInt128 frn, UInt128 parentFrn, string name, FileRecordFlags flags)
+    // Returns whether the link was actually added: a record naming a link the index already holds is a
+    // no-op, which ApplyUsnRecords uses during a replay to skip a stat over metadata the scan behind it
+    // already recorded.
+    public static bool AddLink(DeltaOverlay delta, UInt128 frn, UInt128 parentFrn, string name, FileRecordFlags flags)
     {
         if (FindMatchingBaseRow(delta, frn, parentFrn, name) >= 0 || FindMatchingAdded(delta, frn, parentFrn, name) != null)
-            return; // this exact link is already present
+            return false; // this exact link is already present
 
         var record = new DeltaOverlay.DeltaRecord
         {
@@ -28,6 +31,7 @@ public static class DeltaLinkOps
         record.ProviderIds = providerIds;
         delta.AppendAdded(record);
         delta.CountAdded(flags.HasFlag(FileRecordFlags.Directory));
+        return true;
     }
 
     // Returns whether the record named a link the index actually held. A removal that matches nothing is
@@ -52,7 +56,7 @@ public static class DeltaLinkOps
     // marked renamed-away and path walks forward through the FRN once the new-name AddLink arrives
     // (mirrors HardLinkDelta.RemoveLinkForRename + ReorphanChildren). Counted as removed immediately,
     // like the old engine's MarkRowDeleted -- AddLink re-counts it when the new-name row lands, so a
-    // mid-rename status poll sees a brief -1/+1 dip, matching RuntimeIndex's own behavior exactly.
+    // mid-rename status poll sees a brief -1/+1 dip.
     // Returns whether anything matched, same contract as RemoveLink.
     public static bool RemoveLinkForRename(DeltaOverlay delta, UInt128 frn, UInt128 parentFrn, string name)
     {

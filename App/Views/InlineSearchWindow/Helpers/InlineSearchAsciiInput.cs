@@ -16,13 +16,25 @@ internal static class InlineSearchAsciiInput
 
     internal static bool IsAllowed(string text) => text.All(c => c is >= ' ' and <= '~');
 
+    private static readonly DependencyProperty EnabledProperty = DependencyProperty.RegisterAttached(
+        "Enabled", typeof(bool), typeof(InlineSearchAsciiInput), new PropertyMetadata(false));
+
+    internal static void Apply(TextBox textBox, bool enabled)
+    {
+        textBox.SetValue(EnabledProperty, enabled);
+        InputMethod.SetIsInputMethodEnabled(textBox, !enabled);
+        if (enabled && !IsAllowed(textBox.Text)) textBox.Clear();
+    }
+
+    private static bool Enabled(TextBox textBox) => (bool)textBox.GetValue(EnabledProperty);
+
     // Attach before the window's query handler, so rejected edits never become searches.
     internal static void Attach(TextBox textBox)
     {
-        InputMethod.SetIsInputMethodEnabled(textBox, false);
+        Apply(textBox, true);
         textBox.PreviewTextInput += (_, e) =>
         {
-            if (!IsAllowed(e.Text)) e.Handled = true;
+            if (Enabled(textBox) && !IsAllowed(e.Text)) e.Handled = true;
         };
         textBox.PreviewDragOver += HandleDrop;
         textBox.PreviewDrop += HandleDrop;
@@ -40,7 +52,7 @@ internal static class InlineSearchAsciiInput
         };
         textBox.TextChanged += (_, _) =>
         {
-            if (IsAllowed(textBox.Text))
+            if (!Enabled(textBox) || IsAllowed(textBox.Text))
             {
                 acceptedText = textBox.Text;
                 return;
@@ -56,6 +68,7 @@ internal static class InlineSearchAsciiInput
 
     private static void HandleDrop(object sender, System.Windows.DragEventArgs e)
     {
+        if (sender is TextBox box && !Enabled(box)) return;
         var text = e.Data.GetData(DataFormats.UnicodeText) as string
             ?? e.Data.GetData(DataFormats.Text) as string;
         if (text != null && IsAllowed(text)) return;
@@ -66,6 +79,7 @@ internal static class InlineSearchAsciiInput
     internal static void HandlePaste(object sender, DataObjectPastingEventArgs e)
     {
         if (sender is not TextBox textBox) return;
+        if (!Enabled(textBox)) { SearchBoxPasteHandler.Handle(sender, e); return; }
         var text = e.DataObject.GetData(DataFormats.UnicodeText) as string
             ?? e.DataObject.GetData(DataFormats.Text) as string;
         e.CancelCommand();

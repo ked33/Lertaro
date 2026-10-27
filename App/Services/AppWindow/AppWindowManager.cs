@@ -3,6 +3,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using Lertaro.App.Helpers;
+using Lertaro.App.Helpers.Visuals;
 using Lertaro.App.Views.QuickSearchWindow.Helpers;
 using Lertaro.Core;
 
@@ -44,7 +45,12 @@ public static class AppWindowManager
             }
 
             if (!_settingsWindow.IsVisible)
+            {
+                // First show only (see ParkUntilPainted): the settings tree is the biggest in the app, and an
+                // opaque borderless window is the class background until that first frame is presented.
+                WindowParking.ParkUntilPainted(_settingsWindow, WindowCentering.CenterOnCursorScreen);
                 _settingsWindow.Show();
+            }
 
             if (_settingsWindow.WindowState == WindowState.Minimized)
                 _settingsWindow.WindowState = WindowState.Normal;
@@ -74,7 +80,12 @@ public static class AppWindowManager
             _settingsWindow.JumpToEntry(entryIndex);
 
             if (!_settingsWindow.IsVisible)
+            {
+                // First show only (see ParkUntilPainted): the settings tree is the biggest in the app, and an
+                // opaque borderless window is the class background until that first frame is presented.
+                WindowParking.ParkUntilPainted(_settingsWindow, WindowCentering.CenterOnCursorScreen);
                 _settingsWindow.Show();
+            }
 
             if (_settingsWindow.WindowState == WindowState.Minimized)
                 _settingsWindow.WindowState = WindowState.Normal;
@@ -105,8 +116,9 @@ public static class AppWindowManager
     /// doing nothing.
     /// </remarks>
     public static void HandleGlobalSummonHotkey() => HandleGlobalSummonHotkey(0);
-
-    internal static void HandleGlobalSummonHotkey(int activationId)
+    internal static void HandleGlobalSummonHotkey(int activationId) => HandleSummon(false, activationId);
+    public static void HandleSummon(bool treatFullWindowAsFocused) => HandleSummon(treatFullWindowAsFocused, 0);
+    private static void HandleSummon(bool treatFullWindowAsFocused, int activationId)
     {
         if (System.Windows.Application.Current == null) return;
 
@@ -121,7 +133,8 @@ public static class AppWindowManager
                 QuickSearchWindowFocusHelper.CompleteActivation(activationId, IntPtr.Zero);
                 activationId = 0;
             }
-            switch (DetermineSearchWindowHotkeyAction(visible != null, visible?.IsActive == true, settings.MainWindow.CloseOnRepeatHotkey))
+            var isActive = visible != null && (visible.IsActive || treatFullWindowAsFocused);
+            switch (DetermineSearchWindowHotkeyAction(visible != null, isActive, settings.MainWindow.CloseOnRepeatHotkey))
             {
                 case SearchWindowHotkeyAction.CloseFullWindow:
                     // Opt-in alternative to the return below: the user treats the full window as an
@@ -211,7 +224,10 @@ public static class AppWindowManager
             if (existing.DataContext is Lertaro.App.ViewModels.Search.SearchViewModel model) model.FilterSession.Set(filter, refresh: false);
             existing.SearchTextBox.Text = query;
             if (existing.DataContext is Lertaro.App.ViewModels.Search.SearchViewModel refreshed) refreshed.PerformSearch(query);
-            existing.SearchTextBox.SelectionStart = query.Length;
+            if (SearchInputHelper.ShouldSelectCarriedText(query, UserSettings.Load().SearchWindow.KeepSearchText))
+                existing.SearchTextBox.SelectAll();
+            else
+                existing.SearchTextBox.SelectionStart = query.Length;
             ShowAndActivateSearchWindow(existing, bringToFront: false);
         });
     }
@@ -273,7 +289,13 @@ public static class AppWindowManager
             IdleWorkingSetTrimmer.WindowShowing();
 
         if (!window.IsVisible)
+        {
+            // Placed inside the park rather than by the caller: the handle -- and so any placement that has to be
+            // in physical pixels -- does not exist until WPF creates it (see WindowCentering for what the DIP alone
+            // measures as on a mixed-DPI desktop), and SourceInitialized is before anything has been painted.
+            WindowParking.ParkUntilPainted(window, WindowCentering.CenterOnCursorScreen);
             window.Show();
+        }
         if (window.WindowState == WindowState.Minimized)
             window.WindowState = WindowState.Normal;
         if (bringToFront)
@@ -331,6 +353,8 @@ public static class AppWindowManager
             timer.Stop();
             window.SearchTextBox.Focus();
             Keyboard.Focus(window.SearchTextBox);
+            if (SearchInputHelper.ShouldSelectCarriedText(window.SearchTextBox.Text, UserSettings.Load().SearchWindow.KeepSearchText))
+                window.SearchTextBox.SelectAll();
         };
         timer.Start();
     }

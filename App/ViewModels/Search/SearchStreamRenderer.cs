@@ -3,6 +3,7 @@ using Lertaro.App.ViewModels.Search.Mapping;
 using Lertaro.Core;
 using Lertaro.Core.Services.Plugin.DirectoryIndex;
 using Lertaro.Core.Services.Search;
+using System.Windows.Threading;
 
 namespace Lertaro.App.ViewModels.Search;
 
@@ -28,6 +29,11 @@ internal sealed class SearchStreamRenderer
     private const int BatchProgressiveRenderIntervalMs = 150;
 
     private const int DrainRenderIntervalMs = 25;
+
+    // Per-directory row budget for the high-priority re-searches. Large enough that a promoted folder's
+    // best matches are never lost, small enough that the extra index work stays invisible while typing.
+    private const int PriorityRootResultLimit = 50;
+    private const int ShortcutSupplementLimit = 50;
 
     private readonly SearchService _searchService;
     private readonly Func<int> _getSearchVersion;
@@ -56,7 +62,8 @@ internal sealed class SearchStreamRenderer
         bool resultMapperConsumesBatches = false,
         Action<int>? onReceivedCountUpdated = null,
         FileFilterScopeDirective? scopeDirective = null,
-        bool foldersOnly = false, string? fileTypeRule = null)
+        bool foldersOnly = false,
+        IReadOnlyList<string>? priorityRoots = null, string? fileTypeRule = null)
     {
         var streamedResponse = new List<SearchResult>();
         object responseLock = new();
@@ -66,9 +73,20 @@ internal sealed class SearchStreamRenderer
         var copiedCount = 0;
         var streamDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        var runShortcutSupplement = ScopedSearchRunner.ShouldRunShortcutSupplement(
+            fileLimit, foldersOnly, searchScope, scopeDirective);
+        // Set by Accumulate the moment a row the supplement would have contributed arrives; read once, after
+        // the main query has streamed. Volatile because the engine hands rows in from its own threads.
+        var shortcutSurfaced = 0;
+
         // Scoped searches answer from N per-folder engine queries, so the same file can arrive from two
-        // overlapping configured folders -- dedupe by path at accumulation.
-        var seenPaths = scopeDirective is { Folders.Count: > 0 } ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) : null;
+        // overlapping configured folders -- dedupe by path at accumulation. High-priority and shortcut
+        // supplement passes add additive sources alongside the main query, so they use the same path guard.
+        var dedupePaths = scopeDirective is { Folders.Count: > 0 }
+            || priorityRoots is { Count: > 0 }
+            || runShortcutSupplement
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            : null;
         var scopePatterns = scopeDirective is { Folders.Count: > 0 }
             ? FilterPatternHelper.SplitOrNullIfMatchAll(scopeDirective.FilterPattern)
             : null;
@@ -93,8 +111,10 @@ internal sealed class SearchStreamRenderer
 
             lock (responseLock)
             {
-                if (seenPaths != null && !seenPaths.Add(result.Path))
+                if (dedupePaths != null && !dedupePaths.Add(result.Path))
                     return;
+                if (runShortcutSupplement && ScopedSearchRunner.IsSupplementShortcutPath(result.Path))
+                    Volatile.Write(ref shortcutSurfaced, 1);
                 streamedResponse.Add(result);
                 streamedCount++;
             }
@@ -128,6 +148,7 @@ internal sealed class SearchStreamRenderer
                 ? SearchResultMapper.FormatSearchStatus(0, received)
                 : string.Empty;
 
+            // Let pending input invalidate this query before spending a UI turn on its rows.
             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
                 if (searchVersion != _getSearchVersion() || token.IsCancellationRequested)
@@ -135,7 +156,7 @@ internal sealed class SearchStreamRenderer
                 onResultsUpdated(uiResults, statusText, final);
                 if (!final)
                     onReceivedCountUpdated?.Invoke(received);
-            }).Task.ConfigureAwait(false);
+            }, DispatcherPriority.Background, token).Task.ConfigureAwait(false);
         }
 
         using var pumpCts = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -180,13 +201,13 @@ internal sealed class SearchStreamRenderer
 
                     if (take == 0 && !localChanged)
                     {
-                        if (!finished)
+                        if (!finished && onReceivedCountUpdated != null)
                         {
                             await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                             {
                                 if (searchVersion == _getSearchVersion() && !token.IsCancellationRequested)
                                     onReceivedCountUpdated?.Invoke(received);
-                            }).Task.ConfigureAwait(false);
+                            }, DispatcherPriority.Background, pumpToken).Task.ConfigureAwait(false);
                         }
                         if (finished)
                             return;
@@ -207,9 +228,18 @@ internal sealed class SearchStreamRenderer
             }
         }, pumpToken);
 
+        // Started beside the main query rather than after it: each is scoped to one promoted folder, and
+        // the client only needs the union before its final sort. Skipped when the caller narrowed the
+        // search itself (path mode, explicit folder scope): those scopes are what the user asked for.
+        // Owned outside the try so a failing main query still drains it instead of leaving the pipe open.
+        var priorityTask = priorityRoots is { Count: > 0 } && !bypassExclusions && scopeDirective is not { Folders.Count: > 0 }
+            ? ScopedSearchRunner.RunPriorityRootsAsync(
+                _searchService, priorityRoots, query, PriorityRootResultLimit, appLimit, Accumulate, token, fileTypeRule)
+            : null;
+        Task? shortcutTask = null;
+
         try
         {
-
             if (scopeDirective is { Folders.Count: > 0 })
             {
                 await ScopedSearchRunner.RunAsync(_searchService, scopeDirective, query, fileLimit, appLimit, Accumulate,
@@ -229,6 +259,22 @@ internal sealed class SearchStreamRenderer
             }
 
             token.ThrowIfCancellationRequested();
+
+            // Started after the main query, not beside it: the question this pass answers -- did a bounded
+            // initials query crowd a shortcut out of the engine's cut -- only has an answer once that cut is
+            // on the table. Running it unconditionally cost every keystroke a second settings load, a second
+            // exclusion-rule build and a second scan of every drive and share.
+            shortcutTask = runShortcutSupplement && Volatile.Read(ref shortcutSurfaced) == 0
+                ? ScopedSearchRunner.RunShortcutSupplementAsync(
+                    _searchService, query, ShortcutSupplementLimit, appLimit, Accumulate, token, fileTypeRule)
+                : null;
+
+            if (priorityTask != null)
+                await priorityTask.ConfigureAwait(false);
+
+            if (shortcutTask != null)
+                await shortcutTask.ConfigureAwait(false);
+
             if (localSearchTask != null)
             {
                 try
@@ -242,6 +288,28 @@ internal sealed class SearchStreamRenderer
         }
         finally
         {
+            if (priorityTask != null)
+            {
+                try
+                {
+                    await priorityTask.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+            }
+
+            if (shortcutTask != null)
+            {
+                try
+                {
+                    await shortcutTask.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+            }
+
             streamDone.TrySetResult();
             try
             {

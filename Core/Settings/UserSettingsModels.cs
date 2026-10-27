@@ -175,6 +175,8 @@ public class SearchWindowSettings
     public double? RelativeLeft { get; set; }
     public double? RelativeTop { get; set; }
     // Replaces the quick window's empty-state placeholder text with date/time/day-of-week (see #101).
+    // The 农历 half of that line has no setting here on purpose: it is the Calendar plugin's own data and its
+    // own switch, so a plugin the user disabled is simply never asked for it (see ICalendarTextProvider).
     public bool ShowClock { get; set; } = false;
     // When the quick window is already open, pressing the global toggle hotkey again normally hides
     // it -- this opts into opening the full SearchWindow (carrying over the current query) instead.
@@ -184,13 +186,18 @@ public class SearchWindowSettings
     // still resets the position, which is the way back if it is already somewhere unwanted. Off by
     // default, since being able to move the window is the behavior everyone already has.
     public bool LockPosition { get; set; } = false;
+    // Keeps whatever the search box held when the quick window hid, instead of wiping it in
+    // QuickSearchWindowController.FinishHide. The next summon re-selects that text (see
+    // QuickSearchWindowShowSupport.ShowWindow), so typing still replaces it rather than appending to it.
+    // Off by default: the window is meant to start clean for the usual "summon and type" gesture.
+    public bool KeepSearchText { get; set; } = false;
 }
 
 public class PreviewWindowSettings
 {
-    // Defaults match the default search bar height (70) plus a fully-expanded 9-item results list
-    // (9 * BaseSearchResultItemHeight = 459) -- see UiMetrics -- so the preview window's height is
-    // predictable and doesn't change with however many results happen to be showing right now.
+    // Height is the fully-expanded default: a 9-item results list (9 * BaseSearchResultItemHeight = 459,
+    // see UiMetrics) plus the search bar's band, so the preview window's height is predictable and
+    // doesn't change with however many results happen to be showing right now.
     public double Width { get; set; } = 400;
     public double Height { get; set; } = 529;
 }

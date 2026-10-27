@@ -1,11 +1,11 @@
 # Settings Reference
 
-Lertaro provides a comprehensive and granular suite of customization options. Whether you want to fine-tune search bar pixel dimensions, customize global hotkeys, adjust drive indexing schedules, or manage third-party plugins and workspaces, everything can be configured in the Settings Center.
+Lertaro provides a granular suite of customization options. Whether you want to fine-tune search bar pixel dimensions, customize global hotkeys, adjust drive indexing schedules, or manage third-party plugins and workspaces, everything can be configured in the Settings Center.
 
 ## 1. Window Features & Navigation
 
-- **Resizable & Maximize Support**: The Settings window supports smooth border resizing, titlebar double-click maximizing, and persistent size memory across sessions.
-- **Global Settings Search**: A search bar sits in the upper right corner of the Settings titlebar. Powered by Lertaro's fzf fuzzy matching engine, it searches across all sections (including plugin settings and actions). Selecting a result jumps straight to that setting item and highlights it with a temporary flashing border.
+- **Resizable & Maximize Support**: The Settings window supports smooth border resizing and titlebar double-click maximizing.
+- **Global Settings Search**: A search bar sits centered in the Settings titlebar. Powered by Lertaro's fzf fuzzy matching engine, it searches across all sections (including plugin settings and actions). Selecting a result jumps straight to that setting item and highlights it with a temporary flashing border.
 - **Scrollable Tab Bars**: In sections containing multiple nested sub-tabs (such as General, Hotkeys, Indexing), overflow navigation arrows appear on either side to ensure all tabs remain accessible across all UI languages.
 
 ## 2. Settings Sections Overview
@@ -15,7 +15,7 @@ The sidebar contains the following core sections:
 | Section | Core Capabilities |
 | :--- | :--- |
 | **[Service Status](./service-status)** | Windows background service state, health diagnostics, and live log viewers for Service / App / Hook processes. |
-| **[Indexing Management](./index-drives)** | Local drives (NTFS / ReFS / FAT32), network shares (SMB / NAS), WSL distributions, custom folders, and three exclusion rule types. |
+| **[Indexing Management](./index-drives)** | Local drives (NTFS / ReFS / FAT32), network shares (SMB / NAS), WSL distributions, custom folders, and exclusion and priority rules. |
 | **[General Settings](./general)** | Autostart, hardware acceleration, IPC compatibility, search bar dimensions, Full Window column ordering, and preview parameters. |
 | **[Hotkeys](./hotkeys-page)** | Global search hotkeys, navigation keys, plugin action shortcuts, process blacklist, and fullscreen bypass rules. |
 | **[Plugins](./plugins)** | Installed plugins list, component toggles, custom configuration forms, Flow Launcher community bridge, and live plugin runtime status. |

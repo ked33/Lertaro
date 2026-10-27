@@ -13,8 +13,7 @@ internal static class DriveMaintenanceHelper
         string indexCacheDir,
         Dictionary<string, UsnIndexer.DriveIndexStatus> current,
         List<string> drivesToBuild,
-        IReadOnlyDictionary<string, string> cachedPaths,
-        ISet<string>? forceRebuildDrives = null)
+        IReadOnlyDictionary<string, string> cachedPaths)
     {
         // GetCachePath derives the filename from a live volume identity query, which only works while
         // the drive is actually mounted -- a not-present drive (unplugged) has no way to re-derive that
@@ -39,11 +38,13 @@ internal static class DriveMaintenanceHelper
                 existing.Files = 0;
                 existing.Dirs = 0;
             }
-            else if (ShouldRestoreAfterEnable(wasEnabled, isEnabled, existing.State))
+            else if (ShouldRestoreAfterEnable(wasEnabled, isEnabled, existing.State) || IsPendingRestoreWithoutARebuild(existing.State))
             {
+                // Restore (and catch up) rather than force: the caller's QueueDriveRebuild falls back to
+                // a full scan on its own when the cache is unusable, and forcing here made every status
+                // poll that still saw "pending" re-run a whole-volume $MFT scan.
                 existing.State = "pending";
                 drivesToBuild.Add(drive);
-                forceRebuildDrives?.Add(drive);
             }
             return existing;
         }
@@ -66,4 +67,11 @@ internal static class DriveMaintenanceHelper
 
     internal static bool ShouldRestoreAfterEnable(bool wasEnabled, bool isEnabled, string state) =>
         !wasEnabled && isEnabled && state is not "indexing" and not "pending";
+
+    // A mounted, enabled drive still sitting at "pending" has a build request nobody is honouring:
+    // QueueDriveRebuild refuses one while a full rebuild is running (and a re-insertion waiter can fire
+    // inside exactly that window), and the disabled->enabled edge that queued it will never fire again.
+    // Re-queue on every refresh until the drive leaves "pending" -- a rebuild that really started sets it
+    // to "indexing", so this cannot spin once the work is underway.
+    internal static bool IsPendingRestoreWithoutARebuild(string state) => state == "pending";
 }

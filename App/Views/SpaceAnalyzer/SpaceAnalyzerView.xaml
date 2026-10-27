@@ -87,7 +87,7 @@
             <DockPanel>
                 <Button x:Name="BackButton" DockPanel.Dock="Left" Style="{StaticResource SpaceBreadcrumbButton}"
                         Width="28" Padding="0" Margin="0,0,2,0" ToolTip="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[Space_Back]}"
-                        Content="&#xE74A;" FontSize="11" FontFamily="Segoe MDL2 Assets" Click="Back_Click"/>
+                        Content="&#xE74A;" FontSize="11" FontFamily="{DynamicResource AppIconFontFamily}" Click="Back_Click"/>
                 <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="7,0,0,0">
                     <StackPanel x:Name="BreadcrumbPanel" Orientation="Horizontal" VerticalAlignment="Center"/>
                 </ScrollViewer>
@@ -102,7 +102,7 @@
                     <Canvas x:Name="TreemapCanvas" SizeChanged="TreemapCanvas_SizeChanged"
                             MouseLeftButtonUp="TreemapCanvas_MouseLeftButtonUp" ClipToBounds="True"/>
                     <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <TextBlock Text="&#xE9D5;" FontFamily="Segoe MDL2 Assets" FontSize="34"
+                        <TextBlock Text="&#xE9D5;" FontFamily="{DynamicResource AppIconFontFamily}" FontSize="34"
                                    Foreground="{DynamicResource TextSecondary}" HorizontalAlignment="Center"/>
                         <TextBlock x:Name="EmptyText" Margin="0,10,0,0" FontSize="13"
                                    Foreground="{DynamicResource TextSecondary}" TextAlignment="Center"/>
@@ -125,9 +125,9 @@
                             Style="{StaticResource SpaceBreadcrumbButton}" HorizontalContentAlignment="Left"
                             Visibility="Collapsed" Click="Back_Click">
                         <StackPanel Orientation="Horizontal" Margin="10,0">
-                            <TextBlock Text="&#xE74A;" FontFamily="Segoe MDL2 Assets" FontSize="11" VerticalAlignment="Center" Margin="0,0,9,0"/>
+                            <TextBlock Text="&#xE74A;" FontFamily="{DynamicResource AppIconFontFamily}" FontSize="11" VerticalAlignment="Center" Margin="0,0,9,0"/>
                             <TextBlock Text="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[Space_Parent]}"
-                                       FontSize="12.5" VerticalAlignment="Center"/>
+                                       FontSize="13" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
                     <ListBox x:Name="ItemsList" Grid.Row="2" Background="Transparent" BorderThickness="0"
@@ -140,7 +140,7 @@
                                 <Grid>
                                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                                    <TextBlock Grid.RowSpan="2" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                    <TextBlock Grid.RowSpan="2" FontFamily="{DynamicResource AppIconFontFamily}" FontSize="14"
                                                Foreground="{DynamicResource AccentBlue}" Margin="0,0,8,0">
                                         <TextBlock.Style>
                                             <Style TargetType="TextBlock">
@@ -155,12 +155,12 @@
                                     </TextBlock>
                                     <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"
                                                   Focusable="False" Background="Transparent">
-                                        <TextBlock Text="{Binding Name}" FontSize="12.5" VerticalAlignment="Center"
+                                        <TextBlock Text="{Binding Name}" FontSize="13" VerticalAlignment="Center"
                                                    Foreground="{DynamicResource TextPrimary}"
                                                    helpers:MarqueeBehavior.EnableMarquee="True"/>
                                     </ScrollViewer>
                                     <TextBlock Grid.Column="2" Text="{Binding DisplaySize}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                                               Foreground="{DynamicResource TextSecondary}" FontSize="11.5" Margin="10,0,0,0"/>
+                                               Foreground="{DynamicResource TextSecondary}" FontSize="12" Margin="10,0,0,0"/>
                                     <ProgressBar Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Value="{Binding RelativePercentage}"
                                                  Minimum="0" Maximum="100" Height="3" Margin="0,6,0,0" BorderThickness="0"
                                                  Background="{DynamicResource ControlBorderBrush}" IsHitTestVisible="False"/>
@@ -175,9 +175,9 @@
         <Border Grid.Row="3" Background="{DynamicResource HeaderBg}" BorderBrush="{DynamicResource BorderColor}"
                 BorderThickness="0,1,0,0" Padding="20,9">
             <Grid>
-                <TextBlock x:Name="SummaryText" Foreground="{DynamicResource TextSecondary}" FontSize="11.5"/>
+                <TextBlock x:Name="SummaryText" Foreground="{DynamicResource TextSecondary}" FontSize="12"/>
                 <TextBlock Text="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[Space_LogicalSize]}"
-                           HorizontalAlignment="Right" Foreground="{DynamicResource TextSecondary}" FontSize="11.5"/>
+                           HorizontalAlignment="Right" Foreground="{DynamicResource TextSecondary}" FontSize="12"/>
             </Grid>
         </Border>
     </Grid>

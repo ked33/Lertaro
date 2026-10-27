@@ -18,6 +18,9 @@ internal static class SearchResultHelper
     public static string HistoryKeywordOf(AppSearchResult result, string boxText) =>
         string.IsNullOrWhiteSpace(result.SearchQuery) ? boxText : result.SearchQuery;
 
+    public static bool IsLearnedRecall(AppSearchResult result) =>
+        result.IsLearnedAliasRecall;
+
     public static void AddSectionHeader(List<AppSearchResult> uiResults, string title, string query) => uiResults.Add(new AppSearchResult
     {
         Name = title,
@@ -125,6 +128,12 @@ internal static class SearchResultHelper
 
     public static string NormalizePath(string path)
     {
+        // Virtual shell identities (packaged apps, plugin searchable items) are not filesystem paths;
+        // Path.GetFullPath would silently prepend the process working directory and make two unrelated
+        // items collide during dedupe.
+        if (IsVirtualPath(path))
+            return path.Trim();
+
         // Indexed WSL paths are already absolute. Keep normalization lexical so displaying or comparing
         // a result cannot ask Windows to expand a short-name-looking segment and wake the distro.
         var normalized = WslPath.IsPath(path)
@@ -132,6 +141,10 @@ internal static class SearchResultHelper
             : Path.GetFullPath(path);
         return normalized.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
+
+    internal static bool IsVirtualPath(string path) =>
+        path.StartsWith("shell:", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("__SEARCHABLE_ITEM__:", StringComparison.OrdinalIgnoreCase);
 
     public static bool IsPathInsideScope(string normalizedPath, string normalizedScope) => normalizedPath.StartsWith(normalizedScope + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
             || normalizedPath.StartsWith(normalizedScope + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);

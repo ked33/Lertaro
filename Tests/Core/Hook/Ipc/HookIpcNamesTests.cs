@@ -26,9 +26,11 @@ public sealed class HookIpcNamesTests
     [TestMethod]
     public void EventPipeName_IsStableAcrossCalls()
     {
-        // Two evaluations: comparing the property to itself is an assertion the analyzer can prove.
+        // The name is built from the current user's session hash on every access, so this has to compare
+        // two separate evaluations: reading one expression twice says nothing about the second call.
         var first = HookIpcNames.EventPipeName;
         var second = HookIpcNames.EventPipeName;
+
         Assert.AreEqual(first, second);
     }
 

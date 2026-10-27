@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Lertaro.Core</AssemblyName>
     <RootNamespace>Lertaro.Core</RootNamespace>
-    <Version>2.9.7</Version>
+    <Version>3.2.0</Version>
     <GenerateDependencyFile>false</GenerateDependencyFile>
     <!-- IndexV2 reads its memory-mapped snapshot through typed spans over a raw view pointer. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -18,6 +18,9 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Lertaro.Core.Tests" />
+    <InternalsVisibleTo Include="Lertaro.App" />
+    <InternalsVisibleTo Include="Lertaro.App.Tests" />
+    <InternalsVisibleTo Include="Lertaro.Plugins.PinyinAlias.Tests" />
   </ItemGroup>
 
   <ItemGroup>
@@ -25,4 +28,3 @@
   </ItemGroup>
 
 </Project>
-

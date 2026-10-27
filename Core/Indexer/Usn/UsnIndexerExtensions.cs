@@ -3,6 +3,7 @@ using Lertaro.Core.IndexV2.Delta;
 using Lertaro.Core.DriveMonitoring;
 using Lertaro.Core.Indexer.NetworkDrive.Walk;
 namespace Lertaro.Core.Indexer.Usn;
+
 public static class UsnIndexerExtensions
 {
     // Reasons that mean the file's data/attributes changed in a way that can affect Size or the three
@@ -26,14 +27,17 @@ public static class UsnIndexerExtensions
     // a batch with nowhere to go must never be stamped as applied, or the next cold start replays from
     // past it and the changes it described are lost for good. True means "applied", NOT "every record
     // matched a row" -- an unmatched removal is reported separately below.
+    // `origin` decides how much the batch may spend (see UsnApplyOrigin): a replay skips the per-record
+    // re-stat and the per-batch notification fan-out a live stream needs.
     public static bool ApplyUsnRecord(this UsnIndexer indexer, string drive, ParsedUsnRecord record)
         => indexer.ApplyUsnRecords(drive, new[] { record });
 
     public static bool ApplyUsnRecords(this UsnIndexer indexer, string drive, IReadOnlyList<ParsedUsnRecord> records,
-        CancellationToken token = default)
+        UsnApplyOrigin origin = UsnApplyOrigin.Live, CancellationToken token = default)
     {
         token.ThrowIfCancellationRequested();
         Logger.Log($"[UsnIndexer] Applying {records.Count} USN records to drive {drive}", LogLevel.Debug);
+        var isReplay = origin == UsnApplyOrigin.Replay;
 
         LiveIndex? live;
         lock (indexer.LockObj)
@@ -81,6 +85,10 @@ public static class UsnIndexerExtensions
                 var parentFrn = record.ParentFileReferenceNumber;
                 var linkName = namePool.Get(record.FileName);
                 var linkFlags = FileRecordFlagsHelper.FromAttributes((FileAttributes)record.FileAttributes);
+                // Only a record that actually introduced a link needs a stat below. During a replay this
+                // is what separates the handful of genuinely new objects from the thousands of records
+                // that merely re-describe rows the scan already recorded with real metadata.
+                var addedLink = false;
                 if ((record.Reason & DirectoryChangeReasons) != 0)
                 {
                     changedParentFrns.Add(parentFrn);
@@ -107,14 +115,18 @@ public static class UsnIndexerExtensions
                 }
                 else if ((record.Reason & (Win32Api.USN_REASON_FILE_CREATE | Win32Api.USN_REASON_RENAME_NEW_NAME)) != 0)
                 {
-                    DeltaLinkOps.AddLink(delta, frn, parentFrn, linkName, linkFlags);
+                    addedLink = DeltaLinkOps.AddLink(delta, frn, parentFrn, linkName, linkFlags);
                 }
 
                 // Unlike name-index changes, Size/timestamps are never carried by the USN record itself
                 // (USN_RECORD has no such fields), so any of these reasons -- including a plain create --
                 // needs an actual re-stat. Just collect which FRNs need it here; the actual I/O happens
-                // after this call returns.
-                if ((record.Reason & MetadataRefreshReasons) != 0 && (record.Reason & Win32Api.USN_REASON_FILE_DELETE) == 0)
+                // after this call returns. A replay only pays for the links it introduced: re-statting
+                // what the scan just recorded is pure I/O, while skipping a genuinely new file would
+                // leave its Size/timestamps at zero, which GetRecentFiles reads as "created at the Unix
+                // epoch" and filters out of every age-windowed query.
+                if ((record.Reason & MetadataRefreshReasons) != 0 && (record.Reason & Win32Api.USN_REASON_FILE_DELETE) == 0
+                    && (!isReplay || addedLink))
                 {
                     pendingMetadataFrns.Add(frn);
                 }
@@ -124,15 +136,23 @@ public static class UsnIndexerExtensions
         });
 
         if (unmatchedRemovals > 0)
-            Logger.Log($"[UsnIndexer] {drive}: {unmatchedRemovals} of {records.Count} USN removal record(s) matched no indexed link (harmless for a replayed delete; otherwise the rows they named stay visible until a rebuild)", LogLevel.Warn);
+            Logger.Log($"[UsnIndexer] {drive}: {unmatchedRemovals} of {records.Count} USN removal record(s) matched no indexed link (harmless for a replayed delete; otherwise the rows they named stay visible until a rebuild)",
+                isReplay ? LogLevel.Debug : LogLevel.Warn);
 
         UsnHardLinkReconciler.Apply(live, hardLinks, token);
-        // Child changes also update parent directory metadata without a separate parent USN record.
-        pendingMetadataFrns.UnionWith(changedParentFrns);
+        // Child changes also update parent directory metadata without a separate parent USN record. A
+        // replay skips that just like it skips the per-record stats: every parent it names is a row the
+        // scan behind it already recorded.
+        if (!isReplay)
+            pendingMetadataFrns.UnionWith(changedParentFrns);
 
         // Resolved before taking LockObj, never inside it: reading a path takes the LiveIndex's own
         // lock, and taking the two in this order here and the other order anywhere else is a deadlock.
-        var changedDirectories = UsnIndexerChangedDirectories.Resolve(live, changedParentFrns, drive, token);
+        // A replay resolves nothing: it raises one notification for the whole catch-up instead of
+        // re-reading directories once per batch (see UsnIndexerCatchUpExtensions).
+        var changedDirectories = isReplay
+            ? null
+            : UsnIndexerChangedDirectories.Resolve(live, changedParentFrns, drive, token);
 
         lock (indexer.LockObj)
         {
@@ -141,7 +161,7 @@ public static class UsnIndexerExtensions
         }
         // Outside the lock: a subscriber matching this against its own watch list has no business
         // holding up the next batch, which is typically microseconds away.
-        if (changedDirectories == null || changedDirectories.Count > 0)
+        if (!isReplay && (changedDirectories == null || changedDirectories.Count > 0))
         {
             indexer.RaiseDirectoriesChanged(drive, changedDirectories);
             SearchCoordinator.ClearCaches();
@@ -261,9 +281,8 @@ public static class UsnIndexerExtensions
     // Consumes (clears) the "a change was detected while this drive was being rebuilt" flag set by
     // ApplyFolderChange above. Called once by the rebuild's own caller (SearchEngineDriveMaintenance/
     // DriveRecovery) right after BuildDrives returns and the fresh LiveIndex is already swapped in and
-    // marked ready, so a true result only ever reflects a change that's otherwise unrecoverable -- one
-    // that arrived after the swap already applied normally to the NEW index and scheduled its own
-    // persist, so it never sets this flag in the first place.
+    // marked ready, so a true result means a watcher change landed on this drive during the rebuild
+    // window: the rebuilt snapshot predates it, and the caller has to re-walk the affected folder.
     public static bool ConsumeMissedFolderChangeDuringRebuild(this UsnIndexer indexer, string drive)
     {
         lock (indexer.LockObj)

@@ -1,6 +1,6 @@
 # About & Updates
 
-The About page displays component versions, provides one-click access to user and system storage directories, and supports manual update checks and seamless in-place upgrades. The page is located at **Settings → About**.
+The About page displays component versions, provides one-click access to user and system storage directories, and supports manual update checks and one-click in-place upgrades. The page is located at **Settings → About**.
 
 ## 1. Component Versions & Project Info
 
@@ -19,7 +19,7 @@ Clickable links directly open storage directories in File Explorer (folders are 
 
 ### User Data Directory
 
-- **Contents**: Stores per-user settings (`user-settings.json`), search and keyword history, user caches, and security certificates.
+- **Contents**: Stores per-user settings (`user-settings.json`, `plugin-settings.json`), search and keyword history, user caches, and security certificates.
 - **5-Stage Backup Rotation**: Whenever settings are saved, Lertaro automatically rotates existing configuration files to `user-settings.json.bak.1`, cascading up to `.bak.5`. Even in unexpected power cuts or misconfigurations, you can restore from the latest 5 backups.
 
 ### Machine Data Directory
@@ -29,12 +29,24 @@ Clickable links directly open storage directories in File Explorer (folders are 
 ### Storage Path Architecture
 
 - **Installer Version**: User data is placed in `%LocalAppData%\Lertaro`, and machine data in `%ProgramData%\Lertaro`.
-- **Portable Version**: User data is placed in `Data\Users\<SID hash>`, and machine data in `Data\Machine` next to the executable (see [**Portable Data Isolation**](../getting-started#portable-data-isolation-architecture)).
+- **Portable Version**: User data is placed in `Data\Users\<SID hash>`, and machine data in `Data\Machine` next to the executable (see [**Portable Data Isolation**](../getting-started)).
+
+### Moving the Data Directory (Symlinks & Junctions)
+
+- **Supported**: The user data directory (`%LocalAppData%\Lertaro` for the installer version, `<installation>\Data\Users` for the portable one) can be relocated to another partition or another local disk with a symlink or a junction. At startup Lertaro resolves that link chain to the real directory and works on it.
+- **Local fixed volumes only**: The link target must be a local fixed drive. A link that points at a network location or a removable volume is refused at startup with the reason shown, instead of writing somewhere else without saying so.
+- **Links below the data root are still refused**: No subdirectory *inside* the data directory may be a link — a link swapped in while the app runs would redirect its writes. That is a security boundary, not a configuration option.
 
 ## 3. Update Checks & In-Place Upgrades
 
 - **Check for Updates**: Manually queries online repositories for newer releases with dynamic button state feedback ("Checking for updates..." → "Up to date" or release version details).
 - **Upgrade Paths When Updates Are Found**:
-  - **Silent In-Place Update** — Downloads and installs updates in the background, restarting Lertaro seamlessly.
+  - **Silent In-Place Update** — Downloads and installs updates in the background and restarts Lertaro when done.
   - **Go to Download Page** — Opens the GitHub Releases page in your default browser for manual package downloads.
 - **Permission Safety Notices**: If running under a non-administrator account unable to restart the background service for in-place updates, a clear guidance banner directs you to the manual download page.
+
+## 4. Plugin settings and configuration backups
+
+Native plugin parameters are in `plugin-settings.json` beside `user-settings.json`; each file keeps up to five rotated backups. Old embedded parameters are migrated once. A complete settings ZIP includes both files, Calendar data and Flow settings; executable Flow plugin files require explicit inclusion. Do not move only the host settings file when transferring current plugin configuration.
+
+If synchronization software temporarily occupies a backup destination, a recoverable transfer failure keeps the current settings and returns to the usable application. The runtime lock stays in local `%LocalAppData%\Lertaro\RuntimeLocks`, including portable installations, outside synchronized user data. If rollback cannot finish, plugins are not started over partially restored settings.

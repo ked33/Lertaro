@@ -37,7 +37,21 @@ public class SearchEngine : IDisposable
             () => _cts?.Token ?? CancellationToken.None,
             () => _isRebuilding,
             TryReleaseRuntimeAfterActivity);
+        // The device-removal path arms per-drive waiters, but that path needs a removal event at all: a
+        // surprise unplug or a monitor that gave up earlier leaves no waiter behind. A volume arrival is
+        // the one signal that reaches the engine regardless, so refresh the drive table on it as well --
+        // the same refresh the periodic status poll performs, just immediately.
+        VolumeArrivalMonitor.EnsureStarted();
+        VolumeArrivalMonitor.Arrived += OnVolumeArrived;
         _idleTimer = new Timer(OnIdleTimerTick, null, IdleTrimAfterMs, IdleTrimAfterMs);
+    }
+
+    // Runs on the PnP callback thread, which must not block: the refresh enumerates volumes and touches
+    // disk caches, so it is handed to the pool.
+    private void OnVolumeArrived(object? sender, EventArgs e)
+    {
+        try { _ = Task.Run(() => _drives.RefreshDrivesInStatus()); }
+        catch (Exception ex) { Logger.Log($"[SearchEngine] Failed to refresh drives after a volume arrival: {ex.Message}", LogLevel.Error); }
     }
 
     /// <summary>Every applied change batch: which drive, and where in it -- see UsnIndexer.</summary>
@@ -91,7 +105,9 @@ public class SearchEngine : IDisposable
     public void ClearPathCaches() => _indexer.ClearAllPathCaches();
 
     public List<SearchResult> GetRecentFiles(IReadOnlyList<string> directories, int limit, int maxAgeMinutes) => _indexer.GetRecentFiles(directories, limit, maxAgeMinutes);
-    public List<SpaceIndexEntry> GetSpaceEntries(string? directory) => _indexer.GetSpaceEntries(directory);
+    public List<SpaceIndexEntry> GetSpaceEntries(string? directory, SpaceEntryFilters filters = SpaceEntryFilters.None) => _indexer.GetSpaceEntries(directory, null, filters);
+    internal List<SpaceIndexEntry> GetSpaceEntries(string? directory, Func<string, bool> isVisible, SpaceEntryFilters filters = SpaceEntryFilters.None)
+        => _indexer.GetSpaceEntries(directory, isVisible, filters);
 
     /// <summary>
     /// The status snapshot, composed in one place: <see cref="SearchEngineDriveMaintenance.BuildStatusSnapshot"/>
@@ -115,19 +131,28 @@ public class SearchEngine : IDisposable
 
     public void UpdateMachineSettings(MachineSettings settings)
     {
-        var oldDrives = _machineSettings?.LocalDrives ?? new List<string>();
-        var newDrives = settings.LocalDrives ?? new List<string>();
-
-        var drivesChanged = !oldDrives.OrderBy(d => d).SequenceEqual(newDrives.OrderBy(d => d), StringComparer.OrdinalIgnoreCase);
-
-        settings.LocalDriveSelectionConfigured = true;
-        _machineSettings = settings;
-        _machineSettings.Save();
-
-        if (drivesChanged)
+        // The wire command edits drive selection only. Preserve diagnostics and future fields from
+        // the authoritative file rather than replacing them with the client's default values.
+        lock (_startLock)
         {
-            RefreshDrivesInStatus();
-            _indexer.RaiseDirectoriesChanged(string.Empty, null);
+            var updated = MachineSettings.Load();
+            updated.LocalDrives = settings.LocalDrives.Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            settings = updated;
+            var oldDrives = _machineSettings?.LocalDrives ?? new List<string>();
+            var newDrives = settings.LocalDrives ?? new List<string>();
+
+            var drivesChanged = !oldDrives.OrderBy(d => d).SequenceEqual(newDrives.OrderBy(d => d), StringComparer.OrdinalIgnoreCase);
+
+            settings.LocalDriveSelectionConfigured = true;
+            settings.Save();
+            _machineSettings = settings;
+
+            if (drivesChanged)
+            {
+                RefreshDrivesInStatus();
+                _indexer.RaiseDirectoriesChanged(string.Empty, null);
+            }
         }
     }
 
@@ -275,6 +300,7 @@ public class SearchEngine : IDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
+        VolumeArrivalMonitor.Arrived -= OnVolumeArrived;
         _initializationReady.Set();
         // Cancel without Dispose (see the restart path above): in-flight loops still reference
         // these tokens while unwinding.

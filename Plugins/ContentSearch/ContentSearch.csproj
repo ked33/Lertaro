@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Lertaro.Plugins.ContentSearch</AssemblyName>
-    <Version>1.1.2</Version>
+    <Version>1.2.2</Version>
     <GenerateDependencyFile>false</GenerateDependencyFile>
     <UseCurrentRuntimeIdentifier>true</UseCurrentRuntimeIdentifier>
     <SelfContained>false</SelfContained>
@@ -86,4 +86,8 @@
     <Delete Files="@(ContentSearchPublishOutput)" />
   </Target>
 
+  <ItemGroup>
+    <AssemblyMetadata Include="Lertaro.Plugin.NameKey" Value="ContentSearch_PluginName" />
+    <AssemblyMetadata Include="Lertaro.Plugin.DescriptionKey" Value="ContentSearch_PluginDesc" />
+  </ItemGroup>
 </Project>

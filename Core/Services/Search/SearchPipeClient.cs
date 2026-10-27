@@ -14,19 +14,7 @@ internal sealed class SearchPipeClient
 {
     private static async Task<NamedPipeClientStream> GetPipeAsync(CancellationToken token)
     {
-        var pipe = new NamedPipeClientStream(".", "LertaroPipe", PipeDirection.InOut, PipeOptions.Asynchronous);
-        try
-        {
-            await pipe.ConnectAsync(2000, token).ConfigureAwait(false);
-        }
-        catch
-        {
-            // This is the per-keystroke streaming entry point, and connect failures are expected for as
-            // long as the service is cold, so an undisposed stream here drops one kernel handle per typed
-            // character until the service comes up. The non-streaming path already uses `using var pipe`.
-            pipe.Dispose();
-            throw;
-        }
+        var pipe = await ServicePipe.ConnectAsync(2000, token).ConfigureAwait(false);
         return pipe;
     }
 
@@ -77,8 +65,8 @@ internal sealed class SearchPipeClient
     }
 
     // Fire-and-forget, called whenever a search window closes/hides (mirrors ShellIconHelper.ClearCache()'s
-    // existing trigger points) -- gives back the local drives' per-row full-path memo, which otherwise
-    // only self-clears once it crosses its own high backstop threshold (see PathQueryExtensions).
+    // existing trigger points). The local-drive leg is a no-op since IndexV2: Snapshot.GetFullPath rebuilds
+    // each path from mmap reads, so there is no per-row memo left to reclaim (see UsnIndexer.ClearAllPathCaches).
     public async Task ClearPathCachesAsync(CancellationToken token = default)
     {
         var resp = await SendPipeCommandAsync(new SearchRequestMessage { Id = SearchRequestId.ClearPathCaches }, token).ConfigureAwait(false);
@@ -123,9 +111,7 @@ internal sealed class SearchPipeClient
             var verboseLog = msg.Id != SearchRequestId.Search && msg.Id != SearchRequestId.SearchDir;
             if (verboseLog)
                 Logger.Log($"[PipeClient] Connecting to pipe for command: {msg.Id}...", LogLevel.Debug);
-            using var pipe = new NamedPipeClientStream(".", "LertaroPipe", PipeDirection.InOut, PipeOptions.Asynchronous);
-
-            await pipe.ConnectAsync(2000, token).ConfigureAwait(false);
+            using var pipe = await ServicePipe.ConnectAsync(2000, token).ConfigureAwait(false);
             if (verboseLog)
                 Logger.Log("[PipeClient] Connected. Writing command...", LogLevel.Debug);
             await SearchRequestBinarySerializer.WriteSearchRequestAsync(pipe, msg, token).ConfigureAwait(false);

@@ -14,10 +14,10 @@ namespace Lertaro.Plugins.TotalCommander.DirMenu;
 // Custom icons for entries that aren't a real filesystem path -- the root "Total Commander" entry, and
 // static ini submenu groups ("-Name" in the hotlist). Real files/folders reached while browsing need
 // none of this: DirMenuNode.Path being a real property lets the host's generic path-based shell-icon
-// loader (App/Services/ShellMenu/QuickNavigationMenu.cs) resolve their actual file-type icon for free.
+// loader (App/Services/ShellMenu/QuickNav/QuickNavigationMenu.cs) resolve their actual file-type icon for free.
 //
 // Rendered as a WPF vector Geometry rasterized to an HBITMAP -- the same technique Plugins/FolderCascader/
-// Navigation/Helper.cs uses for its own Favorites/History icons -- since DynamicMenuItem only carries an
+// Navigation/IconBitmapCache.cs uses for its own Favorites/History icons -- since DynamicMenuItem only carries an
 // HBITMAP handle, not a live WPF element.
 internal static class DirMenuIcon
 {
@@ -48,17 +48,42 @@ internal static class DirMenuIcon
     {
         lock (Sync)
         {
-            if (_rootCached == IntPtr.Zero) _rootCached = Render(FloppyDiskPath, viewBoxSize: 24);
-            return _rootCached;
+            if (_rootCached != IntPtr.Zero) return _rootCached;
         }
+
+        return Publish(Render(FloppyDiskPath, viewBoxSize: 24), ref _rootCached);
     }
 
     public static IntPtr GetMenuGroupHBitmap()
     {
         lock (Sync)
         {
-            if (_menuGroupCached == IntPtr.Zero) _menuGroupCached = Render(MenuGroupPath, viewBoxSize: 24);
-            return _menuGroupCached;
+            if (_menuGroupCached != IntPtr.Zero) return _menuGroupCached;
+        }
+
+        return Publish(Render(MenuGroupPath, viewBoxSize: 24), ref _menuGroupCached);
+    }
+
+    /// <summary>
+    /// Takes the render that was just made, unless another thread made one first.
+    /// </summary>
+    /// <remarks>
+    /// The render happens OUTSIDE the lock on purpose: it marshals onto the UI thread, and a caller holding
+    /// <c>Sync</c> while waiting for the UI thread deadlocks against a UI caller taking <c>Sync</c> -- which is
+    /// reachable, since the quick-navigation submenu loader builds rows in a <c>Task.Run</c> while the action
+    /// menu builds them on the UI thread. FolderCascader's IconBitmapCache was fixed the same way.
+    /// </remarks>
+    private static IntPtr Publish(IntPtr rendered, ref IntPtr slot)
+    {
+        lock (Sync)
+        {
+            if (slot != IntPtr.Zero)
+            {
+                DeleteObject(rendered);
+                return slot;
+            }
+
+            return slot = rendered;
         }
     }
 
@@ -99,8 +124,9 @@ internal static class DirMenuIcon
         (Application.Current?.TryFindResource("AccentBlue") as SolidColorBrush)
         ?? new SolidColorBrush(Color.FromRgb(33, 150, 243));
 
-    // Re-rendered on every call (cheap, one 64x64 bitmap) so it tracks the current theme's accent color;
-    // the previous handle is freed first to avoid leaking a GDI object per popup.
+    // Reached only when the cache is empty (see the cache-and-reuse note above), so the render itself is
+    // one 64x64 bitmap per popup session. It tracks the current theme's accent color because it reads the
+    // theme resources at render time; the handle lives until Invalidate frees it.
     private static IntPtr Render(string pathData, double viewBoxSize)
     {
         Func<IntPtr> render = () => RenderCore(pathData, viewBoxSize);

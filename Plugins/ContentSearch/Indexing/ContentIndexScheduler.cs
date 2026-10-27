@@ -16,6 +16,7 @@ public sealed class ContentIndexScheduler : IDisposable
     private readonly ContentFolderWatcher _folderWatcher;
     private readonly IndexBatchProcessor _batchProcessor;
     private readonly ContentIndexScanCoordinator _scanCoordinator;
+    private readonly ContentIndexRunReporter _runReporter;
     private readonly ConcurrentQueue<string> _pendingFiles = new();
     private readonly HashSet<string> _enqueuedPaths = new(StringComparer.OrdinalIgnoreCase);
     // Files the worker has dequeued and is currently extracting/writing. A watcher-triggered
@@ -28,6 +29,7 @@ public sealed class ContentIndexScheduler : IDisposable
     private CancellationTokenSource? _cts;
     private Task? _workerTask;
     private long _lastProgressNotifyTick;
+    private volatile bool _capPauseReported;
     private volatile ContentIndexConfig _config = new();
 
     public bool IsIndexing => !_pendingFiles.IsEmpty;
@@ -54,6 +56,7 @@ public sealed class ContentIndexScheduler : IDisposable
     public ContentIndexScheduler(ContentSearchDatabase database)
     {
         _database = database;
+        _runReporter = new ContentIndexRunReporter(database);
         _batchProcessor = new IndexBatchProcessor(database);
         _folderWatcher = new ContentFolderWatcher(changedDirectories =>
             TriggerFullScan(changedDirectories.Count == 0 ? null : changedDirectories));
@@ -113,7 +116,20 @@ public sealed class ContentIndexScheduler : IDisposable
     public void UpdateConfig(ContentIndexConfig config)
     {
         _config = config;
+        // A saved config ends whatever pause episode the old cap caused, so the next batch re-reads
+        // the current size against the new cap and reports afresh if it is still over. Without this a
+        // user who lowers the cap back below the index size would hear about it only after enough
+        // deletions had already brought the index under the old cap.
+        _capPauseReported = false;
         _folderWatcher.UpdateFolders(config.MonitoredFolders, config.FilterPattern);
+    }
+
+    public void RebuildIndex()
+    {
+        Stop();
+        _database.ClearAll();
+        _database.InitialIndexCompleted = false;
+        Start(_config);
     }
 
     public static string NormalizeFolderPath(string rawFolder)
@@ -138,7 +154,8 @@ public sealed class ContentIndexScheduler : IDisposable
         }
     }
 
-    public void TriggerFullScan(IReadOnlyList<string>? changedDirectories = null) =>
+    // Completion covers discovery and retention; queued extraction runs independently.
+    public Task TriggerFullScan(IReadOnlyList<string>? changedDirectories = null) =>
         _scanCoordinator.TriggerFullScan(changedDirectories);
 
     public void EnqueueFile(string filePath)
@@ -191,6 +208,7 @@ public sealed class ContentIndexScheduler : IDisposable
 
                 if (batch.Count == 0)
                 {
+                    ReportRunEnded(cancelled: false);
                     if (hasPendingOptimizations)
                     {
                         idleCycles++;
@@ -209,6 +227,7 @@ public sealed class ContentIndexScheduler : IDisposable
 
                 idleCycles = 0;
                 hasPendingOptimizations = true;
+                _runReporter.Observe(true, false, false, 0);
                 try
                 {
                     // Blocking wait is fine here: this is the dedicated below-normal scheduler
@@ -218,6 +237,10 @@ public sealed class ContentIndexScheduler : IDisposable
                 }
                 finally
                 {
+                    // Read in the finally: a cancellation that voided this batch still leaves the
+                    // monitor's cap answer behind, and that answer is what tells the interrupted run
+                    // below whether it was stopped or had already given up at the cap.
+                    _capPauseReported = _batchProcessor.IsPausedAtCap;
                     lock (_queueLock)
                     {
                         foreach (var path in batch)
@@ -226,10 +249,14 @@ public sealed class ContentIndexScheduler : IDisposable
                 }
 
                 NotifyProgressChanged(force: _pendingFiles.IsEmpty);
+
+                // Incremental queue drains stay silent after the initial index has completed.
+                ReportRunEnded(cancelled: false);
                 if (ct.WaitHandle.WaitOne(20)) break;
             }
             catch (OperationCanceledException)
             {
+                // The report is left to the single call after the loop, which every exit path reaches.
                 break;
             }
             catch (Exception ex)
@@ -243,6 +270,20 @@ public sealed class ContentIndexScheduler : IDisposable
                     PluginSdk.LogLevel.Error);
             }
         }
+
+        // Cancellation never announces completion or consumes the pending initial/rebuild notice.
+        if (ct.IsCancellationRequested)
+            ReportRunEnded(cancelled: true);
+    }
+
+    /// <summary>
+    /// Discovery must finish before an empty extraction queue counts as completion.
+    /// </summary>
+    private void ReportRunEnded(bool cancelled)
+    {
+        if ((_runReporter.IsRunOpen || _database.CountIndexedFiles() > 0) && (cancelled || _pendingFiles.IsEmpty))
+            _runReporter.Observe(!_pendingFiles.IsEmpty, _capPauseReported, cancelled, _database.CountIndexedFiles(),
+                _scanCoordinator.IsScanCompleted);
     }
 
     internal void NotifyProgressChanged(bool force)

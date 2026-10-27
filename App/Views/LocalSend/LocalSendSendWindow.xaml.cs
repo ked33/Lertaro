@@ -22,7 +22,10 @@ public partial class LocalSendSendWindow : Window
         InitializeComponent();
         SystemMenuBlocker.Attach(this);
         ThemedWindowIconHelper.Apply(this);
-        ThemedWindowIconHelper.Apply(TitleBarLogo, this);
+        // The corners are the window's own shape now rather than a painting inside a transparent one.
+        // Windows 11 rounds the real window; older Windows keeps the painted radius above.
+        DwmWindowCorners.ApplyRound(this);
+        ThemedWindowIconHelper.Apply(TitleBarLogo);
         _vm = new LocalSendSendViewModel(initialFiles, initialText, initialMode);
         DataContext = _vm;
         _vm.PropertyChanged += Vm_PropertyChanged;

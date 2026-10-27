@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Lertaro.Core.IndexV2.Space;
 using Lertaro.Core.Services.Search;
 
 namespace Lertaro.Core.Services.Everything;
@@ -6,6 +7,11 @@ namespace Lertaro.Core.Services.Everything;
 /// <summary>Implements IEverythingDataProvider by querying Lertaro's SearchService and space indexers.</summary>
 public sealed class EverythingSearchDataProvider : IEverythingDataProvider
 {
+    // An Everything-compatible answer describes the index: System-flagged children are not hidden (a
+    // disk-browser convenience that shrinks every system folder's total) and rows are not opened under
+    // the caller's ACL (which silently dropped the SYSTEM-only folders TC then scanned itself).
+    private const SpaceEntryFilters IpcSpaceFilters =
+        SpaceEntryFilters.IncludeSystemItems | SpaceEntryFilters.SkipCallerRowAccessChecks;
     private readonly SearchService _searchService;
     private readonly ConcurrentDictionary<string, uint> _runHistory = new(StringComparer.OrdinalIgnoreCase);
 
@@ -37,12 +43,24 @@ public sealed class EverythingSearchDataProvider : IEverythingDataProvider
         string folderPath, EverythingQueryRequest request, CancellationToken token)
     {
         var normalizedPath = NormalizeDirectory(folderPath);
-        var spaceEntries = await _searchService.GetSpaceEntriesAsync(normalizedPath, token).ConfigureAwait(false);
+        var spaceEntries = await _searchService.GetSpaceEntriesAsync(normalizedPath, token,
+            IpcSpaceFilters).ConfigureAwait(false);
+        return AnswerFolderSubtreeSize(normalizedPath, spaceEntries);
+    }
+
+    // The answer one folder gets for its whole subtree: a single row carrying the total size, or nothing at
+    // all when the index holds no rows under it. Split from the query above so both answers are testable
+    // without a running service -- the pipe is the only thing standing between a test and this path, and to
+    // a caller "the service is stopped" and "the folder is not indexed" are the same timeout.
+    internal static EverythingQueryResult AnswerFolderSubtreeSize(
+        string folderPath, IReadOnlyList<SpaceIndexEntry> spaceEntries)
+    {
         if (spaceEntries.Count == 0)
         {
             return new EverythingQueryResult(Array.Empty<EverythingResultItem>(), 0, 0, 0);
         }
 
+        var normalizedPath = NormalizeDirectory(folderPath);
         var totalFolderSize = 0L;
         foreach (var entry in spaceEntries)
         {
@@ -100,14 +118,17 @@ public sealed class EverythingSearchDataProvider : IEverythingDataProvider
         EverythingSearchCriteria criteria, EverythingQueryRequest request, CancellationToken token)
     {
         var parentDir = NormalizeDirectory(criteria.ParentDirectoryFilter ?? string.Empty);
-        var spaceEntries = await _searchService.GetSpaceEntriesAsync(parentDir, token).ConfigureAwait(false);
+        // Pushed into the index walk rather than filtered here: a System32 panel asks for a few hundred
+        // directories out of a directory that holds thousands of rows, and every row that survives costs
+        // a path rebuild and a recursive size.
+        var filters = IpcSpaceFilters
+            | (criteria.MatchFoldersOnly ? SpaceEntryFilters.DirectoriesOnly : SpaceEntryFilters.None)
+            | (criteria.MatchFilesOnly ? SpaceEntryFilters.FilesOnly : SpaceEntryFilters.None);
+        var spaceEntries = await _searchService.GetSpaceEntriesAsync(parentDir, token, filters).ConfigureAwait(false);
 
         var items = new List<EverythingResultItem>(spaceEntries.Count);
         foreach (var entry in spaceEntries)
         {
-            if (criteria.MatchFoldersOnly && !entry.IsDirectory) continue;
-            if (criteria.MatchFilesOnly && entry.IsDirectory) continue;
-
             if (!string.IsNullOrEmpty(criteria.KeywordQuery) &&
                 !entry.Name.Contains(criteria.KeywordQuery, StringComparison.OrdinalIgnoreCase))
                 continue;

@@ -13,6 +13,11 @@ public class StartMenuAppItemProvider : ISearchableItemProvider, IDisposable
 {
     public string Name => TranslationService.Get("Plugins_StartMenuAppItemProviderName");
 
+    // Both branches below (shortcut files walked from the roots, and packaged apps read from
+    // shell:AppsFolder) build Application rows, so the host may treat this provider as the application
+    // type -- which is what lets a plain .lnk inherit the app rank for ranking.
+    public string? ItemResultKind => "Application";
+
     /// <summary>What this provider's directories are registered and notified under.</summary>
     private const string RegistrationId = "CoreExtensions.StartMenu";
 
@@ -108,7 +113,7 @@ public class StartMenuAppItemProvider : ISearchableItemProvider, IDisposable
             }
         }
 
-        // 4. Map to SearchableItem list with dynamic icon loading
+        // 4. Map to the SearchableItem list
         var descTemplate = TranslationService.Get("Search_ResultAppDir");
         foreach (var entry in deduped)
         {
@@ -127,6 +132,7 @@ public class StartMenuAppItemProvider : ISearchableItemProvider, IDisposable
                 HBitmapIcon = IntPtr.Zero,
                 ActionType = "None",
                 ActionArgument = capturedPath,
+                Aliases = StartMenuAppAliasBuilder.FromShortcut(entry.Name, targetPath),
                 OnExecute = () =>
                 {
                     try
@@ -268,6 +274,9 @@ public class StartMenuAppItemProvider : ISearchableItemProvider, IDisposable
                 HBitmapIcon = IntPtr.Zero,
                 ActionType = "None",
                 ActionArgument = launchTarget,
+                Aliases = looksLikePath
+                    ? StartMenuAppAliasBuilder.FromShortcut(app.Name, aumid)
+                    : StartMenuAppAliasBuilder.FromPackage(app.Name, aumid),
                 OnExecute = () =>
                 {
                     try

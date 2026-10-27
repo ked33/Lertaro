@@ -26,16 +26,140 @@ public class ExplorerTracker : IDisposable
     private readonly ExplorerRecentFolderTracker _recentFolders;
     public event Action<IntPtr, string, long>? OnRecentFolderVisited;
     public void ConfigureRecentFolders(bool enabled) => _recentFolders.Configure(enabled);
-    private readonly FileDialogNavigationTracker _dialogTracker = new();
+    private readonly FileDialogNavigationTracker _dialogTracker;
     private readonly ExplorerWindowClassifier _classifier;
     private readonly ExplorerActivePathPoller _pathPoller;
     private readonly QuietPeriodScheduler _windowEvents;
     private int _foregroundReadPending;
+    private readonly ExplorerPathSeeder _seeder;
     // Internal state exposed to ExplorerWindowClassifier
     public string? LastPath { get; set; }
     public Func<string, string?>? PathNormalizer { get; set; }
     public IntPtr LastActiveHwnd { get; set; }
+    internal bool HasNavigationSource => _dialogTracker.HasSource;
     public string? LastActiveExplorerPath => _dialogTracker.LastActiveExplorerPath;
+    // The last window that was really a path provider (a file manager, not a dialog). Deciding the browsed
+    // folder from "whatever window happened to be active just before the dialog" is not reliable: with two
+    // file managers open, or when focus passes through an unrelated window on the way to the dialog, that
+    // window is not a provider at all -- and then nothing ever reads the folder the user is actually
+    // browsing, which is what Quick Switch navigates to. Adapter and handle travel as one value, because a
+    // provider read aimed at one window's handle through another window's adapter reads a window nobody
+    // asked about. That pairing is only worth something because every read and write is under StateLock:
+    // a nullable tuple of this size is not written atomically, so a reader outside the lock could still see
+    // one window's adapter beside another window's handle.
+    // Deliberately NOT cleared by Deactivate: the fallback exists for the focus that passed through an
+    // unrelated window, and Deactivate is exactly what such a window triggers.
+    internal (IInlineSearchAdapter Adapter, IntPtr Hwnd)? LastPathProvider { get; private set; }
+
+    // Every provider window this session has recognized, most recently seen first, with the folder it showed
+    // then. One global path could only ever answer with whichever window happened to be classified last, so
+    // with two file managers open Ctrl+G was a coin toss between them. Reached under StateLock, pruned of dead
+    // windows as it is read; entries deliberately survive Deactivate, which is what a bounce through an
+    // unrelated window looks like.
+    private readonly List<(IntPtr Hwnd, uint ProcessId, string Path)> _pathProviders = [];
+
+    // ponytail: fixed cap, evicted oldest-first. Sixteen file-manager windows in one logon session is already
+    // past the point where the eleventh-oldest could be what the user meant.
+    private const int MaxPathProviders = 16;
+
+    // The two window facts the list above needs are native calls, and where Ctrl+G lands is not a policy to
+    // leave unexercised; overriding them is what lets the tests below build the multi-window cases that the
+    // one-slot version got wrong. Same shape as PathNormalizer, for the same reason.
+    internal Func<IntPtr, bool> WindowIsAlive { get; set; } = ExplorerNativeHooks.IsWindow;
+
+    internal Func<IntPtr, uint> WindowProcessId { get; set; } = hwnd =>
+    {
+        ExplorerNativeHooks.GetWindowThreadProcessId(hwnd, out var processId);
+        return processId;
+    };
+
+    internal void RememberPathProvider(IInlineSearchAdapter? adapter, IntPtr hwnd, string? path = null)
+    {
+        if (adapter == null || hwnd == IntPtr.Zero || !adapter.IsFileExplorer) return;
+        LastPathProvider = (adapter, hwnd);
+        _dialogTracker.SetSource(hwnd);
+        if (string.IsNullOrEmpty(path)) return;
+
+        _pathProviders.RemoveAll(entry => entry.Hwnd == hwnd);
+        _pathProviders.Insert(0, (hwnd, WindowProcessId(hwnd), path));
+        if (_pathProviders.Count > MaxPathProviders) _pathProviders.RemoveRange(MaxPathProviders, _pathProviders.Count - MaxPathProviders);
+    }
+
+    // Keeps a known provider's folder current without adding a window nobody has read a folder from yet.
+    private void RefreshProviderPath(IntPtr hwnd, string path)
+    {
+        if (hwnd == IntPtr.Zero || string.IsNullOrEmpty(path)) return;
+        var index = _pathProviders.FindIndex(entry => entry.Hwnd == hwnd);
+        if (index < 0) return;
+        var entry = _pathProviders[index];
+        _pathProviders.RemoveAt(index);
+        _pathProviders.Insert(0, (entry.Hwnd, entry.ProcessId, path));
+    }
+
+    /// <summary>
+    /// The folder Quick Switch should land on for a dialog: the provider window that shares the dialog's
+    /// process when there is one -- a file manager hosting its own dialog is the only case where the answer is
+    /// not a guess about which of several windows the user means -- then the most recently active provider
+    /// window, then the last browsed folder whatever it came from.
+    /// </summary>
+    /// <remarks>Callers hold <see cref="StateLock"/>.</remarks>
+    internal string? SelectQuickSwitchPath(IntPtr dialogHwnd, uint dialogProcessId = 0)
+    {
+        // Dead windows are dropped as the list is read rather than on a timer: a closed file manager must not
+        // keep answering for a folder nobody is looking at any more.
+        _pathProviders.RemoveAll(entry => !WindowIsAlive(entry.Hwnd));
+
+        // The desktop reports a path like any Explorer window, but it is not a file manager and must not
+        // become the folder Quick Switch lands on. Judged from the provider WINDOW, never by comparing paths, so
+        // a file manager parked on the desktop folder stays a legitimate destination.
+        _pathProviders.RemoveAll(entry => ExplorerNativeHooks.IsDesktopWindow(entry.Hwnd, out _));
+
+        if (dialogProcessId == 0 && dialogHwnd != IntPtr.Zero) dialogProcessId = WindowProcessId(dialogHwnd);
+        if (dialogProcessId != 0)
+        {
+            var sameProcess = _pathProviders.FirstOrDefault(entry => entry.ProcessId == dialogProcessId && !string.IsNullOrEmpty(entry.Path));
+            if (!string.IsNullOrEmpty(sameProcess.Path)) return sameProcess.Path;
+        }
+
+        // The folder the user was actually working in -- what the file manager showed when the dialog opened --
+        // outranks the provider list. That list is ordered by which window was activated last, and a dialog's
+        // provider history often still leads with an older window, so list-first sends Ctrl+G to the previously
+        // activated file manager instead of the current one. The list stays as the fallback for what the memory
+        // cannot serve (no file manager seen since this Hook started).
+        if (!string.IsNullOrEmpty(_dialogTracker.LastActiveExplorerPath))
+            return _dialogTracker.LastActiveExplorerPath;
+
+        foreach (var entry in _pathProviders)
+            if (!string.IsNullOrEmpty(entry.Path)) return entry.Path;
+
+        return null;
+    }
+
+    // Resolve the preferred live source on the navigation worker, never in the keyboard hook.
+    private string? ReadQuickSwitchSource(IntPtr latestSource)
+    {
+        IntPtr source = latestSource;
+        uint sourcePid = WindowProcessId(source);
+        lock (StateLock)
+        {
+            var pid = WindowProcessId(ActiveHwnd);
+            var sameProcess = _pathProviders.FirstOrDefault(p => p.ProcessId == pid
+                && WindowIsAlive(p.Hwnd) && WindowProcessId(p.Hwnd) == p.ProcessId);
+            if (sameProcess.Hwnd != IntPtr.Zero) { source = sameProcess.Hwnd; sourcePid = sameProcess.ProcessId; }
+        }
+        // A failed fresh read must not navigate to the previous folder's cached path.
+        if (sourcePid == 0 || ExplorerNativeHooks.IsDesktopWindow(source, out _)) return null;
+        var path = FileDialogNavigationNative.ReadSource(source);
+        return WindowProcessId(source) == sourcePid ? path : null;
+    }
+
+    // Publishes the provider's folder as the last browsed path, which is what the App's mirror tracker turns
+    // into LastActiveExplorerPath. An unread provider must not erase a known folder: a mirror takes any
+    // non-dialog path at face value, and Quick Switch gives up on an empty one.
+    internal void RaisePathProviderScope(string? path)
+    {
+        if (!string.IsNullOrEmpty(path)) RaisePathCaptured(path, false, false);
+    }
     public string? LastActiveExplorerClassName { get; set; }
     public string? LastActiveExplorerWindowTitle { get; set; }
     public bool IsExplorerOrDesktopActive { get; set; }
@@ -43,8 +167,14 @@ public class ExplorerTracker : IDisposable
     private bool _isActiveWindowDialog;
     public bool IsActiveWindowDialog { get => _isActiveWindowDialog; set => _isActiveWindowDialog = value; }
     public bool IsActiveWindowExplorer { get; set; }
-    public IFileDialogAdapter? ActiveAdapter { get; private set; }
+    /// <summary>The adapter that claimed the tracked window. Settable in-assembly so a test can build a dialog
+    /// scenario without a real one; production only ever writes it from <see cref="RefreshActiveWindowAdapters"/>.</summary>
+    public IFileDialogAdapter? ActiveAdapter { get; internal set; }
     public IInlineSearchAdapter? ActiveInlineAdapter { get; private set; }
+    /// <summary>The tracked window's process name ("dopus", "explorer"), resolved with the adapters, and empty
+    /// for no tracked window. Published because the inline card keeps the position the user dragged it to per
+    /// host application, and the thread that places the card may not query another process for itself.</summary>
+    public string ActiveProcessName { get; private set; } = string.Empty;
     private IntPtr _activeHwnd;
     private IntPtr _matchedDialogHwnd;
     public IntPtr ActiveHwnd
@@ -68,6 +198,7 @@ public class ExplorerTracker : IDisposable
             _isActiveWindowDialog = false;
             ActiveInlineAdapter = null;
             IsActiveWindowExplorer = false;
+            ActiveProcessName = string.Empty;
             return;
         }
 
@@ -75,6 +206,7 @@ public class ExplorerTracker : IDisposable
         ExplorerNativeHooks.GetClassName(_activeHwnd, sbClass, sbClass.Capacity);
         var className = sbClass.ToString();
         var processName = GetProcessName(_activeHwnd);
+        ActiveProcessName = processName;
         var budget = TimeSpan.FromMilliseconds(ExplorerWindowClassifier.DefaultPluginTimeoutMs);
         var hwnd = _activeHwnd;
 
@@ -90,10 +222,13 @@ public class ExplorerTracker : IDisposable
         // of, and nothing else said it out loud. Three reports about where the card landed, and the two
         // adapters that divide the common dialogs on a child window built after the dialog appeared, were
         // both invisible from outside the process.
-        Logger.Log(
-            $"[ExplorerTracker] Adapters for 0x{hwnd:x}: dialog={ActiveAdapter?.GetType().Name ?? "none"}, "
-            + $"inline={ActiveInlineAdapter?.GetType().Name ?? "none"} (class={className}, process={processName})",
-            LogLevel.Debug);
+        // Asked before the message is built: this runs on every activation, and the active window changes
+        // constantly. Logger.Log would discard the line either way, but only after the interpolation ran.
+        if (Logger.IsEnabled(LogLevel.Debug))
+            Logger.Log(
+                $"[ExplorerTracker] Adapters for 0x{hwnd:x}: dialog={ActiveAdapter?.GetType().Name ?? "none"}, "
+                + $"inline={ActiveInlineAdapter?.GetType().Name ?? "none"} (class={className}, process={processName})",
+                LogLevel.Debug);
     }
 
     // Bounded, like every other plugin read in this file's callers. An adapter's CanHandle is a
@@ -239,6 +374,12 @@ public class ExplorerTracker : IDisposable
         var sbClass = new StringBuilder(256);
         ExplorerNativeHooks.GetClassName(_activeHwnd, sbClass, sbClass.Capacity);
         RaiseExplorerActivated(_activeHwnd, windowTitle.ToString(), sbClass.ToString(), IsDesktop);
+        // Quick Switch's own state, which the App's mirror keeps apart from LastPath below. Without it a mirror
+        // that connected after the provider was last read stayed empty -- no "jump to the open folder" row and
+        // no scope -- until some unrelated path event happened to correct it. Before the dialog's own path, so
+        // the ordering matches a live activation (see ExplorerWindowClassifier.TrackFileDialogWindow).
+        if (!string.IsNullOrEmpty(LastActiveExplorerPath))
+            RaisePathCaptured(LastActiveExplorerPath, false, false);
         if (!string.IsNullOrEmpty(LastPath))
             RaisePathCaptured(LastPath, IsDesktop, IsActiveWindowDialog);
     }
@@ -298,7 +439,7 @@ public class ExplorerTracker : IDisposable
 
     // The keyboard callback must not wait for classification or the tracker's StateLock.
     public void RequestActiveWindowRefresh() => _windowEvents.RunWhenQuiet();
-    public void RequestDialogNavigation(IntPtr hwnd, string? path = null) => _dialogTracker.RequestNavigation(hwnd, path);
+    public void RequestDialogNavigation(IntPtr hwnd, string? path = null, bool restoreFocus = false) => _dialogTracker.RequestNavigation(hwnd, path, restoreFocus);
     public bool RequestQuickSwitch()
     {
         var foreground = ExplorerNativeHooks.GetForegroundWindow();
@@ -312,7 +453,7 @@ public class ExplorerTracker : IDisposable
     // process, because entering it is not free for the target: a host that answers a path query by running a
     // script on its own UI thread loses the tooltip/preview it was in the middle of showing. Pointer
     // movement inside the host is never an answer -- see ExplorerHostReadFloor.
-    public void RequestHostPathRead() => _pathPoller.RequestHostPathRead();
+    public void RequestHostPathRead(bool immediate = false) => _pathPoller.RequestHostPathRead(immediate);
     public void SetInlineWindowOnScreen(bool onScreen) => _pathPoller.SetInlineWindowOnScreen(onScreen);
     public void UpdatePath(string path, bool isDesktop, bool? isDialog = null)
     {
@@ -321,7 +462,7 @@ public class ExplorerTracker : IDisposable
         lock (StateLock)
         {
             LastPath = path;
-            Logger.Log($"[ExplorerTracker] UpdatePath captured path: {path} (isDesktop={isDesktop})", LogLevel.Debug);
+            if (Logger.IsEnabled(LogLevel.Debug)) Logger.Log($"[ExplorerTracker] UpdatePath captured path: {path} (isDesktop={isDesktop})", LogLevel.Debug);
             var pathIsDialog = isDialog ?? IsActiveWindowDialog;
             if (isDialog == true && !_isActiveWindowDialog && _activeHwnd != IntPtr.Zero)
             {
@@ -341,7 +482,7 @@ public class ExplorerTracker : IDisposable
                 RederiveActiveDialogAdapterIfStale();
             }
 
-            if (!pathIsDialog) _dialogTracker.SetLastActiveExplorerPath(path);
+            if (!pathIsDialog) { _dialogTracker.SetLastActiveExplorerPath(path); RefreshProviderPath(_activeHwnd, path); }
             RaisePathCaptured(path, isDesktop, pathIsDialog);
         }
     }
@@ -350,10 +491,14 @@ public class ExplorerTracker : IDisposable
     internal void RaiseExplorerActivated(IntPtr hwnd, string title, string cls, bool isDesktop) => OnExplorerActivated?.Invoke(hwnd, title, cls, isDesktop);
     internal void RaisePathCaptured(string path, bool isDesktop, bool isDialog) => OnPathCaptured?.Invoke(path, isDesktop, isDialog);
     internal void RaiseError(string msg) => OnError?.Invoke(msg);
-    public ExplorerTracker()
+    public ExplorerTracker() : this(ExplorerNativeHooks.GetForegroundWindow) { }
+
+    internal ExplorerTracker(Func<IntPtr> getForeground)
     {
+        _dialogTracker = new FileDialogNavigationTracker(FileDialogNavigationNative.ProcessId,
+            FileDialogNavigationNative.IsCurrent, FileDialogNavigationNative.ResolveAdapter,
+            ReadQuickSwitchSource, 100);
         _classifier = new ExplorerWindowClassifier(this, _dialogTracker);
-        _pathPoller = new ExplorerActivePathPoller(_classifier);
         _windowEvents = new QuietPeriodScheduler(() =>
         {
             if (!_isRunning) return;
@@ -367,10 +512,25 @@ public class ExplorerTracker : IDisposable
         }, 25);
         _recentFolders = new ExplorerRecentFolderTracker(GetProcessName,
             (hwnd, path, time) => OnRecentFolderVisited?.Invoke(hwnd, path, time));
+        _pathPoller = new ExplorerActivePathPoller(this, _classifier, getForeground);
+        _seeder = new ExplorerPathSeeder(this);
     }
+
+    internal void UpdateObservedPath(IntPtr hwnd, string path)
+    {
+        lock (StateLock)
+        {
+            if (ExplorerActivePathPoller.IsObservedWindowStillActive(hwnd, ActiveHwnd))
+                UpdatePath(path, IsDesktop);
+        }
+    }
+
     public void Start()
     {
         if (_isRunning) return;
+        // Build the apartments the event callback hands its cross-process reads to before anything can be
+        // dispatched to them: starting a thread from the WinEvent thread is making the shell wait on it.
+        ExplorerStaInvoker.Start();
         _winEventDelegate = new ExplorerNativeHooks.WinEventDelegate(WinEventProc);
         _hForegroundHook = ExplorerNativeHooks.SetWinEventHook(
             ExplorerNativeHooks.EVENT_SYSTEM_FOREGROUND, ExplorerNativeHooks.EVENT_SYSTEM_FOREGROUND,
@@ -399,6 +559,15 @@ public class ExplorerTracker : IDisposable
         _dialogTracker.ObserveForeground(ExplorerNativeHooks.GetForegroundWindow());
         Interlocked.Exchange(ref _foregroundReadPending, 1);
         _windowEvents.RunWhenQuiet();
+        _classifier.CheckActiveWindow(ExplorerNativeHooks.GetForegroundWindow());
+        // The window in front right now is the App that just started, so nothing has read a file manager's
+        // folder yet and the first Ctrl+G would do nothing (see ExplorerPathSeeder).
+        //
+        // Off this thread, and after the hooks are up: that probing is bounded per window but not free (a dozen
+        // windows, each with its own read budget), and HookProcess aborts the whole hook -- no keyboard hook at
+        // all -- if this thread has not finished starting within ten seconds. Seeding is best-effort by
+        // definition; installing the hooks is not.
+        _ = Task.Run(_seeder.SeedWhenNothingIsKnown);
     }
     public void Stop()
     {
@@ -417,8 +586,13 @@ public class ExplorerTracker : IDisposable
         IsDesktop = false;
         ActiveHwnd = IntPtr.Zero;
         _dialogTracker.Clear();
+        _pathProviders.Clear();
         Logger.Log("[ExplorerTracker] Stopped.");
     }
+
+    /// <summary>Whether the WinEvent hooks are installed and this tracker still owns state worth publishing.</summary>
+    internal bool IsRunning => _isRunning;
+
     public bool TryGetActiveWindowRect(out RECT rect)
     {
         rect = default;

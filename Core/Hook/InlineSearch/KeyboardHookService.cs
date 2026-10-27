@@ -23,6 +23,9 @@ public class KeyboardHookService : IDisposable
     public event Action? OnDoubleCtrl;
     public event Action? OnQuickPanelHotkey;
     public event Action? OnQuickNavigationHotkey;
+    /// <summary>A recognized Quick Switch, carrying the dialog it was aimed at. The subscriber must not do the
+    /// navigation on this thread: see <see cref="QuickSwitchNavigator"/>.</summary>
+    public event Action<IntPtr>? OnQuickSwitchRequested;
     public event Action<char>? OnCharacterTyped;
     public event Action? OnBackspacePressed;
     public event Action? OnEscapePressed;
@@ -32,11 +35,6 @@ public class KeyboardHookService : IDisposable
     public event Action? OnLeftPressed;
     public event Action? OnRightPressed;
     public event Action<int>? OnCtrlNumberPressed;
-
-    // Ctrl+K while the inline window covers a file dialog: the App puts the caret back in that window's own
-    // search box. Raised from the hook callback rather than handled here, because focusing a window is the
-    // App's to do (see KeyboardHookServiceInlineSearchExtensions.HandFocusToInlineSearch).
-    public event Action? OnFocusInlineSearchRequested;
 
     // Trampolines letting KeyboardHookServiceInlineSearchExtensions raise these events on this
     // instance's behalf -- C# event accessors can only be invoked from the declaring class itself, even
@@ -51,7 +49,6 @@ public class KeyboardHookService : IDisposable
     internal void RaiseLeftPressed() => OnLeftPressed?.Invoke();
     internal void RaiseRightPressed() => OnRightPressed?.Invoke();
     internal void RaiseCtrlNumberPressed(int num) => OnCtrlNumberPressed?.Invoke(num);
-    internal void RaiseFocusInlineSearchRequested() => OnFocusInlineSearchRequested?.Invoke();
 
     internal SearchActivationInputBuffer ActivationInput { get; } = new(SearchActivationInputNative.Send);
 
@@ -67,12 +64,17 @@ public class KeyboardHookService : IDisposable
     public KeyboardHookService(ExplorerTracker explorerTracker)
     {
         _explorerTracker = explorerTracker;
-        _hotkeyDetector = new GlobalHotkeyDetector(_settings, _explorerTracker);
+        _hotkeyDetector = new GlobalHotkeyDetector(_settings, _explorerTracker, RequestQuickSwitch);
     }
+
+    // The hook callback only recognizes the gesture and raises this: both halves of the work -- the tracker
+    // lock and the cross-process navigation -- belong to whoever subscribes.
+    private void RequestQuickSwitch(IntPtr dialogHwnd) => OnQuickSwitchRequested?.Invoke(dialogHwnd);
+
     public void ReloadSettings()
     {
         _settings = UserSettings.ForceReload();
-        _hotkeyDetector = new GlobalHotkeyDetector(_settings, _explorerTracker);
+        _hotkeyDetector = new GlobalHotkeyDetector(_settings, _explorerTracker, RequestQuickSwitch);
         Logger.Log("[KeyboardHookService] Hotkey settings reloaded.", LogLevel.Info);
     }
     // Wired from MouseHookService.OnRightButtonDown, and also called directly below for the VK_APPS
@@ -200,6 +202,14 @@ public class KeyboardHookService : IDisposable
             // only while our own UI is on screen: with the search box showing and taking every other
             // keystroke, both are a misfire rather than an intent.
             //
+            // The one exception is a chord the user has configured as a summon hotkey (the toggle's or
+            // the quick panel's own). While the card is up, that chord is exactly what "the hotkey does
+            // not work" was complained about: swallowed here, it never reached the detection below, so
+            // the focus handoff -- and the panel, when the two share one combination -- stayed dead for
+            // as long as the card was on screen. Letting it through costs nothing in protection: the
+            // detection below consumes the key as a hotkey, so the host dialog never sees it. Every
+            // other Alt+Space still swallows, and Alt+F4 has no such form.
+            //
             // Gated on IsInlineWindowOnScreen, not IsInlineSearchVisible: that one means "forward
             // keystrokes to me" and is cleared the moment the window takes focus for itself, which is
             // the very case this has to cover.
@@ -209,7 +219,9 @@ public class KeyboardHookService : IDisposable
             // keystroke was headed for, so it reports nothing useful here.
             var isAltDown = (hookStruct.flags & KeyboardNativeMethods.LLKHF_ALTDOWN) != 0;
             if (IsInlineWindowOnScreen && isAltDown
-                && (vkCode == KeyboardNativeMethods.VK_SPACE || vkCode == KeyboardNativeMethods.VK_F4))
+                && (vkCode == KeyboardNativeMethods.VK_SPACE || vkCode == KeyboardNativeMethods.VK_F4)
+                && !_hotkeyDetector.IsToggleWindowComboDown(vkCode)
+                && !_hotkeyDetector.IsQuickPanelComboDown(vkCode))
             {
                 return (IntPtr)1;
             }
@@ -221,7 +233,12 @@ public class KeyboardHookService : IDisposable
             // tracking and Explorer-tracker bookkeeping run unconditionally either way.
             // The quick panel first: a plain combination with no bare-modifier form, so nothing below
             // is waiting to see whether this key turns out to be part of a tap.
-            if (!shouldDisableAllHooks && _hotkeyDetector.CheckQuickPanelHotkey(vkCode, out var consumeQuickPanel))
+            //
+            // While the inline card is up, its own summon chord belongs to the focus handoff even when
+            // the panel is bound to the same combination -- the card is what is on screen, and that key
+            // is what moves focus into it there. A chord only the panel claims still reaches it.
+            var inlineCardOwnsThisChord = IsInlineWindowOnScreen && _hotkeyDetector.IsToggleWindowComboDown(vkCode);
+            if (!shouldDisableAllHooks && !inlineCardOwnsThisChord && _hotkeyDetector.CheckQuickPanelHotkey(vkCode, out var consumeQuickPanel))
             {
                 OnQuickPanelHotkey?.Invoke();
                 if (consumeQuickPanel) return (IntPtr)1;
@@ -280,8 +297,6 @@ public class KeyboardHookService : IDisposable
                     return (IntPtr)1;
                 }
             }
-            // See HandFocusToInlineSearch: Ctrl+K belongs to our inline window while it covers a dialog.
-            if (this.HandFocusToInlineSearch(vkCode)) return (IntPtr)1;
             // If text input is focused, bypass
             if (fgHwnd != IntPtr.Zero && InputFocusEvaluator.IsForegroundTextInputFocused(fgHwnd))
             {

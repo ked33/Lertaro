@@ -3,6 +3,8 @@ using System.Windows;
 using Lertaro.PluginSdk.Services;
 
 using Lertaro.App.Services.AppWindow;
+using Lertaro.App.Helpers.Visuals;
+using Lertaro.App.Views.Controls.Dialogs;
 namespace Lertaro.App.Services;
 
 public partial class QuickLookManager
@@ -78,8 +80,13 @@ public partial class QuickLookManager
         owner.Dispatcher.BeginInvoke(new Action(() =>
         {
             _hiddenForDialog = false;
-            owner.Show();
-            window.Show();
+            // Either of them can have gone in the time the dialog was up: the owner closes, and the preview
+            // hidden inside it is destroyed with it (it is an owned window). Show on either then throws the
+            // same InvalidOperationException the inline card used to crash on, and this runs from a hook
+            // event, so nothing is left holding it. Skipping them is correct on its own terms -- the
+            // session these two windows belonged to is over.
+            if (OwnedDialog.IsAlive(owner)) owner.Show();
+            if (OwnedDialog.IsAlive(window)) window.Show();
         }));
     }
 
@@ -278,9 +285,26 @@ public partial class QuickLookManager
         if (isFirstShow)
         {
             _window.Owner = owner;
-            _window.Show();
+            // The window is opaque, so the frame it presents before its own content is composed is the
+            // window-class brush -- a black 400x529 card. Parking it first lands that frame off screen;
+            // PositionWindow below places it, and the slide-in starts from its own computed edge, never from
+            // here. Same gate the inline card and the quick window use.
+            // Size and select the monitor column before the first parked render pass.
+            if (TryComputeTargetRect(owner) is { } target)
+            {
+                _window.Width = _sessionWidth ?? target.OuterWidth;
+                _window.Height = _sessionHeight ?? target.OuterHeight;
+                _window.Left = _sessionLeft ?? target.OuterLeft;
+            }
+            else _window.Left = owner.Left;
+            var shownWindow = _window;
+            WindowParking.ShowThenPlace(shownWindow, () =>
+            {
+                if (ReferenceEquals(_window, shownWindow) && shownWindow.IsVisible) PositionWindow(animate: true);
+            });
+            return;
         }
 
-        PositionWindow(animate: isFirstShow);
+        PositionWindow();
     }
 }

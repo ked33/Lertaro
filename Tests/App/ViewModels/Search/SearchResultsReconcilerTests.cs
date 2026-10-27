@@ -1,5 +1,6 @@
 using Lertaro.App.Helpers;
 using Lertaro.App.ViewModels.Search;
+using Lertaro.Core.SearchIndex;
 
 namespace Lertaro.App.Tests.ViewModels.Search;
 
@@ -130,7 +131,12 @@ public sealed class SearchResultsReconcilerTests
         var before = Result(@"C:\a", query: "a");
         var results = new ObservableRangeCollection<AppSearchResult> { before };
         var raised = new List<string>();
-        before.PropertyChanged += (_, e) => raised.Add(e.PropertyName ?? "");
+        before.PropertyChanged += (_, e) =>
+        {
+            // A null name means "every property changed", which is not what this test is watching for.
+            if (e.PropertyName is not null)
+                raised.Add(e.PropertyName);
+        };
 
         SearchResultsReconciler.Replace(results, new[] { Result(@"C:\a", query: "ab") }, null, _ => { });
 
@@ -149,6 +155,51 @@ public sealed class SearchResultsReconcilerTests
         SearchResultsReconciler.Replace(results, new[] { Result(@"C:\a", query: "a") }, null, _ => { });
 
         Assert.AreEqual(0, raised, "an unchanged query must not cost a repaint");
+    }
+
+    // The frequent marker is recomputed per search, so it can flip on a row that is otherwise the same row:
+    // the kept instance has to take the new value, or the badge never appears on a list being reused.
+    [TestMethod]
+    public void Replace_SameRowUnderANewSearch_CarriesTheFrequentMarker()
+    {
+        var before = Result(@"C:\a");
+        var results = new ObservableRangeCollection<AppSearchResult> { before };
+        var raised = new List<string>();
+        before.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is not null)
+                raised.Add(e.PropertyName);
+        };
+
+        var after = Result(@"C:\a");
+        after.IsFrequent = true;
+
+        SearchResultsReconciler.Replace(results, new[] { after }, null, _ => { });
+
+        Assert.AreSame(before, results[0]);
+        Assert.IsTrue(results[0].IsFrequent);
+        Assert.Contains(nameof(AppSearchResult.IsFrequent), raised);
+    }
+
+    [TestMethod]
+    public void Replace_StreamRepaint_CopiesTheLatestRankingExplanationOntoRetainedRow()
+    {
+        var before = Result(@"C:\a", query: "a");
+        var results = new ObservableRangeCollection<AppSearchResult> { before };
+
+        var after = Result(@"C:\a", query: "a");
+        var page = new RankingPageStamp("session", "page-2", RankingTraceWindow.Quick, 1);
+        var explanation = new RankingExplanation(
+            new RankingLogSession("session", 1, RankingTraceWindow.Quick, "raw", "raw", 0),
+            page,
+            default,
+            default);
+        after.RankingExplanation = explanation;
+
+        SearchResultsReconciler.Replace(results, new[] { after }, before, _ => { });
+
+        Assert.AreSame(before, results[0]);
+        Assert.AreSame(explanation, before.RankingExplanation);
     }
 
     [TestMethod]

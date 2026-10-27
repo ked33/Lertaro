@@ -18,6 +18,15 @@ public sealed class CustomCommandsInstantProviderTests
             pluginId == "Lertaro.Plugins.CustomCommands" && key == "Commands" ? commands : defaultValue;
 
     [TestMethod]
+    public void GlobalSearch_DoesNotOfferDirectoryOnlyCommandsEvenWithContext()
+    {
+        ConfigureCommands(new() { new() { Keyword = "here", Path = "tool.exe", UseCurrentDirectory = true } });
+        var provider = new CustomCommandsInstantProvider();
+        Assert.IsEmpty(provider.GetInstantResults("here", AppContext.BaseDirectory));
+        Assert.IsEmpty(provider.GetInstantResults("here", null));
+    }
+
+    [TestMethod]
     public void GetInstantResults_EmptyQuery_ReturnsNothing() =>
         Assert.IsEmpty(new CustomCommandsInstantProvider().GetInstantResults(""));
 

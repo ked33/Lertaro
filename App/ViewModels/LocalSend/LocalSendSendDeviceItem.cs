@@ -19,9 +19,22 @@ public sealed class LocalSendSendDeviceItem : INotifyPropertyChanged
     public LocalSendDeviceInfo Device { get; private set; }
 
     public string Alias => Device.Alias;
-    public string IpAddress => Device.IpAddress;
     public string? DeviceModel => Device.DeviceModel;
     public bool UsesHttps => Device.Https;
+
+    /// <summary>
+    /// The address and port a send to this row would use.
+    /// </summary>
+    /// <remarks>
+    /// The port belongs on the row because one machine is not one target: two users logged in at once are
+    /// two rows with the same address, and only the one holding this port opens the dialog the transfer
+    /// waits on. Without it the two rows read identically whenever neither alias was changed.
+    /// </remarks>
+    public string EndpointText => Device.IpAddress.Contains(':')
+        // The same bracketing LocalSendApiRoute.BuildUri puts into the URL: a bare fe80::42:53317 reads as
+        // a malformed address rather than as an address with a port on it.
+        ? $"[{Device.IpAddress}]:{Device.Port}"
+        : $"{Device.IpAddress}:{Device.Port}";
 
     /// <summary>
     /// Whether this peer should be labelled as an unencrypted target: it announced plain HTTP while this
@@ -60,10 +73,10 @@ public sealed class LocalSendSendDeviceItem : INotifyPropertyChanged
         {
             var path = (Device.DeviceType ?? string.Empty).ToLowerInvariant() switch
             {
-                "mobile"   => "M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z",
-                "web"      => "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z",
+                "mobile" => "M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z",
+                "web" => "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z",
                 "headless" or "server" => "M20 13H4c-.55 0-1 .45-1 1v6c0 .55.45 1 1 1h16c.55 0 1-.45 1-1v-6c0-.55-.45-1-1-1zM7 19c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM20 3H4c-.55 0-1 .45-1 1v6c0 .55.45 1 1 1h16c.55 0 1-.45 1-1V4c0-.55-.45-1-1-1zM7 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z",
-                _          => "M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"
+                _ => "M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"
             };
             return System.Windows.Media.Geometry.Parse(path);
         }
@@ -73,11 +86,14 @@ public sealed class LocalSendSendDeviceItem : INotifyPropertyChanged
     {
         Device = newDev;
         OnPropertyChanged(nameof(Alias));
-        OnPropertyChanged(nameof(IpAddress));
+        OnPropertyChanged(nameof(EndpointText));
         OnPropertyChanged(nameof(DeviceModel));
         OnPropertyChanged(nameof(UsesHttps));
         OnPropertyChanged(nameof(ShowInsecureLabel));
         OnPropertyChanged(nameof(DeviceTypeIcon));
+        // The tag is read off the address, and a device that keeps its fingerprint is allowed to change
+        // address under this row, so the row has to be told to read it again.
+        OnPropertyChanged(nameof(FingerprintTag));
     }
 
     public bool IsSelected

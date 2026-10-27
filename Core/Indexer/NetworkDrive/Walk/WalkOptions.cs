@@ -7,7 +7,34 @@ internal sealed record WalkOptions(
     int MaxDepth,
     int WorkerCount,
     bool UseIgnoreFiles,
-    IReadOnlyList<string>? WhitelistedPaths = null);
+    IReadOnlyList<string>? WhitelistedPaths = null)
+{
+    // The one construction of a walk's exclusion/ignore field list: every walk that honours the rules
+    // goes through here, so two walks can never end up filtered by different sets of rules. MaxDepth/
+    // WorkerCount stay 0 (unlimited / auto) and ignore files (.gitignore/.ignore/.fdignore) stay enabled,
+    // which is what the network path has always used.
+    public static WalkOptions From(
+        IReadOnlyList<string> excludedPaths,
+        IReadOnlyList<string> ignoredPathGlobs,
+        IReadOnlyList<string> ignoredPathRegexes,
+        IReadOnlyList<string>? whitelistedPaths = null) => new(
+            excludedPaths,
+            ignoredPathGlobs,
+            ignoredPathRegexes,
+            MaxDepth: 0,
+            WorkerCount: 0,
+            UseIgnoreFiles: true,
+            WhitelistedPaths: whitelistedPaths);
+
+    public static WalkOptions FromUserSettings(UserSettings settings)
+    {
+        var paths = new List<string>();
+        var globs = new List<string>();
+        var regexes = new List<string>();
+        IndexRuleMigration.CollectExcludeLists(IndexRuleMigration.Ensure(settings), paths, globs, regexes);
+        return From(paths, globs, regexes, settings.WhitelistedPaths);
+    }
+}
 
 internal readonly record struct NetworkDriveWalkStats(
     int Skipped,

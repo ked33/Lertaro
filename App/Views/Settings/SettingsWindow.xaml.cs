@@ -55,7 +55,8 @@ public partial class SettingsWindow : Window
     internal IndexSettingsPage PageIndex => _pageIndex ??= AddPage(new IndexSettingsPage());
     internal GeneralSettingsPage PageGeneral => _pageGeneral ??= AddPage(new GeneralSettingsPage());
     internal AppearanceSettingsPage PageAppearance => _pageAppearance ??= AddPage(new AppearanceSettingsPage());
-    // Hotkeys/Plugins/History/Favorites set their own DataContext explicitly (previously done
+    // Hotkeys/Plugins/History/Favorites/QuickLaunch/QuickPanel/LocalSend set their own DataContext
+    // explicitly (previously done
     // via SettingsWindow.xaml's DataContext="{Binding Xxx}") -- the rest inherit it from this Window like
     // before, since inherited DataContext still flows correctly through a subtree added via
     // Children.Add rather than markup.
@@ -87,7 +88,10 @@ public partial class SettingsWindow : Window
         // to the whole monitor rather than its work area, so without this it covers the taskbar.
         MaximizeBoundsHelper.Attach(this);
         ThemedWindowIconHelper.Apply(this);
-        ThemedWindowIconHelper.Apply(TitleBarLogo, this);
+        // The corners are the window's own shape now rather than a painting inside a transparent one.
+        // Windows 11 rounds the real window; older Windows keeps the painted radius above.
+        DwmWindowCorners.ApplyRound(this);
+        ThemedWindowIconHelper.Apply(TitleBarLogo);
         var vm = new SettingsViewModel();
         DataContext = vm;
         _pagePrewarmer = new SettingsPagePrewarmer(this);
@@ -99,7 +103,15 @@ public partial class SettingsWindow : Window
             // Now that the window and its first page are up, fill in the tabs the user has not visited.
             _pagePrewarmer.Begin();
         };
-        Closed += (_, _) =>
+        // Closing via OK, window chrome, Alt+F4 or Close() all wait for an in-flight save.
+        Closing += async (_, e) =>
+        {
+            if (vm.PendingApply.IsCompleted) return;
+            e.Cancel = true;
+            await vm.PendingApply;
+            if (IsLoaded) Close();
+        };
+        Closed += async (_, _) =>
         {
             _pagePrewarmer.Stop();
             vm.Cleanup();
@@ -108,6 +120,7 @@ public partial class SettingsWindow : Window
             // wants the UI thread away from a hang (see SearchWindow's own note on the same call).
             ShellIconHelper.ClearCache();
             Services.IdleWorkingSetTrimmer.RequestTrim();
+            await vm.RestartPluginsAfterCloseAsync();
         };
         this.AddHandler(Validation.ErrorEvent, new EventHandler<ValidationErrorEventArgs>(OnValidationError));
         // The popup is StaysOpen="True" (see its XAML comment), so it won't auto-close when the whole
@@ -223,33 +236,29 @@ public partial class SettingsWindow : Window
     private void ToggleMaximize() =>
         WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
 
-    // Custom chrome draws its own rounded frame with a margin for the drop shadow. Maximized, both are
-    // wrong: the rounding leaves cut corners against the screen edge and the margin leaves a gap round
-    // the whole window, so they are flattened while maximized and restored afterwards. Mirrors the full
-    // search window's SearchWindowChromeHandler.HandleStateChanged.
+    // Custom chrome paints its own rounded frame. Maximized, that is wrong: the rounding leaves cut corners
+    // against the screen edge and the 1 DIP border is a line along it, so both are flattened while maximized
+    // and restored afterwards. Mirrors the full search window's SearchWindowChromeHandler.HandleStateChanged.
     private void Window_StateChanged(object sender, EventArgs e)
     {
         var maximized = WindowState == WindowState.Maximized;
 
         BtnMaximize.Content = maximized ? "" : "";
 
-        MainBorder.CornerRadius = maximized ? new CornerRadius(0) : new CornerRadius(10);
-        MainBorder.Margin = maximized ? new Thickness(0) : new Thickness(8);
+        // Restored from the token the markup set rather than a number repeated here, so the two cannot
+        // drift apart the next time the contour changes.
+        var resting = (CornerRadius)FindResource("CornerRadiusWindow");
+        MainBorder.CornerRadius = maximized ? new CornerRadius(0) : resting;
         MainBorder.BorderThickness = new Thickness(maximized ? 0 : 1);
-        ClippingBorder.CornerRadius = maximized ? new CornerRadius(0) : new CornerRadius(10);
+        ClippingBorder.CornerRadius = maximized ? new CornerRadius(0) : resting;
     }
 
     private void BtnClose_Click(object sender, RoutedEventArgs e) => Close();
 
-    private void BtnOk_Click(object sender, RoutedEventArgs e)
+    private async void BtnOk_Click(object sender, RoutedEventArgs e)
     {
-        if (DataContext is SettingsViewModel vm)
-        {
-            vm.Apply();
-            if (!vm.LastApplySucceeded) return;
-        }
-
-        Close();
+        if (DataContext is SettingsViewModel vm && await vm.ApplyAsync())
+            Close();
     }
 
     // The bottom-docked "About" entry lives in its own ListBox (see XAML comment on LstSectionsBottom) so

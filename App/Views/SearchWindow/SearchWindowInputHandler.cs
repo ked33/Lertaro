@@ -21,6 +21,18 @@ public class SearchWindowInputHandler
         _columnActivation = new SearchWindowColumnActivation(window);
     }
 
+    /// <summary>
+    /// Escape closes this window instead of merely emptying the box whenever there is nothing to empty, or
+    /// the box is being kept across closes anyway.
+    /// </summary>
+    /// <remarks>
+    /// With "keep search box content" on, emptying on the first Escape would leave the user looking at a box
+    /// they explicitly asked to keep, needing a second press to get out -- the same two presses, but with the
+    /// retained text destroyed in between.
+    /// </remarks>
+    internal static bool ShouldCloseOnEscape(string? boxText, bool keepSearchText) =>
+        string.IsNullOrEmpty(boxText) || keepSearchText;
+
     public void HandleWindowPreviewKeyDown(KeyEventArgs e)
     {
         if (SearchInputHelper.HandleCommonSearchKeys(e, _window, _window.MenuPresenter))
@@ -39,7 +51,7 @@ public class SearchWindowInputHandler
 
         if (e.Key == Key.Escape && Keyboard.Modifiers == ModifierKeys.None)
         {
-            if (string.IsNullOrEmpty(_window.TxtSearchBoxControl.Text))
+            if (ShouldCloseOnEscape(_window.TxtSearchBoxControl.Text, UserSettings.Load().SearchWindow.KeepSearchText))
             {
                 _window.Close();
             }
@@ -114,10 +126,8 @@ public class SearchWindowInputHandler
 
         else if (actualKey == Key.Enter)
         {
-            // File/folder results are handled earlier by HotkeyActionTrigger (Ctrl+Enter locate,
-            // Ctrl+Shift+Enter open-as-admin) and never reach here. What reaches here on those chords
-            // is a result with no matching file action — notably an application — so honor
-            // Ctrl+Shift+Enter as "launch as admin" so apps can still be elevated.
+            // Non-file rows only reach here (HotkeyActionTrigger already handled files -- see its header),
+            // so Ctrl+Shift+Enter stays "launch as admin" for apps.
             if (_window.LstGridResultsControl.SelectedItem is AppSearchResult)
             {
                 var asAdmin = Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift);
@@ -216,7 +226,11 @@ public class SearchWindowInputHandler
     {
         if (result.IsPluginSearchAction || result.IsInstantResult)
             return;
-        SearchHistoryStore.Record(SearchResultHelper.HistoryKeywordOf(result, _window.SearchText), result.FullPath, SearchResultHelper.HistoryKindOf(result));
+        SearchHistoryStore.Record(
+            SearchResultHelper.HistoryKeywordOf(result, _window.SearchText),
+            result.FullPath,
+            SearchResultHelper.HistoryKindOf(result),
+            SearchResultHelper.IsLearnedRecall(result));
     }
 
     // Wraps at both ends, and skips the rows that exist only to be looked at, the same way the quick,

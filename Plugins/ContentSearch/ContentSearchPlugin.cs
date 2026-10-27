@@ -27,8 +27,6 @@ public sealed class ContentSearchPlugin : IPlugin, IConfigurable
             if (string.Equals(id, PluginId, StringComparison.OrdinalIgnoreCase))
             {
                 UpdateRuntimeState();
-                Scheduler?.UpdateConfig(LoadConfigFromSettings());
-                Scheduler?.TriggerFullScan();
             }
         };
         UpdateRuntimeState();
@@ -38,33 +36,54 @@ public sealed class ContentSearchPlugin : IPlugin, IConfigurable
     {
         lock (RuntimeLock)
         {
-            if (!ContentSearchEnablement.IsRuntimeEnabled(
+            ContentIndexScheduler? startingScheduler = null;
+            try
+            {
+                if (!ContentSearchEnablement.IsRuntimeEnabled(
                     PluginSettingsService.IsComponentEnabled, PluginDllName))
-            {
-                // Keep an already-created database for reuse and to avoid disposing storage while a
-                // query may still be reading it; stopping the scheduler removes indexing CPU and
-                // directory-watch activity while the component is disabled.
-                Scheduler?.Stop();
-                Scheduler = null;
-                return;
-            }
+                {
+                    // Keep ready storage for in-flight queries and later re-enablement.
+                    Scheduler?.Dispose();
+                    Scheduler = null;
+                    return;
+                }
 
-            if (Database == null)
-            {
-                var baseDir = UserDataService.GetUserDataDirectory();
-                var dataFolder = !string.IsNullOrEmpty(baseDir)
-                    ? Path.Combine(baseDir, "ContentIndex")
-                    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Lertaro", "ContentIndex");
-                Database = new ContentSearchDatabase(Path.Combine(dataFolder, "content_index.db"));
-                Database.Initialize();
-            }
+                if (Database == null)
+                {
+                    var baseDir = UserDataService.GetUserDataDirectory();
+                    var dataFolder = !string.IsNullOrEmpty(baseDir)
+                        ? Path.Combine(baseDir, "ContentIndex")
+                        : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Lertaro", "ContentIndex");
+                    var database = new ContentSearchDatabase(Path.Combine(dataFolder, "content_index.db"));
+                    database.Initialize();
+                    Database = database;
+                }
 
-            if (Scheduler == null)
+                var config = LoadConfigFromSettings();
+                if (Scheduler == null)
+                {
+                    startingScheduler = new ContentIndexScheduler(Database);
+                    startingScheduler.ProgressChanged += () =>
+                        SearchRefreshService.RefreshIfMatches(ContentSearchInstantProvider.IsPlaceholderQuery);
+                    startingScheduler.Start(config);
+                    Scheduler = startingScheduler;
+                }
+                else
+                {
+                    Scheduler.UpdateConfig(config);
+                    Scheduler.TriggerFullScan();
+                }
+            }
+            catch (Exception ex)
             {
-                Scheduler = new ContentIndexScheduler(Database);
-                Scheduler.ProgressChanged += () =>
-                    SearchRefreshService.RefreshIfMatches(ContentSearchInstantProvider.IsPlaceholderQuery);
-                Scheduler.Start(LoadConfigFromSettings());
+                // A failed type initializer permanently poisons the plugin, including its settings UI.
+                // Leave failed startup unpublished so a settings/enablement change can retry it.
+                PluginSdk.Logger.Log($"[ContentSearch] Runtime initialization or update failed: {ex}", PluginSdk.LogLevel.Error);
+                try { startingScheduler?.Dispose(); }
+                catch (Exception cleanupError)
+                {
+                    PluginSdk.Logger.Log($"[ContentSearch] Failed to clean up scheduler: {cleanupError}", PluginSdk.LogLevel.Error);
+                }
             }
         }
     }
@@ -146,16 +165,20 @@ public sealed class ContentSearchPlugin : IPlugin, IConfigurable
                 // Off the UI thread: ClearAll runs DELETE + VACUUM, seconds on a large index.
                 OnClick = () => Task.Run(() =>
                 {
-                    Database?.ClearAll();
-                    Scheduler?.TriggerFullScan();
+                    lock (RuntimeLock)
+                    {
+                        if (Scheduler is { } scheduler)
+                            scheduler.RebuildIndex();
+                        else if (Database is { } database)
+                        {
+                            database.ClearAll();
+                            database.InitialIndexCompleted = false;
+                        }
+                    }
                 })
             }
         },
-        OnSave = () =>
-        {
-            Scheduler?.UpdateConfig(LoadConfigFromSettings());
-            Scheduler?.TriggerFullScan();
-        }
+        OnSave = UpdateRuntimeState
     };
 
     private static ContentIndexConfig LoadConfigFromSettings()

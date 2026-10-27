@@ -1,8 +1,10 @@
+using System.IO;
 using System.Windows.Threading;
 using Lertaro.Core;
 using Lertaro.Core.Hook;
 using Application = System.Windows.Application;
 using Lertaro.App.Views.InlineSearchWindow.Helpers;
+using Lertaro.App.Helpers.Visuals;
 
 using Lertaro.App.Services.ShellIcons;
 using Lertaro.Core.Wire;
@@ -21,9 +23,13 @@ public class InlineSearchManager : IDisposable
     private readonly ExplorerTracker _explorerTracker;
     private readonly KeyboardHookService _keyboardHook;
     private readonly MouseHookService _mouseHook;
-    private readonly InlineSearchWindowCreationSupport _windowCreation;
+    private readonly InlineSearchWindowSummonSupport _windowSummon;
     private string _searchText = string.Empty;
     private IntPtr _currentHostHwnd = IntPtr.Zero;
+    private FileSystemWatcher? _folderWatcher;
+    private DispatcherTimer? _folderChangeTimer;
+    private DispatcherTimer? _folderSettleTimer;
+    private string? _watchedFolder;
 
     public ExplorerTracker ExplorerTracker => _explorerTracker;
     public KeyboardHookService KeyboardHook => _keyboardHook;
@@ -37,7 +43,7 @@ public class InlineSearchManager : IDisposable
         _explorerTracker = new ExplorerTracker();
         _keyboardHook = new KeyboardHookService(_explorerTracker);
         _mouseHook = new MouseHookService(IsPointInsideWindow);
-        _windowCreation = new InlineSearchWindowCreationSupport(this);
+        _windowSummon = new InlineSearchWindowSummonSupport(this);
 
         if (App.HookClient != null)
         {
@@ -68,7 +74,7 @@ public class InlineSearchManager : IDisposable
     {
         _explorerTracker.OnExplorerActivated += (hwnd, title, className, isDesktop) => Application.Current.Dispatcher.BeginInvoke(new Action(() =>
             {
-                if (_window != null && _currentHostHwnd == hwnd)
+                if (IsInlineSearchActive && _currentHostHwnd == hwnd)
                 {
                     return;
                 }
@@ -76,8 +82,7 @@ public class InlineSearchManager : IDisposable
                 if (_explorerTracker.IsActiveWindowDialog)
                 {
                     CloseInlineSearch("ExplorerActivated (Dialog)");
-                    EnsureWindowCreated();
-                    _window?.UpdateSearchDisplay(string.Empty);
+                    SummonWindow();
                     // The window exists and knows its folder, but the user has not typed yet -- start
                     // reading that folder now so the first character does not have to wait for the walk.
                     PrewarmActiveFolderListing();
@@ -94,7 +99,7 @@ public class InlineSearchManager : IDisposable
 
         _explorerTracker.OnPathCaptured += (path, _, _) => Application.Current.Dispatcher.BeginInvoke(new Action(() =>
             {
-                if (_window != null)
+                if (_window is { IsVisible: true })
                 {
                     var oldScope = _window.ViewModel.SearchScope;
                     if (oldScope != path)
@@ -102,18 +107,26 @@ public class InlineSearchManager : IDisposable
                         _window.ViewModel.SearchScope = path;
                         Logger.Log($"[InlineSearchManager] Updated SearchScope dynamically to: {path}", LogLevel.Debug);
 
-                        if (string.IsNullOrEmpty(_window.SearchText))
-                            _window.ViewModel.Search.PerformSearch(string.Empty);
+                        // Re-run with the text as it stands, not only when the box is empty. The scope just
+                        // replaced is the one the CURRENT results were computed against, so leaving them on
+                        // screen shows the previous folder's rows -- measured as "the first character does not
+                        // locate the folder, the second one does", because that second keystroke was the only
+                        // thing that re-ran the search with the repaired scope. No extra waiting and no extra
+                        // work when the path did not change: this is the same call the empty-box case made.
+                        // The box itself is asked rather than the tracked string: they agree once a keystroke
+                        // has been handled, but while an IME is composing the box is already ahead of it, and
+                        // re-running with the older text would compute the delayed scope against a query the
+                        // user has moved on from.
+                        _window.ViewModel.Search.PerformSearch(_window.SearchBox.SearchText ?? string.Empty);
                     }
                 }
                 else if (_explorerTracker.IsActiveWindowDialog)
                 {
-                    EnsureWindowCreated();
-                    _window?.UpdateSearchDisplay(string.Empty);
+                    SummonWindow();
                 }
 
-                // Covers both branches above: a scope just changed, or a window was just created for a
-                // dialog host. Either way the folder is known before anything is typed.
+                // Covers both branches above: a scope just changed, or a card just summoned for a dialog
+                // host. Either way the folder is known before anything is typed.
                 PrewarmActiveFolderListing();
             }));
     }
@@ -124,8 +137,108 @@ public class InlineSearchManager : IDisposable
     private void PrewarmActiveFolderListing()
     {
         var scope = _window?.ViewModel.SearchScope;
-        if (!string.IsNullOrEmpty(scope))
-            _window!.ViewModel.Search.PrewarmDirectoryListing(scope);
+        if (string.IsNullOrEmpty(scope))
+            return;
+        _window!.ViewModel.Search.PrewarmDirectoryListing(scope);
+        WatchFolder(scope);
+    }
+
+    // The folder listing is otherwise fixed for the window's life: delete a file in Explorer and every
+    // later keystroke re-filtered the same stale entries, so the row stayed on screen (see
+    // DirectChildrenListingCache). The watcher turns a folder change into an invalidation plus a re-run
+    // of whatever the box currently says.
+    private void WatchFolder(string folder)
+    {
+        if (string.Equals(_watchedFolder, folder, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        DisposeFolderWatcher();
+        _watchedFolder = folder;
+        try
+        {
+            _folderWatcher = new FileSystemWatcher(folder)
+            {
+                // Names are all the listing carries, so size/date churn on an existing file is not a
+                // reason to re-walk the folder.
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName,
+                IncludeSubdirectories = false,
+                InternalBufferSize = 64 * 1024
+            };
+            _folderWatcher.Created += (_, _) => OnWatchedFolderChanged();
+            _folderWatcher.Deleted += (_, _) => OnWatchedFolderChanged();
+            _folderWatcher.Renamed += (_, _) => OnWatchedFolderChanged();
+            // A buffer overflow means events were lost, so the listing may be stale even though nothing
+            // raised a normal event; invalidating on error is cheap compared with a wrong row.
+            _folderWatcher.Error += (_, e) =>
+            {
+                Logger.Log($"[InlineSearchManager] Folder watcher error for '{folder}': {e.GetException().Message}", LogLevel.Debug);
+                OnWatchedFolderChanged();
+            };
+            _folderWatcher.EnableRaisingEvents = true;
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            // A spun-down removable drive or a protected folder must not take the inline search with it:
+            // without the watcher the listing behaves exactly as it did before this existed.
+            _folderWatcher = null;
+            Logger.Log($"[InlineSearchManager] Cannot watch folder '{folder}': {ex.Message}", LogLevel.Debug);
+        }
+    }
+
+    // Watcher events arrive on a pool thread and one delete raises several of them: coalesce on the UI
+    // thread, then invalidate once and re-run at most once per debounce window.
+    private void OnWatchedFolderChanged() => Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
+    {
+        _folderChangeTimer ??= CreateFolderChangeTimer();
+        _folderChangeTimer.Stop();
+        _folderChangeTimer.Start();
+    }));
+
+    private DispatcherTimer CreateFolderChangeTimer()
+    {
+        var timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(300) };
+        timer.Tick += (_, _) => ApplyFolderChange();
+        return timer;
+    }
+
+    private void ApplyFolderChange()
+    {
+        _folderChangeTimer?.Stop();
+        var scope = _window?.ViewModel.SearchScope;
+        if (string.IsNullOrEmpty(scope))
+            return;
+        _window?.ViewModel.Search.InvalidateDirectoryListing(scope);
+        // A hidden window keeps the invalidation only: the next summon runs a query anyway, and re-running
+        // for an invisible card would walk a folder nobody is looking at.
+        if (_window is not { IsVisible: true })
+            return;
+
+        _window!.ViewModel.Search.PerformSearch(_window.SearchBox.SearchText ?? string.Empty);
+        // The service applies USN batches up to a second after the file itself is gone, so the re-run
+        // above can still stream the deleted row back out of the index. One settle pass later both
+        // sources agree with the folder.
+        _folderSettleTimer ??= CreateFolderSettleTimer();
+        _folderSettleTimer.Stop();
+        _folderSettleTimer.Start();
+    }
+
+    private DispatcherTimer CreateFolderSettleTimer()
+    {
+        var timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(1200) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (_window is { IsVisible: true })
+                _window.ViewModel.Search.PerformSearch(_window.SearchBox.SearchText ?? string.Empty);
+        };
+        return timer;
+    }
+
+    private void DisposeFolderWatcher()
+    {
+        _folderWatcher?.Dispose();
+        _folderWatcher = null;
+        _watchedFolder = null;
     }
 
     private void WireUpMouseEvents() => _mouseHook.OnClickOutside += () => Application.Current.Dispatcher.BeginInvoke(new Action(() =>
@@ -153,7 +266,7 @@ public class InlineSearchManager : IDisposable
                 {
                     _searchText += ch;
                 }
-                EnsureWindowCreated();
+                SummonWindow();
                 _window?.UpdateSearchDisplay(_searchText);
             },
             onBackspacePressed: () =>
@@ -161,7 +274,7 @@ public class InlineSearchManager : IDisposable
                 if (_searchText.Length > 0)
                 {
                     _searchText = _searchText.Substring(0, _searchText.Length - 1);
-                    EnsureWindowCreated();
+                    SummonWindow();
                     _window?.UpdateSearchDisplay(_searchText);
                 }
             });
@@ -169,7 +282,7 @@ public class InlineSearchManager : IDisposable
         router.Wire();
     }
 
-    private void EnsureWindowCreated() => _windowCreation.EnsureWindowCreated();
+    private void SummonWindow() => _windowSummon.Summon();
 
     public bool IsExecuting { get; set; }
 
@@ -202,7 +315,15 @@ public class InlineSearchManager : IDisposable
     // keeps looking "active").
     private void CloseInlineSearch(string reason, DateTime? deferUntil)
     {
-        if (_window == null) return;
+        if (_window == null)
+        {
+            // Win32 destroys the card together with the dialog that owned it (see
+            // InlineSearchWindowSummonSupport.Create), which nulls the cached window without ever reaching the
+            // reset below. The hook flags must not outlive the card: a stale IsInlineSearchVisible keeps the
+            // hook swallowing Enter/Backspace/IME keys in windows whose text input it does not recognize.
+            ResetHookState();
+            return;
+        }
 
         var dragActive = Views.Controls.Results.ResultsDragDropHelper.IsDragActive;
         var pendingMouseDown = _window.HasPendingMouseDown;
@@ -238,18 +359,22 @@ public class InlineSearchManager : IDisposable
         }
         IsExecuting = false;
 
-        _mouseHook.Stop();
-        _keyboardHook.IsInlineSearchVisible = false;
-        _keyboardHook.IsInlineWindowOnScreen = false;
-        _keyboardHook.Start();
-        _searchText = string.Empty;
+        ResetHookState();
 
         var win = _window;
-        _window = null;
         _currentHostHwnd = IntPtr.Zero;
         win.ViewModel.Monitor.StopStatusTimer();
+        // Parked, not destroyed. A card built for every summon brings its view model, its visual tree and its
+        // first composition with it, and the user watches all of that (170-258ms of an on-screen window with
+        // nothing painted in it, scratch/blackprobe); dismissed, it also loses the folder listing it warmed.
+        // The parking coordinates are what keep window enumerators from reporting a hidden window's last
+        // rectangle -- see WindowParking.
+        win.RestoreKeyboardLayout();
         win.Hide();
-        win.Close();
+        WindowParking.Park(win);
+        // After the park, so the card is off its host before anything else can destroy the host and take the
+        // card with it: a parked card is meant to survive and be re-docked by the next summon.
+        win.ReleaseHost();
         PowerThrottlingHelper.WindowHidden("inline");
 
         // Inline search closes whenever you leave Explorer, so release the icon cache and let the working
@@ -262,14 +387,25 @@ public class InlineSearchManager : IDisposable
         PathCacheMaintenance.ClearAllPathCaches();
         IdleWorkingSetTrimmer.WindowHidden();
 
-        Logger.Log($"[InlineSearchManager] InlineSearchWindow closed and destroyed. Reason: {reason}", LogLevel.Debug);
+        Logger.Log($"[InlineSearchManager] InlineSearchWindow dismissed and parked. Reason: {reason}", LogLevel.Debug);
     }
 
-    public bool IsInlineSearchActive => _window != null && _window.IsVisible;
+    // Idempotent: the only state that outlives the card lives in the hook process, so it is also reachable
+    // when the card was destroyed underneath us and there is nothing left to hide or park.
+    private void ResetHookState()
+    {
+        _mouseHook.Stop();
+        _keyboardHook.IsInlineSearchVisible = false;
+        _keyboardHook.IsInlineWindowOnScreen = false;
+        _keyboardHook.Start();
+        _searchText = string.Empty;
+    }
+
+    public bool IsInlineSearchActive => _window is { IsVisible: true };
 
     public void FocusSearchBox()
     {
-        if (_window != null && _window.IsVisible)
+        if (_window is { IsVisible: true })
         {
             if (_explorerTracker.IsActiveWindowDialog
                 && _window.SearchBox.SearchTextBox.IsKeyboardFocusWithin
@@ -285,6 +421,21 @@ public class InlineSearchManager : IDisposable
     public void Dispose()
     {
         CloseInlineSearch("Dispose");
+        DisposeFolderWatcher();
+        if (_folderChangeTimer != null)
+        {
+            _folderChangeTimer.Stop();
+            _folderChangeTimer = null;
+        }
+        if (_folderSettleTimer != null)
+        {
+            _folderSettleTimer.Stop();
+            _folderSettleTimer = null;
+        }
+        // The only place the card is destroyed: it outlives every summon now, and closing it is what releases
+        // its view model's search-service session and its watchdog timer.
+        _window?.Close();
+        _window = null;
         _keyboardHook.Dispose();
         _mouseHook.Dispose();
         _explorerTracker.Dispose();

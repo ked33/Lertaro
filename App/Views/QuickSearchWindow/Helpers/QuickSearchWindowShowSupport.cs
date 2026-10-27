@@ -1,8 +1,9 @@
-using Lertaro.App.Helpers.Visuals;
 using Lertaro.PluginSdk.Services;
 using System.Windows;
 using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using Lertaro.App.Helpers;
+using Lertaro.App.Helpers.Visuals;
 using Lertaro.App.Services;
 using Lertaro.App.Services.Theme;
 using Lertaro.Core;
@@ -36,10 +37,12 @@ internal sealed class QuickSearchWindowShowSupport
         }
 
         var window = _controller.Window;
+        // (B) The warm-up is over: from here the window is only ever on screen because a summon put it
+        // there, so positioning is allowed again (see QuickSearchWindow._suppressPositioning).
+        window.AllowPositioning();
         window.ViewModel.IsInlineSearchContext = false;
         App.HideInlineSearch();
         QuickLookManager.Instance.Reset();
-        window.ViewModel.RefreshLaunchItems();
         InlineSearchManager.Instance.KeyboardHook.IsQuickSearchWindowVisible = true;
         InlineSearchManager.Instance.KeyboardHook.Stop();
         window.ViewModel.EnsureServiceMonitoringActive();
@@ -53,31 +56,64 @@ internal sealed class QuickSearchWindowShowSupport
             searchQuery = clipboardText;
         }
 
-        window.ViewModel.SearchQuery = searchQuery;
-        window.ViewModel.RefreshEmptyState();
+        // KeepSearchText: the box may still hold the previous summon's text, because FinishHide skipped
+        // wiping it. Leave that text (and its results) in place -- the ActivateAndFocus below selects it
+        // all, so the next keystroke replaces it. An explicit query, a clipboard refill, or an already
+        // empty box all keep the old behaviour.
+        var keepSearchText = ShouldKeepSearchText(UserSettings.Load().SearchWindow.KeepSearchText, searchQuery, window.ViewModel.SearchQuery);
+        if (!keepSearchText)
+        {
+            window.ViewModel.SearchQuery = searchQuery;
+            window.ViewModel.RefreshEmptyState();
+        }
+        if (keepSearchText) window.ViewModel.Search.PerformSearch(window.ViewModel.SearchQuery);
         window.ViewModel.RefreshLayoutSettings();
         window.ApplyResultsLayoutImmediate();
         window.Topmost = false;
         window.Topmost = true;
-        _controller.PositionWindow();
-
-        var fadeContent = window.Content as UIElement;
-        if (fadeContent != null) MotionTransition.Cancel(fadeContent, UIElement.OpacityProperty);
-        fadeContent?.Opacity = AnimationSettings.Instance.Transitions ? 0 : (ThemeManager.Instance.ActiveTheme?.WindowOpacity ?? 1.0);
-        window.Show();
         window.WindowState = WindowState.Normal;
-        _controller.ActivateAndFocus(useClipboardText, caretAtEnd, activationId);
-        if (opToken != _controller.VisibilityOperationToken) return;
+        // Placed at its target first, then shown from the parking row above it: the x is what gives this window
+        // the DPI context of the monitor the summon belongs to, so the frame is composed for that scale, and
+        // the move down into place changes neither its size nor its scale.
         _controller.PositionWindow();
 
-        if (fadeContent != null)
+        // No fade-in, deliberately: the whole window is opaque now, and fading means showing the content at
+        // zero opacity for the length of the animation, which on an opaque window is a black rectangle
+        // rather than a see-through one (NotificationWindowManager reached the same conclusion for cards).
+        // What is left of this window's motion is everything that never touches the Window's own opacity.
+        window.SuppressPositioning();
+        WindowParking.ShowThenPlace(window, RevealAtPlacedPosition);
+
+        void RevealAtPlacedPosition()
         {
-            var targetOpacity = ThemeManager.Instance.ActiveTheme?.WindowOpacity ?? 1.0;
-            MotionTransition.Start(fadeContent, UIElement.OpacityProperty, targetOpacity,
-                (Duration)System.Windows.Application.Current.FindResource("DurationWindowFadeIn"),
-                System.Windows.Application.Current.TryFindResource("EaseOutCubic") as IEasingFunction);
+            window.AllowPositioning();
+            window.PositionWindow();
         }
 
         _controller.ForegroundWatcher.Start();
+        // Selecting the kept text is what makes it usable instead of in the way: the next keystroke
+        // overwrites it, so the window still reads as a fresh search box.
+        _controller.ActivateAndFocus(useClipboardText || keepSearchText, caretAtEnd, activationId);
+        if (opToken != _controller.VisibilityOperationToken) return;
+
+        // The launch panel's sources are read here rather than earlier in this sequence, where they used to
+        // be: reading them probes the disk and asks every plugin provider, and on the show path that work
+        // was the summon's own latency. Background priority puts it behind the first frame and the focus
+        // grab, so the window is up and usable first and the tiles replace the last summon's own.
+        window.Dispatcher.BeginInvoke(
+            DispatcherPriority.Background, new Action(window.ViewModel.RefreshLaunchItems));
     }
+
+    /// <summary>
+    /// True when the window reopens showing the text it was dismissed with instead of the query this summon
+    /// carries. Only an empty incoming query counts as "no intent" -- an explicit query and a clipboard
+    /// refill are both meant to replace the kept text, and an empty box has nothing worth keeping.
+    /// </summary>
+    /// <remarks>
+    /// Both queries are tested with IsNullOrEmpty because this window's query field can still be null on
+    /// the very first summon -- nothing has written it yet -- and reading it eagerly is what used to throw
+    /// a NullReferenceException here.
+    /// </remarks>
+    internal static bool ShouldKeepSearchText(bool settingEnabled, string? newQuery, string? existingQuery)
+        => settingEnabled && string.IsNullOrEmpty(newQuery) && !string.IsNullOrEmpty(existingQuery);
 }

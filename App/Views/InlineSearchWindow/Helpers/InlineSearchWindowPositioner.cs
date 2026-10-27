@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Threading;
+using Lertaro.App.Helpers.Visuals;
 using Lertaro.Core;
 using Lertaro.PluginSdk.Services;
 
@@ -10,15 +11,20 @@ namespace Lertaro.App.Views.InlineSearchWindow.Helpers;
 public class InlineSearchWindowPositioner
 {
     private const double DefaultWindowWidth = 465;
-    private const double DockedWidthRatio = 2.0 / 3.0;
     private const double DesktopWidthRatio = 0.2;
 
     private readonly Lertaro.App.InlineSearchWindow _window;
-    private readonly int _customWidth = PluginSettingsService.GetSetting(
+    private int CustomWidth => PluginSettingsService.GetSetting(
         "Lertaro.Plugins.CoreExtensions", "InlineSearchWindowWidth", 0);
     private readonly InlineCardDragOffset _dragOffset;
     private readonly InlineDialogGeometryProbe _geometry;
     private int _positionUpdateQueued;
+
+    // The target the last computing pass produced, and the pass that has to hold off applying it because the
+    // card is busy being composed at the parking row. See Reveal and WindowParking.ShowThenPlace.
+    private bool _hasTarget;
+    private bool _revealPending;
+    private double _targetLeft, _targetTop, _targetPhysLeft, _targetPhysTop, _targetPhysWidth, _targetPhysHeight;
 
     private bool _hasCachedInputs;
     private IntPtr _cachedActiveHwnd;
@@ -38,7 +44,7 @@ public class InlineSearchWindowPositioner
     public InlineSearchWindowPositioner(Lertaro.App.InlineSearchWindow window)
     {
         _window = window ?? throw new ArgumentNullException(nameof(window));
-        _dragOffset = new InlineCardDragOffset(window);
+        _dragOffset = new InlineCardDragOffset(() => (window.Left, window.Top));
         _geometry = new InlineDialogGeometryProbe(MeasureDialogGeometry, PositionWindow);
     }
 
@@ -103,6 +109,59 @@ public class InlineSearchWindowPositioner
 
     public void PositionWindowImmediate() => PositionWindowCore();
 
+    /// <summary>Shows the card at the parking row and lands it once WPF has had a render pass there.</summary>
+    /// <remarks>
+    /// The caller places the card at its dock before this, which is what makes the target monitor's scale the
+    /// one the parked frame is composed for: the landing pass then moves the card down into place without
+    /// changing its size or its DPI context, so no surface has to be recreated while the user is looking at it.
+    /// Measured against a Show straight at the dock: 30ms of content after the card reaches the screen, instead
+    /// of 170-258ms (scratch/blackprobe).
+    /// </remarks>
+    internal void Reveal()
+    {
+        _revealPending = true;
+        var shownAt = Environment.TickCount64;
+        WindowParking.ShowThenPlace(_window, () =>
+        {
+            _revealPending = false;
+            // Info, like the summon sizing pass: this is the instant the card becomes something the user can
+            // see, and the gap it reports is the thing being argued about.
+            Logger.Log(
+                $"[InlineCardReveal] landed +{Environment.TickCount64 - shownAt}ms "
+                + $"at={_window.Left:F0},{_window.Top:F0} height={_window.Height:F0} width={_window.Width:F0} "
+                + $"searching={_window.ViewModel.IsSearching} results={_window.ViewModel.Results.Count}",
+                LogLevel.Info);
+            // Nothing was ever computed for this card (no host window yet) -- lay it out the ordinary way,
+            // which now applies because the reveal is over.
+            if (_hasTarget) ApplyTarget(new WindowInteropHelper(_window).Handle);
+            else PositionWindowCore();
+        });
+    }
+
+    // Size AND position in one native call, deliberately. Resizing the window is anchored at its top-left, so a
+    // height change on its own would leave the bottom edge (and with it the search box) sitting at the old spot
+    // until the reposition below caught up -- and when the two land in different frames that shows as the card
+    // visibly snapping upward before settling. Handing Windows both at once removes the frame where they
+    // disagree. SWP_NOZORDER/NOACTIVATE keep the rest of the window's state untouched, and this only ever runs
+    // from the layout path that has just set Height/Left/Top, so the values are the ones WPF is about to render
+    // anyway.
+    //
+    // The two sizes are the recorded target rather than _window.Width/Height: a card whose height has not been
+    // applied yet reports NaN there, and NaN in a SetWindowPos height is a zero-height window.
+    private void ApplyTarget(IntPtr hwnd)
+    {
+        if (!_hasTarget) return;
+
+        if (Math.Abs(_window.Left - _targetLeft) > 0.5) _window.Left = _targetLeft;
+        if (Math.Abs(_window.Top - _targetTop) > 0.5) _window.Top = _targetTop;
+
+        if (hwnd == IntPtr.Zero) return;
+        InlineSearchWindowNativeMethods.SetWindowPos(hwnd, IntPtr.Zero,
+            (int)Math.Round(_targetPhysLeft), (int)Math.Round(_targetPhysTop),
+            (int)Math.Round(_targetPhysWidth), (int)Math.Round(_targetPhysHeight),
+            InlineSearchWindowNativeMethods.SWP_NOZORDER | InlineSearchWindowNativeMethods.SWP_NOACTIVATE);
+    }
+
     private void PositionWindowCore()
     {
         _window.UpdateLayout();
@@ -117,6 +176,11 @@ public class InlineSearchWindowPositioner
             return;
 
         var isResultsVisible = _window.ResultsPanelControl.Visibility == Visibility.Visible;
+
+        // Which application this dock belongs to, and so which remembered drag displacement applies to it.
+        // Read from the tracker's cached answer: resolving a process name is a query into another process,
+        // and this is the thread that places the card.
+        var hostKey = tracker.IsDesktop ? InlineCardDragOffset.DesktopHost : tracker.ActiveProcessName;
 
         var hasValidRect = false;
         var rect = new Core.Hook.ExplorerTracker.RECT();
@@ -137,20 +201,27 @@ public class InlineSearchWindowPositioner
                 : IntPtr.Zero;
         var (targetDpiScaleX, targetDpiScaleY) = InlineCardSpace.DpiScaleFor(targetMonitor);
 
-        var desktopWidth = tracker.IsDesktop
-            ? (_window.IsVisible && hwnd != IntPtr.Zero ? Screen.FromHandle(hwnd) : Screen.FromPoint(mousePosition)).WorkingArea.Width / targetDpiScaleX
-            : 0;
+        // The screen this card has to share with the window it is docked to, read once: it bounds the width
+        // below and clamps the placement further down, and the two have to agree about how wide the card may
+        // get before it runs off the monitor.
+        var workingArea = InlineCardSpace.WorkingAreaFor(_window, mousePosition);
+
+        // The desktop has no window whose width could be the 100% the user's percent is taken of, so it keeps
+        // its own fixed share and stays out of that setting's reach.
+        var desktopWidth = tracker.IsDesktop ? workingArea.Width / targetDpiScaleX : 0;
         var desiredWidth = hasValidRect && !tracker.IsDesktop
-            ? CalculateDockedWidth((rect.Right - rect.Left) / targetDpiScaleX)
+            ? InlineCardMetrics.ResolveDockedWidth(
+                (rect.Right - rect.Left) / targetDpiScaleX,
+                workingArea.Width / targetDpiScaleX,
+                UserSettings.Load().InlineSearchWindowWidthPercent)
             : desktopWidth > 0
                 ? CalculateDesktopWidth(desktopWidth)
                 : DefaultWindowWidth;
-        var workingArea = InlineCardSpace.WorkingAreaFor(_window, mousePosition);
-        desiredWidth = ResolveWindowWidth(_customWidth, desiredWidth, workingArea.Width / targetDpiScaleX);
+        desiredWidth = ResolveWindowWidth(CustomWidth, desiredWidth, workingArea.Width / targetDpiScaleX);
         var outsideDock = hasValidRect && tracker.IsActiveWindowDialog
             ? InlineDialogDock.Find(rect, workingArea, desiredWidth * targetDpiScaleX,
                 _window.CardSizing.FullCardHeight() * targetDpiScaleY,
-                200 * targetDpiScaleX, 12 * targetDpiScaleX, 12 * targetDpiScaleY, 4 * targetDpiScaleX)
+                200 * targetDpiScaleX, 0, 0, 4 * targetDpiScaleX)
             : null;
         if (outsideDock is { } outside) desiredWidth = outside.WindowWidth / targetDpiScaleX;
         if (Math.Abs(_window.Width - desiredWidth) > 0.5)
@@ -174,10 +245,10 @@ public class InlineSearchWindowPositioner
 
         // A long path banner can exceed the stable height estimate. Recheck every exterior region
         // with the real height before falling back inside; retain the chosen width to avoid reflow loops.
-        if (outsideDock is { } estimatedDock && !estimatedDock.Fits(windowHeight * targetDpiScaleY, 12 * targetDpiScaleY))
+        if (outsideDock is { } estimatedDock && !estimatedDock.Fits(windowHeight * targetDpiScaleY, 0))
             outsideDock = InlineDialogDock.Find(rect, workingArea, windowWidth * targetDpiScaleX,
                 windowHeight * targetDpiScaleY, 200 * targetDpiScaleX,
-                12 * targetDpiScaleX, 12 * targetDpiScaleY, 4 * targetDpiScaleX);
+                0, 0, 4 * targetDpiScaleX);
 
         if (_hasCachedInputs
             && _cachedActiveHwnd == tracker.ActiveHwnd
@@ -197,9 +268,12 @@ public class InlineSearchWindowPositioner
             return;
         }
 
-        // The window's own transparent margin, paid back wherever the card's VISIBLE edge is meant to meet
-        // an edge. There is no second inset: the card is its own visible boundary.
-        const double xamlMargin = 12;
+        // The window's own margin, paid back wherever the card's VISIBLE edge is meant to meet an edge. It
+        // is zero now: the window is opaque and the card is the whole of it (InlineCardSizingSupport sizes
+        // the window to the card), so the window's own edge already is the visible one. The parameter is
+        // still threaded through the two placement functions below because they are pure geometry with
+        // their own tests, and the margin is genuinely a property of the window rather than of the math.
+        const double xamlMargin = 0;
 
         // Whether the space under the anchored window can hold the WHOLE card. Asked of the tallest the card
         // can ever be (InlineCardSizingSupport.FullCardHeight), never of the height it happens to have: the
@@ -257,7 +331,17 @@ public class InlineSearchWindowPositioner
                 // inside: AvailableCardHeight caps the card at AnchoredWindowHeightShare of the window it
                 // covers, so starting at the top is what leaves its bottom edge free -- and for a plain
                 // window it is the same edge a row count cannot move.
-                targetPhysTop = CalculatePhysTop(hangsBelow, rect, fileList, physXamlMarginY);
+                //
+                // The window's client area goes along as the floor, so a card that has nothing finer to hang
+                // from starts below the title bar rather than across it -- and only when it lies over the
+                // window, since a card hanging below covers no part of it. Read here rather than in the
+                // geometry probe below: this is win32k's own window data, not a call into the host's process,
+                // so this thread may ask it directly.
+                double? physClientTop = hangsBelow ? null
+                    : Core.Hook.ExplorerNativeHooks.TryGetClientTopOnScreen(tracker.ActiveHwnd, out var clientTop)
+                        ? clientTop : null;
+                targetPhysTop = CalculatePhysTop(
+                    hangsBelow, rect, fileList, physXamlMarginY, physClientTop);
 
                 var minLeft = workingArea.Left - physXamlMargin;
                 var minTop = workingArea.Top - physXamlMarginY;
@@ -267,8 +351,8 @@ public class InlineSearchWindowPositioner
                 var maxTop = (hangsBelow ? screen.Bounds.Bottom : workingArea.Bottom)
                     - physWindowHeight + physXamlMarginY;
 
-                // Guarded like the top clamp below: a target window spanning two monitors makes the card
-                // (2/3 of it) wider than one monitor's working area, and Math.Clamp THROWS when min > max.
+                // Guarded like the top clamp below: a card wider than one monitor's working area makes min
+                // exceed max there, and Math.Clamp THROWS when min > max.
                 targetPhysLeft = Math.Clamp(targetPhysLeft, minLeft, Math.Max(minLeft, maxLeft));
 
                 // One clamp for all three placements. Measured with the window's height, which is the same
@@ -292,8 +376,10 @@ public class InlineSearchWindowPositioner
                     + $"anchor={(anchor is { } a ? $"{a.Left},{a.Top},{a.Right},{a.Bottom}" : "none")} "
                     + $"list={(fileList is { } listRect ? $"{listRect.Right},{listRect.Top}" : "none")} "
                     + $"dpi={targetDpiScaleX:F2} window={windowWidth:F0}x{windowHeight:F0} "
-                    + $"outside={(fitsOutside ? outsideDock?.Edge.ToString() : "none")} below={hangsBelow} boundsBottom={screen.Bounds.Bottom} work={workingArea.Left},{workingArea.Top},{workingArea.Right},{workingArea.Bottom} "
-                    + $"bound={minTop:F0}..{maxTop:F0} at={targetPhysLeft:F0},{targetPhysTop:F0} drag={_dragOffset.IsSet}",
+                    + $"below={hangsBelow} boundsBottom={screen.Bounds.Bottom} work={workingArea.Left},{workingArea.Top},{workingArea.Right},{workingArea.Bottom} "
+                    + $"bound={minTop:F0}..{maxTop:F0} at={targetPhysLeft:F0},{targetPhysTop:F0} "
+                    + $"host={hostKey} drag={_dragOffset.IsSetFor(hostKey)} "
+                    + $"floor={(physClientTop is { } floor ? $"{floor:F0}" : "none")}",
                     LogLevel.Debug);
             }
             else
@@ -307,36 +393,34 @@ public class InlineSearchWindowPositioner
         var targetTop = targetPhysTop / targetDpiScaleY;
 
         // The dock position on its own, which is what a user's drag is measured against -- recorded before that
-        // displacement is applied below.
-        _dragOffset.RememberBase(targetLeft, targetTop);
+        // displacement is applied below, and against the host being docked, since every application keeps its
+        // own.
+        _dragOffset.RememberBase(hostKey, targetLeft, targetTop);
 
-        if (_dragOffset.IsSet)
-        {
-            (targetPhysLeft, targetPhysTop) = _dragOffset.ApplyPhysical(
-                targetPhysLeft, targetPhysTop, targetDpiScaleX, targetDpiScaleY, workingArea, physWindowWidth, physWindowHeight);
-            if (fitsOutside && outsideDock is { } dragDock)
-                (targetPhysLeft, targetPhysTop) = dragDock.Clamp(targetPhysLeft, targetPhysTop, physWindowHeight, physXamlMargin, physXamlMarginY);
-            targetLeft = targetPhysLeft / targetDpiScaleX;
-            targetTop = targetPhysTop / targetDpiScaleY;
-        }
+        (targetPhysLeft, targetPhysTop) = _dragOffset.ApplyPhysical(
+            hostKey, targetPhysLeft, targetPhysTop, targetDpiScaleX, targetDpiScaleY, workingArea, physWindowWidth, physWindowHeight);
+        if (fitsOutside && outsideDock is { } dragDock)
+            (targetPhysLeft, targetPhysTop) = dragDock.Clamp(targetPhysLeft, targetPhysTop, physWindowHeight, physXamlMargin, physXamlMarginY);
+        targetLeft = targetPhysLeft / targetDpiScaleX;
+        targetTop = targetPhysTop / targetDpiScaleY;
 
-        if (Math.Abs(_window.Left - targetLeft) > 0.5) _window.Left = targetLeft;
-        if (Math.Abs(_window.Top - targetTop) > 0.5) _window.Top = targetTop;
+        // Recorded on every pass that computes a target, including the ones that are held back below: the frame
+        // that lands the card after its parked show uses wherever the layout last wanted it, not where the
+        // pre-show pass happened to get to.
+        _hasTarget = true;
+        _targetLeft = targetLeft;
+        _targetTop = targetTop;
+        _targetPhysLeft = targetPhysLeft;
+        _targetPhysTop = targetPhysTop;
+        _targetPhysWidth = physWindowWidth;
+        _targetPhysHeight = physWindowHeight;
 
-        if (hwnd != IntPtr.Zero)
-        {
-            // Size AND position in one native call, deliberately. Resizing the window is anchored at its
-            // top-left, so a height change on its own would leave the bottom edge (and with it the search
-            // box) sitting at the old spot until the reposition below caught up -- and when the two land in
-            // different frames that shows as the card visibly snapping upward before settling. Handing
-            // Windows both at once removes the frame where they disagree. SWP_NOZORDER/NOACTIVATE keep the
-            // rest of the window's state untouched, and this only ever runs from the layout path that has
-            // just set Height/Left/Top, so the values are the ones WPF is about to render anyway.
-            InlineSearchWindowNativeMethods.SetWindowPos(hwnd, IntPtr.Zero,
-                (int)Math.Round(targetPhysLeft), (int)Math.Round(targetPhysTop),
-                (int)Math.Round(_window.Width * targetDpiScaleX), (int)Math.Round(_window.Height * targetDpiScaleY),
-                InlineSearchWindowNativeMethods.SWP_NOZORDER | InlineSearchWindowNativeMethods.SWP_NOACTIVATE);
-        }
+        // The card is on screen being composed but not yet placed (Reveal below): putting it where the user is
+        // looking from this pass would undo exactly what the parked show buys.
+        if (_revealPending)
+            return;
+
+        ApplyTarget(hwnd);
 
         _hasCachedInputs = true;
         _cachedActiveHwnd = tracker.ActiveHwnd;
@@ -395,11 +479,28 @@ public class InlineSearchWindowPositioner
     /// <summary>Records a drag the user has just finished, so the card keeps the position they left it at.</summary>
     /// <remarks>
     /// Wired to the search box logo's own drag (see InlineSearchWindow's constructor). Measured against the
-    /// dock position the last positioning pass applied, which is exactly what a displacement is relative to.
+    /// dock position the last positioning pass applied, which is exactly what a displacement is relative to,
+    /// and kept for the host that pass docked to -- a drag performed in one application never moves the card
+    /// in another.
     /// </remarks>
     public void RememberUserDrag() => _dragOffset.RememberDrag();
 
-    internal static double CalculateDockedWidth(double targetWindowWidth) => targetWindowWidth * DockedWidthRatio;
+    /// <summary>
+    /// Drops the displacement the user dragged into this host's card and puts it back where it docks. Wired to
+    /// the logo's right click, the same gesture the quick window uses to bring itself back to the middle.
+    /// </summary>
+    /// <remarks>
+    /// The pass that placed the card cached the inputs it placed from, and a reset changes none of them, so the
+    /// cache is cleared along with the offset. Without that the pass below would answer "nothing moved" and the
+    /// card would stay exactly where the drag left it.
+    /// </remarks>
+    public void ResetUserDrag()
+    {
+        var tracker = _window.Manager.ExplorerTracker;
+        _dragOffset.ClearFor(tracker.IsDesktop ? InlineCardDragOffset.DesktopHost : tracker.ActiveProcessName);
+        _hasCachedInputs = false;
+        PositionWindowCore();
+    }
 
     // Zero (or invalid negative input) preserves automatic sizing. Clamp custom DIP widths to the
     // target monitor, even when a tiny working area is narrower than the usual 200-DIP minimum.
@@ -443,16 +544,28 @@ public class InlineSearchWindowPositioner
     }
 
     /// <summary>Where the card's window starts vertically, in physical pixels.</summary>
+    /// <remarks>
+    /// <paramref name="physClientTop"/> is the anchored window's client area, where it has one: a card lying
+    /// over a window may not start above it, because above it is the title bar the system drew, and the host's
+    /// close button sits at the right end of that -- measured on Directory Opus's lister, whose frame starts at
+    /// 213 while its client area starts at 244, the card's corner landing on the button. It can only refuse a
+    /// position, never impose one: an anchor already inside the client area (a dialog's file list, a file
+    /// manager's pane) is below it and is kept, and a host that draws its own caption inside the client area
+    /// answers with that same top edge, which leaves the rule inert for it -- there is no system title bar
+    /// there to keep clear. Null when the window has no client area to ask about.
+    /// </remarks>
     internal static double CalculatePhysTop(
         bool hangsBelow,
         Core.Hook.ExplorerTracker.RECT dock,
         Core.Hook.ExplorerTracker.RECT? fileList,
-        double physXamlMarginY)
+        double physXamlMarginY,
+        double? physClientTop = null)
     {
         if (hangsBelow)
             return dock.Bottom - physXamlMarginY;
 
-        return (fileList.HasValue ? fileList.Value.Top : dock.Top) - physXamlMarginY;
+        var top = (fileList.HasValue ? fileList.Value.Top : dock.Top) - physXamlMarginY;
+        return physClientTop.HasValue ? Math.Max(top, physClientTop.Value - physXamlMarginY) : top;
     }
 
     private static bool SameRect(Core.Hook.ExplorerTracker.RECT? a, Core.Hook.ExplorerTracker.RECT? b) =>

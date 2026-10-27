@@ -1,4 +1,5 @@
 using System.IO.MemoryMappedFiles;
+using Lertaro.Core.IndexV2.Alias;
 
 namespace Lertaro.Core.IndexV2.Persistence;
 
@@ -241,7 +242,7 @@ public sealed unsafe class Snapshot : IDisposable
     }
 
     // The true parent FRN for a row -- resolved parent's own id, the stashed orphan FRN if
-    // unresolved, or self (root) if genuinely rootless. Mirrors QueryExtensions.GetParentId.
+    // unresolved, or self (root) if genuinely rootless.
     public UInt128 GetParentId(int row)
     {
         var parentIndex = ParentIndexes[row];

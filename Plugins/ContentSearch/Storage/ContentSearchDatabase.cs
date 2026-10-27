@@ -14,6 +14,25 @@ public sealed class ContentSearchDatabase : IDisposable
     private bool _initialized;
     private int _cachedTotalFiles;
     private int _cachedIndexedFiles;
+    private volatile bool _initialIndexCompleted;
+
+    internal bool InitialIndexCompleted
+    {
+        get { Initialize(); return _initialIndexCompleted; }
+        set
+        {
+            Initialize();
+            lock (_writeLock)
+            {
+                using var conn = OpenConnection();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "UPDATE index_state SET initial_index_completed = $completed WHERE id = 1;";
+                cmd.Parameters.AddWithValue("$completed", value);
+                cmd.ExecuteNonQuery();
+                _initialIndexCompleted = value;
+            }
+        }
+    }
 
     public int TotalFiles => _cachedTotalFiles;
     public int TotalChunks => _cachedTotalFiles;
@@ -35,10 +54,20 @@ public sealed class ContentSearchDatabase : IDisposable
         _connectionString = builder.ToString();
     }
 
-    private SqliteConnection OpenConnection()
+    internal SqliteConnection OpenConnection()
     {
         var conn = new SqliteConnection(_connectionString);
         conn.Open();
+        // Per-connection, so it belongs here and not in InitializeSchema: the full-scan retention pass creates
+        // a TEMP TABLE, and SQLite files that under %TEMP% -- a directory a reduced-integrity process cannot
+        // write, which surfaced as "unable to open database file" with nothing pointing at the temp dir.
+        // ponytail: costs RAM equal to the deletion candidate list; if a scan ever needs more than that,
+        // the fix is a keyed table in the main db rather than a larger temp_store.
+        using (var tempStoreCmd = conn.CreateCommand())
+        {
+            tempStoreCmd.CommandText = "PRAGMA temp_store = MEMORY;";
+            tempStoreCmd.ExecuteNonQuery();
+        }
         return conn;
     }
 
@@ -52,6 +81,9 @@ public sealed class ContentSearchDatabase : IDisposable
             using var conn = OpenConnection();
             DatabaseSchemaHelper.InitializeSchema(conn);
             RefreshStatsInternal(conn);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT initial_index_completed FROM index_state WHERE id = 1;";
+            _initialIndexCompleted = Convert.ToBoolean(cmd.ExecuteScalar());
             _initialized = true;
         }
     }
@@ -121,8 +153,8 @@ public sealed class ContentSearchDatabase : IDisposable
     }
 
     /// <summary>
-    /// Runs VACUUM when a large share of the database is free pages left over from
-    /// deleted rows, reclaiming the file space. Cheap no-op on a compact database.
+    /// Opens a connection and delegates to <see cref="DatabaseMaintenanceHelper.VacuumIfBloat"/>,
+    /// which documents the vacuum-when-bloated behaviour.
     /// </summary>
     public void VacuumIfBloat(double maxFreeRatio = 0.3)
     {
@@ -212,7 +244,7 @@ public sealed class ContentSearchDatabase : IDisposable
     /// A failure partway is logged and ends the enumeration rather than throwing at the caller, exactly as
     /// <see cref="SearchFts"/> collected the partial answer: hits already yielded are real matches and stay
     /// with whoever took them.
-    /// </summary>
+    /// </remarks>
     public IEnumerable<SearchHitItem> SearchFtsStreamed(string rawQuery, int limit)
     {
         if (string.IsNullOrWhiteSpace(rawQuery) || limit <= 0 || !File.Exists(_dbPath))
@@ -335,6 +367,7 @@ public sealed class ContentSearchDatabase : IDisposable
                     TryDeleteFile(_dbPath);
                     TryDeleteFile(_dbPath + "-wal");
                     TryDeleteFile(_dbPath + "-shm");
+                    _initialized = false;
                 }
                 catch { }
             }

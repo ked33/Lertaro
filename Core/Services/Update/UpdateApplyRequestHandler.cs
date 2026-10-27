@@ -34,12 +34,23 @@ namespace Lertaro.Core.Services.Update;
 /// </remarks>
 internal static class UpdateApplyRequestHandler
 {
+    private static readonly object UpdateGate = new();
+    private static System.Diagnostics.Process? _applier;
     /// <summary>Subdirectory of the install directory the verified payload is unpacked into for the copier.</summary>
     internal const string PayloadStagingFolderName = "update-payload";
 
-    private const string AppExeFileName = "Lertaro.App.exe";
+    /// <summary>
+    /// How long the handler watches a freshly started updater before answering Ok. Long enough to catch one
+    /// that dies on the spot, short enough that the copier's wait for the update lock (15 s) is unaffected.
+    /// </summary>
+    private static readonly TimeSpan UpdaterStartGracePeriod = TimeSpan.FromSeconds(1.5);
 
     public static PipeResponse Handle(NamedPipeServerStream pipe, string? sourceDir)
+    {
+        lock (UpdateGate) return HandleCore(pipe, sourceDir);
+    }
+
+    private static PipeResponse HandleCore(NamedPipeServerStream pipe, string? sourceDir)
     {
         try
         {
@@ -47,39 +58,48 @@ internal static class UpdateApplyRequestHandler
                 !PipeClientIdentity.TryGetClientSessionId(pipe, out var sessionId))
                 return Reject("Unable to identify caller.");
 
-            if (!HookLaunchRequestHandler.IsGenuineAppProcess(callerPid))
-                return Reject($"PID {callerPid} is not this install's Lertaro.App.exe.");
+            if (!PipeClientIdentity.IsAuthorizedApp(pipe, administrator: true))
+                return Reject("Updating this installation requires an administrator account running this installation's App.");
+            if (_applier is { HasExited: false }) return Reject("An update is already running.");
+            _applier?.Dispose();
+            _applier = null;
 
             var installDir = Path.TrimEndingDirectorySeparator(AppDomain.CurrentDomain.BaseDirectory);
-            var updaterBat = Path.Combine(installDir, "portable-updater.bat");
-            if (!File.Exists(updaterBat))
+            using var lease = AcquireUpdateLock(installDir);
+            var updaterScript = Path.Combine(installDir, "portable-updater.ps1");
+            if (!File.Exists(updaterScript))
                 return Reject("Updater script is missing from this install.");
 
             // A leftover from a run that died between unpacking and copying would otherwise be copied over
             // as part of this one.
-            var unpackDir = Path.Combine(installDir, PayloadStagingFolderName);
-            if (Directory.Exists(unpackDir))
-                Directory.Delete(unpackDir, true);
+            var unpackDir = Path.Combine(installDir, PayloadStagingFolderName, Guid.NewGuid().ToString("N"));
 
-            if (!UpdatePackage.TryVerifyAndExtract(sourceDir, unpackDir, out var payloadDir, out var packageError))
+            // Read as the caller, not as LocalSystem: the staging directory is the caller's to name, and
+            // this process must not reach into it (or through a link in it, or out to a share) with its own
+            // rights and credentials. What was read is then verified and unpacked from memory, so the files
+            // can change afterwards without it mattering. Deleting the staging directory is the App's job;
+            // it owns it, and a delete by LocalSystem of a path someone else chose is a delete of anything.
+            byte[]? zip = null, signature = null;
+            string? readError = null;
+            var read = false;
+            pipe.RunAsClient(() => read = UpdatePackage.TryReadStagedPackage(sourceDir, out zip, out signature, out readError));
+            if (!read)
+                return Reject(readError ?? "Unusable update package.");
+
+            if (!UpdatePackage.TryVerifyAndExtract(zip!, signature!, unpackDir, out var payloadDir, out var packageError))
                 return Reject(packageError ?? "Unusable update package.");
 
-            // The payload now sits where the copier will read it from, so the downloaded zip and signature
-            // have served their purpose. Best effort: this is the last moment anything knows where they are.
-            TryDeleteDirectory(sourceDir!);
-
-            // cmd.exe rather than a copy of this executable, because whatever does the copying must not be
-            // one of the files being copied: an applier running from the install directory would hold
-            // Lertaro.Service.exe and Lertaro.Core.dll locked and could not overwrite them. The script lives
-            // in System32, so nothing it replaces is in use by it.
+            // Run the script in the system PowerShell host, which holds none of our binaries open.
             //
             // Recorded before the copier starts, because the copier stops this service and this service is
             // the only process that can hand the App back to the session at its own integrity level.
-            UpdateRelaunchMarker.Write(sessionId, Path.Combine(installDir, AppExeFileName), DateTimeOffset.UtcNow);
+            UpdateRelaunchMarker.Write(sessionId, DateTimeOffset.UtcNow);
 
-            var arguments = $"/c \"\"{updaterBat}\" \"{payloadDir}\" \"{installDir}\"\"";
-            var cmdExe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
-            if (!SessionProcessLauncher.TryLaunch(sessionId, cmdExe, arguments, requestElevation: true,
+            // No user profile, no PATH lookup for the host; the script also restricts module discovery.
+            var system32 = Environment.GetFolderPath(Environment.SpecialFolder.System);
+            var arguments = $"-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{updaterScript}\" -Source \"{payloadDir}\" -Destination \"{installDir}\"";
+            var powershell = Path.Combine(system32, "WindowsPowerShell", "v1.0", "powershell.exe");
+            if (!SessionProcessLauncher.TryLaunch(sessionId, powershell, arguments, requestElevation: true,
                     detachFromConsole: false, out var pid, out var error))
             {
                 // Nothing was copied and this service stays running, so the note would only make some later
@@ -87,6 +107,38 @@ internal static class UpdateApplyRequestHandler
                 UpdateRelaunchMarker.Clear();
                 return Reject(error ?? "Could not start the updater.");
             }
+
+            // Covers the handoff until the updater opens the same lock file. It acquires that lock
+            // before stopping the service and holds it through copy/rollback and service restart.
+            var previous = _applier;
+            _applier = null;
+            previous?.Dispose();
+            var applier = System.Diagnostics.Process.GetProcessById(pid);
+
+            // The App quits as soon as it is told Ok, and only the copier can bring it back. A copier that
+            // dies within a moment -- blocked by an execution policy, refused elevation, a broken script --
+            // would take the App down with it and leave a stale relaunch note behind for the next service
+            // start. Watching it for a moment turns that into a refusal the App can report while it is still
+            // up; a real run keeps running, since it has to stop a service and copy the whole application.
+            try
+            {
+                if (applier.WaitForExit((int)UpdaterStartGracePeriod.TotalMilliseconds))
+                {
+                    var exitCode = applier.ExitCode;
+                    applier.Dispose();
+                    UpdateRelaunchMarker.Clear();
+                    if (exitCode != 0)
+                        return Reject($"The updater stopped before it started (exit code {exitCode}).");
+                    Logger.Log($"[UsnService] Update applier (PID {pid}) finished within the start grace period.");
+                    return new PipeResponse { Kind = PipeResponseKind.Ok };
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"[UsnService] Could not watch the update applier: {ex.Message}", LogLevel.Warn);
+            }
+
+            _applier = applier;
 
             Logger.Log($"[UsnService] Update applier launched (PID {pid}) into session {sessionId} for PID {callerPid}.");
             return new PipeResponse { Kind = PipeResponseKind.Ok };
@@ -98,18 +150,8 @@ internal static class UpdateApplyRequestHandler
         }
     }
 
-    private static void TryDeleteDirectory(string path)
-    {
-        try
-        {
-            if (Directory.Exists(path))
-                Directory.Delete(path, true);
-        }
-        catch (Exception ex)
-        {
-            Logger.Log($"[UsnService] Could not clean up {path}: {ex.Message}", LogLevel.Warn);
-        }
-    }
+    internal static FileStream AcquireUpdateLock(string installDirectory) =>
+        new(Path.Combine(installDirectory, "update.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
 
     private static PipeResponse Reject(string reason)
     {

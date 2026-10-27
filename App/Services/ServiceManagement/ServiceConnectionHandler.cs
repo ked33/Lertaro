@@ -92,67 +92,54 @@ public class ServiceConnectionHandler : IDisposable
 
     public void ClearServiceReconnectState()
     {
-        _globalAutoInstallAttempted = false;
+        ResetAutoInstallFlag();
         _globalAutoInstallingService = false;
         _globalReconnectUntilUtc = DateTime.MinValue;
     }
 
-    public void ResetAutoInstallFlag() => _globalAutoInstallAttempted = false;
+    /// <summary>
+    /// Spends the retry budget too, not just the flag: this is what a reachable service or an explicit user
+    /// action calls, and a half-reset budget would leave the next failure counting against the old attempts.
+    /// </summary>
+    public void ResetAutoInstallFlag()
+    {
+        _globalAutoInstallAttempted = false;
+        _globalAutoInstallAttempts = 0;
+        _globalAutoInstallRetryAfterUtc = DateTime.MinValue;
+    }
+
+    private bool ShouldWaitForRetry() =>
+        ShouldWaitForAutoInstallRetry(_globalAutoInstallAttempts, DateTime.UtcNow, _globalAutoInstallRetryAfterUtc);
+
+    /// <summary>Whether this was the moment to try again, recording the attempt and its cooldown.</summary>
+    private bool TryBeginAutoInstallAttempt()
+    {
+        if (!MayAttemptAutoInstall(_globalAutoInstallAttempts, DateTime.UtcNow, _globalAutoInstallRetryAfterUtc))
+            return false;
+
+        _globalAutoInstallAttempted = true;
+        _globalAutoInstallAttempts++;
+        _globalAutoInstallRetryAfterUtc = DateTime.UtcNow.Add(AutoInstallCooldown(_globalAutoInstallAttempts));
+        return true;
+    }
 
     public void AttemptSilentInstall()
     {
         if (_globalAutoInstallingService)
             return;
 
+        // Claimed before the first wait rather than before the install: both steps below end in a process
+        // exiting, and a poll tick arriving while the first is still running must not start a second one.
         _globalAutoInstallingService = true;
         BeginServiceReconnectGracePeriod();
 
-        // Run the installer off the UI thread: RunElevatedInstaller waits for the elevated process to
-        // exit (up to 30s), so calling it synchronously from a Dispatcher poll tick would freeze the UI.
+        // Off the UI thread. This is called from a Dispatcher poll tick, and the non-elevated start waits on
+        // the SCM's own 30-second verdict while the elevated installer waits up to 120 s, so a service that is
+        // merely slow to come up would otherwise freeze every open window for the length of that wait.
         _ = Task.Run(() =>
         {
-            // sc start may wait for STOP_PENDING to finish. Never run that wait on the Dispatcher.
-            if (ServiceInstallManager.TryStartExistingService())
+            void FinishAutoInstall(Action<ServiceConnectionHandler> notify)
             {
-                Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
-                {
-                    _globalAutoInstallingService = false;
-                    BeginServiceReconnectGracePeriod();
-                    NotifySubscribers(subscriber => subscriber._onServiceInstallCompleted());
-                }));
-                return;
-            }
-            Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
-                NotifySubscribers(subscriber => subscriber._onServiceInstallStarted())));
-            var result = ServiceInstallManager.SilentInstall(
-                onCompleted: () =>
-                {
-                    var dispatcher = Application.Current?.Dispatcher;
-                    if (dispatcher == null)
-                        return;
-                    dispatcher.BeginInvoke(new Action(() =>
-                    {
-                        _globalAutoInstallingService = false;
-                        BeginServiceReconnectGracePeriod();
-                        NotifySubscribers(subscriber => subscriber._onServiceInstallCompleted());
-                    }));
-                },
-                onFailed: ex =>
-                {
-                    var dispatcher = Application.Current?.Dispatcher;
-                    if (dispatcher == null)
-                        return;
-                    dispatcher.BeginInvoke(new Action(() =>
-                    {
-                        _globalAutoInstallingService = false;
-                        BeginServiceReconnectGracePeriod();
-                        NotifySubscribers(subscriber => subscriber._onServiceFailedToStart());
-                    }));
-                });
-
-            if (result == ServiceInstallManager.SilentInstallResult.AlreadyRunning)
-            {
-                Logger.Log("[ServiceConnectionHandler] Silent service install already running; waiting for reconnect.", LogLevel.Debug);
                 var dispatcher = Application.Current?.Dispatcher;
                 if (dispatcher == null)
                     return;
@@ -160,8 +147,34 @@ public class ServiceConnectionHandler : IDisposable
                 {
                     _globalAutoInstallingService = false;
                     BeginServiceReconnectGracePeriod();
+                    NotifySubscribers(notify);
                 }));
             }
+
+            // Fast path: if the service is already installed at the current exe path, start it without
+            // elevation instead of prompting for a reinstall.
+            if (ServiceInstallManager.TryStartExistingService())
+            {
+                FinishAutoInstall(subscriber => subscriber._onServiceInstallCompleted());
+                return;
+            }
+
+            var result = ServiceInstallManager.SilentInstall(
+                onCompleted: () => FinishAutoInstall(subscriber => subscriber._onServiceInstallCompleted()),
+                onFailed: _ => FinishAutoInstall(subscriber => subscriber._onServiceFailedToStart()));
+
+            if (result != ServiceInstallManager.SilentInstallResult.AlreadyRunning)
+                return;
+
+            // Another install is in flight in this process, so its outcome will report the result. Leaving the
+            // flag set here used to block every later attempt for the rest of the session.
+            Logger.Log("[ServiceConnectionHandler] Silent service install already running; waiting for reconnect.", LogLevel.Debug);
+            var dispatcher = Application.Current?.Dispatcher;
+            dispatcher?.BeginInvoke(new Action(() =>
+            {
+                _globalAutoInstallingService = false;
+                BeginServiceReconnectGracePeriod();
+            }));
         });
     }
 
@@ -170,7 +183,9 @@ public class ServiceConnectionHandler : IDisposable
         _ = Task.Run(() => ServiceInstallManager.InstallService(
             onCompleted: () => Application.Current.Dispatcher.BeginInvoke(new Action(() =>
             {
-                _globalAutoInstallAttempted = true;
+                // The user asked for this install, so it re-arms the automatic budget rather than consuming what
+                // is left of it: an unreachable service afterwards should still be retried on the cooldown.
+                ResetAutoInstallFlag();
                 _globalAutoInstallingService = false;
                 BeginServiceReconnectGracePeriod();
                 NotifySubscribers(subscriber => subscriber._onServiceInstallCompleted());
@@ -185,15 +200,14 @@ public class ServiceConnectionHandler : IDisposable
     {
         if (status.State == "error")
         {
-            if (ShouldWaitForServiceReconnect())
+            if (ShouldWaitForServiceReconnect() || ShouldWaitForRetry())
             {
                 _onStatusUpdated(new UsnIndexer.IndexerStatus { State = "reconnecting" });
                 return;
             }
 
-            if (!_globalAutoInstallAttempted)
+            if (TryBeginAutoInstallAttempt())
             {
-                _globalAutoInstallAttempted = true;
                 AttemptSilentInstall();
                 _onStatusUpdated(new UsnIndexer.IndexerStatus { State = "reconnecting" });
                 return;
@@ -219,15 +233,14 @@ public class ServiceConnectionHandler : IDisposable
     {
         if (!isReachable)
         {
-            if (ShouldWaitForServiceReconnect())
+            if (ShouldWaitForServiceReconnect() || ShouldWaitForRetry())
             {
                 _onStatusUpdated(new UsnIndexer.IndexerStatus { State = "reconnecting" });
                 return;
             }
 
-            if (!_globalAutoInstallAttempted)
+            if (TryBeginAutoInstallAttempt())
             {
-                _globalAutoInstallAttempted = true;
                 AttemptSilentInstall();
                 _onStatusUpdated(new UsnIndexer.IndexerStatus { State = "reconnecting" });
                 return;

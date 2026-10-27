@@ -52,6 +52,28 @@ public sealed class PathWhitelistTests
     }
 
     [TestMethod]
+    public void WhitelistPreservesTraversalAndPriorityWithUnifiedIndexRules()
+    {
+        var settings = new UserSettings
+        {
+            IndexRules =
+            [
+                new() { Pattern = @"C:\work", Effect = IndexRuleEffect.Exclude },
+                new() { Pattern = @"C:\work\keep", Effect = IndexRuleEffect.High, AlwaysTop = true }
+            ],
+            WhitelistedPaths = [@"C:\work\keep"]
+        };
+        var rules = ExclusionRuleSet.From(settings);
+        Assert.IsTrue(rules.IsExcludedPath(@"C:\work", true));
+        Assert.IsFalse(rules.IsExcludedFromIndex(@"C:\work", true), "scanner must reach the whitelisted descendant");
+        Assert.IsTrue(rules.IsExcludedFromIndex(@"C:\work\other", true));
+        Assert.IsFalse(rules.IsExcludedPath(@"C:\work\keep\file.txt", false));
+        var priority = rules.GetPriorityVerdict(@"C:\work\keep\file.txt", false);
+        Assert.AreEqual(IndexRuleEffect.High, priority.Effect);
+        Assert.IsTrue(priority.AlwaysTop);
+    }
+
+    [TestMethod]
     public void Whitelist_UsesAbsolutePathEvenForScopedSearch()
     {
         var settings = new UserSettings { WhitelistedPaths = [@"C:\work\.claude"] };

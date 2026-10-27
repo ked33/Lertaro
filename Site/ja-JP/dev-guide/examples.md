@@ -9,32 +9,32 @@
 ### 主な実装ポイント
 
 - **静的アクション（`IActionProvider.GetActions()`）**：開く、エクスプローラーで表示、パスやファイルのコピー、お気に入りへの追加、名前の変更、コマンドプロンプト、削除、管理者としての実行など、基本的なファイル操作を提供。
-- **Shell コンテキストメニュー統合（`IDynamicActionProvider`）**：`ShellMenuActionProvider` を介して Windows Shell の COM インターフェイスと連携し、階層化された右クリックメニュー（「送る」、7-Zip、VS Code など）を `Ctrl+O` アクションメニュー内に忠実に描画。
+- **Shell コンテキストメニュー統合（`IDynamicActionProvider`）**：`ShellMenuActionProvider` を介して Windows Shell の COM インターフェイスと連携し、階層化された右クリックメニュー（「送る」、7-Zip、VS Code など）を `Ctrl+O` アクションメニュー内に描画。
 - **スキーマ駆動の設定フォーム（`IConfigurable`）**：グループ化（`Group`）、文字列リスト（`StringList`）、ホットキー登録（`Hotkey`）を含むフォームスキーマを定義し、XAML を書かずに設定センターへ UI を自動生成。
 - **多彩なクイックパネルタブ（`IQuickPanelTabProvider`）**：
-  - `FavoritesTabProvider` / `HistoryTabProvider`：メモリ上のデータをそのまま結果として返し、ディスク I/O を発生させない最小構成。
+  - `FavoritesTabProvider` / `HistoryTabProvider`：ホストがすでに読み込んでいるお気に入りと履歴を返すだけで、ディスクから読み直すことはしません。履歴の問い合わせは UI スレッド外（`Task.Run`）にディスパッチされるため、パネルの呼び出しがそれによって待たされることはありません。
   - `WindowsRecentTabProvider`：バックグラウンドで `Recent` フォルダーを巡回し、COM でショートカットのリンク先を解決して `Metadata.Modified` を付与。
   - `LastDirectoryTabProvider` / `RecentFilesTabProvider`：ホストが公開している [`ExplorerPathService`](./sdk/services) や `RecentFilesService` を直接参照。
 
 ## 2. PinyinAlias —— 非 ASCII エイリアス変換エンジン
 
-`PinyinAlias` は、中国語ファイル名に対するピンイン全スペルおよび頭文字検索をサポートし、`IAliasProvider` と `ITranslationProvider` を実装しています。
+`PinyinAlias` は、中国語ファイル名に対するピンイン全スペルおよび頭文字検索をサポートし、`IAliasLiveMatcherProvider`（`IAliasProvider` の拡張）と `ITranslationProvider` を実装しています。
 
 ### 主な実装ポイント
 
-- **文字境界の宣言（`InputRanges` / `OutputRanges`）**：入力元を CJK 統合漢字、出力先を英小文字 `a`–`z` と定義。ホストはこの情報をもとに、漢字とアルファベットが混在したクエリを字面一致とピンイン一致に自動分割。
+- **文字境界の宣言（`InputRanges` / `OutputRanges`）**：入力の境界として CJK 統合漢字の範囲を 1 つだけ宣言し（U+3007–U+9FFD）、出力先を英小文字 `a`–`z` と定義。ホストはこの情報をもとに、漢字とアルファベットが混在したクエリを字面一致とピンイン一致に自動分割。
 - **事前高速判定（`CanHandle(text)`）**：文字列中に該当文字が含まれるかを事前に走査し、英数字のみの場合は即座に `false` を返して不要な処理をスキップ。
-- **多音字の組み合わせ生成（`GetAliases(text)`）**：音節マップを構築し、複数の読みが存在する場合にパイプ記号 `|` で連結した候補群を最大 32 通りまで生成して並列照合。
+- **読みライブ照合（`IAliasLiveMatcherProvider`）**: 読みをインデックスに保存しません。プラグインは検索語ごとに変わらないビットパラレル照合機（ASCII の英数字 2〜63 文字）を構築し、ホストが対象名の文字を順に走査します。各文字はその漢字の読みの空でない接頭部分を消費するため、一致は必ず連続した一区間になり、多音字でも追加の容量は不要です。`GetAliases(text)` は繁体字の簡体字表記のみを出力します。
 - **多言語リソースとスレッドセーフなキャッシュ**：`ITranslationProvider` を通じてプラグインの表示名を多言語化し、内部では `lock` 付きディクショナリで JSON をキャッシュして高速化。
 
 ## 3. FlowLauncherBridge —— コミュニティプラグインの相互運用
 
-`FlowLauncherBridge` は、外部の Flow Launcher プラグインをネイティブレベルで透過的に動かすための大規模ブリッジプラグインです。
+`FlowLauncherBridge` は、外部の Flow Launcher プラグインをネイティブレベルで動かすための大規模ブリッジプラグインです。
 
 ### 主な実装ポイント
 
 - **マルチ言語プロセス間ブリッジ**：C# (.NET)、Python 3.12、Node.js v20 LTS、および `.exe` 形式の Flow プラグインを実行。
-- **隔離された自己完結ランタイム**：ユーザーデータフォルダー内に Python / Node.js ランタイムを自動配置し、名前付きパイプによる JSON-RPC 通信を実行。
+- **隔離された自己完結ランタイム**：ユーザーごとのデータフォルダーではなく、Lertaro の**共有データディレクトリ**（`SharedDataDirectory\FlowData\PythonEmbeded-{arch}`）に隔離された Python / Node.js ランタイムを配置します。各プラグインは、JSON-RPC を載せた**リダイレクトされた標準入出力**を介してインタープリターと通信します。名前付きパイプは使わず、システムの PATH にも一切手を入れません。
 - **動的設定フォームと WebView2 リッチプレビュー**：外部プラグインの `SettingsTemplate.yaml`/`.json` を `PluginConfigSchema` に動的変換し、辞書や天気などのリッチな HTML プレビューを QuickLook 内に表示。
 
 ## 4. FileUnlocker —— ファイル占有解除アクション

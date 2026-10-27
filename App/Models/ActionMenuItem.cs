@@ -39,6 +39,27 @@ public class ActionMenuItem : INotifyPropertyChanged
     public IntPtr SubMenuHandle { get; set; }
     public bool IsDisabled { get; set; }
     public ImageSource? Icon { get; set; }
+    // A dynamic provider that only knows its icon as a vector hands over path data (DynamicMenuItem
+    // .IconPathData). It is not turned into an Icon where it arrives: that list is assembled off the UI
+    // thread, and building one needs a brush read out of the application's resources. MaterializeVectorIcon
+    // runs on the UI thread instead, at the one point every host reaches the list through.
+    internal string VectorIconPathData { get; set; } = string.Empty;
+
+    internal void MaterializeVectorIcon()
+    {
+        if (Icon != null || string.IsNullOrWhiteSpace(VectorIconPathData)) return;
+        try
+        {
+            // The same brush the settings page previews this very field with, so the row matches its own
+            // preview. Path data that will not parse (a settings file edited by hand) leaves the item on
+            // its placeholder dot rather than taking the menu down.
+            Icon = Services.ShellIcons.ShellIconHelper.CreateVectorIcon(VectorIconPathData, "DefaultPluginIconColor");
+        }
+        catch (Exception ex)
+        {
+            Core.Logger.Log($"[ActionMenuItem] Vector action icon not rendered: {ex.Message}", Core.LogLevel.Warn);
+        }
+    }
     private string _shortcutHint = string.Empty;
     public string ShortcutHint
     {
@@ -46,6 +67,11 @@ public class ActionMenuItem : INotifyPropertyChanged
         set => _shortcutHint = Core.HotkeyStringFormat.ToDisplayText(value);
     }
     public Action? OnExecute { get; set; }
+
+    // A few built-in actions open their own modal UI (the page export's SaveFileDialog). Hiding the
+    // search window first would leave that dialog owned by a hidden window and strand keyboard/IME
+    // focus after it closes, so those actions keep the window visible and exit actions mode normally.
+    internal bool KeepWindowVisible { get; set; }
 
     public double ItemHeight { get; set; } = Services.UiMetrics.ListItemHeight;
 
@@ -82,9 +108,11 @@ public class ActionMenuItem : INotifyPropertyChanged
     // UiMetrics.BaseResultIconSize, so using Scale here left action text/icons visibly smaller than
     // the result row text sitting right next to them once the two diverged.
     public double ScaledIconSize => Math.Round(BaseIconSize * Services.UiMetrics.IconRelativeFontScale);
-    public double ScaledTextFontSize => Math.Round(BaseTextFontSize * Services.UiMetrics.IconRelativeFontScale);
-    public double ScaledSectionFontSize => Math.Round(BaseSectionFontSize * Services.UiMetrics.IconRelativeFontScale);
-    public double ScaledShortcutFontSize => Math.Round(BaseShortcutFontSize * Services.UiMetrics.IconRelativeFontScale);
+    // Onto the font-size ladder where the icon scale pushes a size past its base: these ride the same
+    // scaling factor as the result rows, so they can land on a fractional size for the same reason.
+    public double ScaledTextFontSize => Services.AppTypography.SnapFontSize(BaseTextFontSize * Services.UiMetrics.IconRelativeFontScale);
+    public double ScaledSectionFontSize => Services.AppTypography.SnapFontSize(BaseSectionFontSize * Services.UiMetrics.IconRelativeFontScale);
+    public double ScaledShortcutFontSize => Services.AppTypography.SnapFontSize(BaseShortcutFontSize * Services.UiMetrics.IconRelativeFontScale);
 
     public bool IsNormalItem => !IsSeparator && !IsSectionHeader;
 

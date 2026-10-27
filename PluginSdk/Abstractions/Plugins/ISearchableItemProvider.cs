@@ -21,10 +21,29 @@ public interface ISearchableItemProvider : IPluginComponent
     bool EnableAlias => true;
 
     /// <summary>
+    /// The ResultKind every item from this provider carries, when they all share one (e.g. "Application").
+    /// Null when the provider mixes kinds or does not declare one, in which case callers read each item's
+    /// own <see cref="SearchableItem.ResultKind"/>. Hosts use this to name the type group a provider's rows
+    /// belong to without depending on the provider implementation.
+    /// </summary>
+    string? ItemResultKind => null;
+
+    /// <summary>
     /// Fired when the items of the provider change, notifying the host to clear cache.
     /// </summary>
     event Action? ItemsChanged;
 }
+
+/// <summary>Why a provider-supplied alias describes one searchable item.</summary>
+public enum SearchableItemAliasKind : byte
+{
+    Curated = 0,
+    ShortcutTarget = 1,
+    ProductMetadata = 2,
+}
+
+/// <summary>An alias cached with a searchable item; matching never calls the provider again.</summary>
+public readonly record struct SearchableItemAlias(string Text, SearchableItemAliasKind Kind = SearchableItemAliasKind.Curated);
 
 /// <summary>
 /// Represents an individual searchable item to be indexed by the host.
@@ -33,6 +52,15 @@ public class SearchableItem
 {
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+
+    /// <summary>Optional search keywords. Each query word must prefix a title or keyword word.</summary>
+    public IReadOnlyList<string> Keywords { get; set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Optional provider-owned aliases with provenance. The host snapshots these during provider loading;
+    /// providers must not resolve shortcuts, inspect files, or perform other I/O from a query callback.
+    /// </summary>
+    public IReadOnlyList<SearchableItemAlias> Aliases { get; set; } = Array.Empty<SearchableItemAlias>();
 
     /// <summary>Optional vector path string for a custom icon.</summary>
     public string? IconData { get; set; }
@@ -55,7 +83,10 @@ public class SearchableItem
     public string? TabCompletion { get; set; }
 
     /// <summary>
-    /// Optional pre-loaded icon as a GDI HBITMAP (Win32 handle).
+    /// Optional pre-loaded icon as a GDI HBITMAP (Win32 handle). The host takes ownership and calls
+    /// DeleteObject once it has materialized the bitmap -- do not reuse or free this handle yourself
+    /// after handing it over.
+    /// </summary>
     public IntPtr HBitmapIcon { get; set; }
 
     /// <summary>

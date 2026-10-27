@@ -12,6 +12,7 @@ internal sealed class FileDialogNavigationTracker
     private readonly Func<IntPtr, IFileDialogAdapter?> _resolve;
     private readonly Func<IntPtr, string?> _readSource;
     private readonly int _retryMs;
+    private readonly Func<IntPtr, bool> _canRestoreFocus;
     private IntPtr _source;
     private uint _sourcePid;
     private long _version;
@@ -20,7 +21,7 @@ internal sealed class FileDialogNavigationTracker
     private Request? _pending, _active;
     private Task _worker = Task.CompletedTask;
 
-    private sealed record Request(IntPtr Hwnd, uint Pid, string? Path, long Version, bool Automatic)
+    private sealed record Request(IntPtr Hwnd, uint Pid, string? Path, long Version, bool Automatic, bool RestoreFocus)
     {
         public CancellationTokenSource Cancellation { get; } = new();
     }
@@ -30,14 +31,18 @@ internal sealed class FileDialogNavigationTracker
         FileDialogNavigationNative.ReadSource, 100) { }
 
     internal FileDialogNavigationTracker(Func<IntPtr, uint> processId, Func<IntPtr, uint, bool> isCurrent,
-        Func<IntPtr, IFileDialogAdapter?> resolve, Func<IntPtr, string?> readSource, int retryMs)
+        Func<IntPtr, IFileDialogAdapter?> resolve, Func<IntPtr, string?> readSource, int retryMs,
+        Func<IntPtr, bool>? canRestoreFocus = null)
     {
         _processId = processId;
         _isCurrent = isCurrent;
         _resolve = resolve;
         _readSource = readSource;
         _retryMs = retryMs;
+        _canRestoreFocus = canRestoreFocus ?? Commands.FileDialogCommandHandler.IsForegroundDialogOrOwnedWindow;
     }
+
+    internal bool HasSource => Volatile.Read(ref _source) != IntPtr.Zero;
 
     public string? LastActiveExplorerPath { get { lock (_gate) return _lastActiveExplorerPath; } }
     internal Task Completion { get { lock (_gate) return _worker; } }
@@ -122,14 +127,14 @@ internal sealed class FileDialogNavigationTracker
         }
     }
 
-    public void RequestNavigation(IntPtr hwnd, string? path = null)
+    public void RequestNavigation(IntPtr hwnd, string? path = null, bool restoreFocus = false)
     {
         var pid = _processId(hwnd);
         if (hwnd == IntPtr.Zero || pid == 0 || (path != null && !IsPath(path))) return;
-        lock (_gate) Enqueue(hwnd, pid, path, automatic: false);
+        lock (_gate) Enqueue(hwnd, pid, path, automatic: false, restoreFocus);
     }
 
-    private void Enqueue(IntPtr hwnd, uint pid, string? path, bool automatic)
+    private void Enqueue(IntPtr hwnd, uint pid, string? path, bool automatic, bool restoreFocus = false)
     {
         // Only one automatic attempt per source/activation. Input-generated focus/name events must
         // not restart an exhausted attempt forever; a real activation or explicit hotkey can retry.
@@ -139,11 +144,12 @@ internal sealed class FileDialogNavigationTracker
         {
             if (automatic && !existing.Automatic) return;
             if (existing.Hwnd == hwnd && existing.Pid == pid && existing.Version == _version
+                && existing.RestoreFocus == restoreFocus
                 && string.Equals(existing.Path, path, StringComparison.OrdinalIgnoreCase)) return;
         }
         _active?.Cancellation.Cancel();
         _pending?.Cancellation.Dispose();
-        _pending = new Request(hwnd, pid, path, _version, automatic);
+        _pending = new Request(hwnd, pid, path, _version, automatic, restoreFocus);
         if (automatic) _autoAttempt = (hwnd, pid, _version);
         if (_worker.IsCompleted) _worker = Task.Run(RunAsync);
     }
@@ -186,6 +192,16 @@ internal sealed class FileDialogNavigationTracker
         {
             token.ThrowIfCancellationRequested();
             if (attempt != 0) await Task.Delay(_retryMs, token).ConfigureAwait(false);
+            if (request.RestoreFocus && !_isCurrent(request.Hwnd, request.Pid))
+            {
+                if (_processId(request.Hwnd) != request.Pid
+                    || !_canRestoreFocus(request.Hwnd)) return;
+                var focusAdapter = _resolve(request.Hwnd);
+                token.ThrowIfCancellationRequested();
+                if (focusAdapter == null) continue;
+                if (_processId(request.Hwnd) != request.Pid || !_canRestoreFocus(request.Hwnd)
+                    || !focusAdapter.RestoreFocus(request.Hwnd)) return;
+            }
             if (!_isCurrent(request.Hwnd, request.Pid))
             {
                 // IPC may arrive just before the App finishes hiding its menu.

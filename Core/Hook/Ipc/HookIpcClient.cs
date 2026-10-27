@@ -4,6 +4,7 @@ using Lertaro.Core.Services.Search;
 using Lertaro.Core.Wire;
 using Lertaro.Core.Hook.Commands;
 namespace Lertaro.Core.Hook.Ipc;
+
 public sealed class HookIpcClient : IDisposable
 {
     private Process? _hookProcess;
@@ -12,7 +13,12 @@ public sealed class HookIpcClient : IDisposable
     private NamedPipeClientStream? _cmdPipe;
     private CancellationTokenSource? _cts;
     private Task? _listenTask;
+    private Task? _stopTask;
+    private readonly object _lifecycleGate = new();
+    private int _stopping;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
+    private const int LaunchRetryDelayFirstMs = 5_000, LaunchRetryDelayMaxMs = 60_000;
+    private int _launchRetryDelayMs = LaunchRetryDelayFirstMs;
     public int ServiceProcessId { get; private set; }
     // False during cold-start or hook downtime, so IPC-bound calls fail fast instead of waiting for an unreachable reply.
     public bool IsConnected => _cmdPipe != null && _cmdPipe.IsConnected;
@@ -31,6 +37,11 @@ public sealed class HookIpcClient : IDisposable
             }
         }
     }
+
+    /// <summary>Asks the hook to put its low-level hooks back up. Windows drops them silently once a
+    /// callback overruns the hook timeout -- which resume is prone to -- and the handle it returned stays
+    /// valid, so only a caller outside that process can notice. See <see cref="IpcMessageId.RearmHooks"/>.</summary>
+    public void RearmHooks() => SendMessage(new IpcMessage { Id = IpcMessageId.RearmHooks });
 
     private async Task ClosePipesAsync()
     {
@@ -59,7 +70,6 @@ public sealed class HookIpcClient : IDisposable
     public event Action? OnLeftPressed;
     public event Action? OnRightPressed;
     public event Action<int>? OnCtrlNumberPressed;
-    public event Action? OnFocusInlineSearchRequested;
     public event Action<int, int>? OnMouseClick;
     public event Action<int, int>? OnMouseDoubleClick;
     public event Action<int, int>? OnMouseMiddleClick;
@@ -74,15 +84,33 @@ public sealed class HookIpcClient : IDisposable
 
     public void Start()
     {
-        if (_cts != null) return; // already started
-        _cts = new CancellationTokenSource();
-        _listenTask = Task.Run(() => RunLoop(_cts.Token));
+        lock (_lifecycleGate)
+        {
+            if (_cts != null || _stopping != 0) return;
+            var cts = _cts = new CancellationTokenSource();
+            _listenTask = Task.Run(() => RunLoop(cts.Token));
+        }
     }
-    public void Stop()
+    public void Stop() => _ = StopAsync();
+
+    public Task StopAsync()
     {
+        lock (_lifecycleGate)
+            return _stopTask ??= StopCoreAsync();
+    }
+
+    private async Task StopCoreAsync()
+    {
+        Interlocked.Exchange(ref _stopping, 1);
+        // Keep the receive loop alive until Stop has been written; its finally disposes both pipes.
+        await SendMessageAsync(new IpcMessage { Id = IpcMessageId.Stop }).ConfigureAwait(false);
         _cts?.Cancel();
-        SendMessage(new IpcMessage { Id = IpcMessageId.Stop });
-        _ = ClosePipesAsync();
+        await ClosePipesAsync().ConfigureAwait(false);
+        if (_listenTask != null)
+        {
+            try { await _listenTask.ConfigureAwait(false); }
+            catch (OperationCanceledException) { }
+        }
     }
     public void SendMessage(IpcMessage msg) => _ = SendMessageAsync(msg);
 
@@ -114,17 +142,18 @@ public sealed class HookIpcClient : IDisposable
 
     private async Task<bool> SendMessageAsync(IpcMessage msg)
     {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         // False until a write is confirmed, so a pipe that died mid-write still reports not sent.
         var sent = false;
         try
         {
-            await _writeGate.WaitAsync().ConfigureAwait(false);
+            await _writeGate.WaitAsync(timeout.Token).ConfigureAwait(false);
 
             try
             {
                 if (_cmdPipe is { IsConnected: true } cmdPipe)
                 {
-                    await PipeRequestBinarySerializer.WriteMessageAsync(cmdPipe, msg).ConfigureAwait(false);
+                    await PipeRequestBinarySerializer.WriteMessageAsync(cmdPipe, msg, timeout.Token).ConfigureAwait(false);
                     sent = true;
                 }
 
@@ -161,17 +190,18 @@ public sealed class HookIpcClient : IDisposable
     /// </summary>
     private async Task ResendPendingStateAsync()
     {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         foreach (var state in _pendingState.Values.ToList())
         {
             if (_cmdPipe is not { IsConnected: true })
                 return;
 
-            await PipeRequestBinarySerializer.WriteMessageAsync(_cmdPipe, state).ConfigureAwait(false);
+            await PipeRequestBinarySerializer.WriteMessageAsync(_cmdPipe, state, timeout.Token).ConfigureAwait(false);
         }
     }
     private async Task RunLoop(CancellationToken token)
     {
-        while (!token.IsCancellationRequested)
+        while (!token.IsCancellationRequested && Volatile.Read(ref _stopping) == 0)
         {
             try
             {
@@ -179,15 +209,21 @@ public sealed class HookIpcClient : IDisposable
                 if (_hookProcess == null)
                 {
                     // Warn, not Error: expected on a cold start while the Service is still coming up --
-                    // this loop retries every 5s and self-heals once it's reachable. Inside the
+                    // this loop retries and self-heals once it's reachable. Inside the
                     // cold-start window it is Debug outright so a boot does not log a batch of these.
                     var level = ServicePipeReadinessGate.Instance.IsColdStart(Environment.TickCount64)
                         ? LogLevel.Debug
                         : LogLevel.Warn;
                     Logger.Log("[HookIpcClient] Failed to launch hook process.", level);
-                    await Task.Delay(5000, token);
+                    // Back off to a minute instead of retrying on a fixed 5s beat forever. A service that is
+                    // merely still starting heals inside the first few rounds; a launch that can never succeed
+                    // (the pipe object sits above this process's reach, a broken install) would otherwise write
+                    // the same two lines twelve times a minute for the whole session, as issue #342's logs did.
+                    await Task.Delay(_launchRetryDelayMs, token);
+                    _launchRetryDelayMs = Math.Min(_launchRetryDelayMs * 2, LaunchRetryDelayMaxMs);
                     continue;
                 }
+                _launchRetryDelayMs = LaunchRetryDelayFirstMs;
 
                 ServiceProcessId = _hookProcess.Id;
                 Logger.Log($"[HookIpcClient] Hook process launched (PID {_hookProcess.Id}), connecting to Event and Cmd pipes...", LogLevel.Debug);
@@ -231,7 +267,7 @@ public sealed class HookIpcClient : IDisposable
                     _writeGate.Release();
                 }
 
-                // Send initial process ID of the App so the Service can ignore it.
+                // Send initial process ID of the App so the Hook can ignore it.
                 SendMessage(new IpcMessage { Id = IpcMessageId.SetAppProcessId, ProcessId = (uint)Environment.ProcessId });
                 SendMessage(new IpcMessage { Id = IpcMessageId.SetHotkeysDisabled, BoolVal = _isHotkeysDisabled });
                 // Listen for events from Hook Service.
@@ -292,7 +328,7 @@ public sealed class HookIpcClient : IDisposable
                 }
 
                 try { _hookProcess?.Kill(); } catch { }
-
+                _hookProcess?.Dispose();
                 _hookProcess = null;
             }
 
@@ -328,9 +364,6 @@ public sealed class HookIpcClient : IDisposable
                     break;
                 case IpcMessageId.KeyCtrlNumber:
                     OnCtrlNumberPressed?.Invoke(msg.IntVal);
-                    break;
-                case IpcMessageId.FocusInlineSearch:
-                    OnFocusInlineSearchRequested?.Invoke();
                     break;
                 case IpcMessageId.MouseClick:
                     OnMouseClick?.Invoke(msg.MouseX, msg.MouseY);
@@ -391,8 +424,6 @@ public sealed class HookIpcClient : IDisposable
         // Cancel without Dispose: the receive loop still holds this token and registers on it while
         // unwinding (a disposed CTS throws ObjectDisposedException there; it holds no unmanaged
         // resources, so skipping Dispose is safe).
-        _cts?.Cancel();
-        _cts = null;
         _launchBroker.Dispose();
     }
 }

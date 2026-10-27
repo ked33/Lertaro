@@ -1,13 +1,91 @@
 using System.Diagnostics;
 using System.IO;
 using Lertaro.Core;
+using Lertaro.Core.Services.Installation;
+using Lertaro.Core.Services.Search;
 
 namespace Lertaro.App.Services;
 
 public static class ServiceInstallManager
 {
-    private const int InstallerTimeoutMs = 30000;
-    private const int StartTimeoutMs = 10000;
+    public static void RepairPermissions()
+    {
+        var sid = System.Security.Principal.WindowsIdentity.GetCurrent().User!.Value;
+        // The elevated repair cannot have its stderr captured, and it deliberately runs before the service
+        // opens its log: it records its steps in this file instead, which is read back below. See
+        // PermissionRepairReport for why nothing else works on this path.
+        PermissionRepairReport.Clear();
+        using var process = Process.Start(new ProcessStartInfo(GetServiceExePath(), $"--repair-permissions {sid}")
+        { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden })
+            ?? throw new IOException("Could not start the permission repair.");
+        var exited = process.WaitForExit(InstallerTimeoutMs);
+        if (!exited || process.ExitCode != 0)
+            throw new IOException(DescribeRepairFailure(exited, exited ? process.ExitCode : 0, PermissionRepairReport.Read(), sid));
+    }
+
+    /// <summary>What the user is told when the elevated repair did not succeed. Pure, so it can be asserted.</summary>
+    /// <remarks>
+    /// "Permission repair did not complete successfully" was the whole message this used to produce, for a
+    /// timeout, a refused lock walk, an unknown profile and a thrown exception alike (issue #342).
+    /// </remarks>
+    internal static string DescribeRepairFailure(bool exited, int exitCode, string? report, string sid)
+    {
+        var reason = exited
+            ? $"Permission repair failed (exit code {exitCode})."
+            : $"Permission repair did not finish within {InstallerTimeoutMs / 1000} seconds; it was still at: "
+              + $"{PermissionRepairReport.LastStep(report) ?? "an unrecorded step"}.";
+        var detail = TailOf(report) ?? "It left no diagnostic of its own.";
+        return $"{reason}\n{detail}\nThe whole trace is in {PermissionRepairReport.DefaultPath}\n"
+            + $"To see the failure directly, run \"{GetServiceExePath()}\" --repair-permissions {sid} "
+            + "from an elevated command prompt.";
+    }
+
+    /// <summary>What the user is told when the elevated installer did not succeed.</summary>
+    /// <remarks>
+    /// Same shape as <see cref="DescribeRepairFailure"/>, and for the same reason: the installer's stderr is
+    /// discarded too (UseShellExecute + runas, hidden window), its log opens only after the steps that fail
+    /// first, and "did not complete successfully (declined, timed out, or failed)" is three different problems
+    /// in one sentence. A service that never starts is usually this message and nothing else.
+    /// </remarks>
+    internal static string DescribeInstallFailure(bool exited, int exitCode, string? report, string serviceExePath)
+    {
+        var reason = exited
+            ? $"Service installation failed (exit code {exitCode})."
+            : $"Service installation did not finish within {InstallerTimeoutMs / 1000} seconds; it was still at: "
+              + $"{PermissionRepairReport.LastStep(report) ?? "an unrecorded step"}.";
+        var detail = TailOf(report) ?? "It left no diagnostic of its own.";
+        return $"{reason}\n{detail}\nThe whole trace is in {PermissionRepairReport.DefaultPath}\n"
+            + $"To see the failure directly, run \"{serviceExePath}\" --install from an elevated command prompt.";
+    }
+
+    /// <summary>
+    /// The last few lines of the repair's trace: enough to show what happened, not a scrolling box. The file
+    /// itself is capped at 16 KB, which is still far more than a message box should ever be asked to show.
+    /// </summary>
+    internal static string? TailOf(string? report, int lines = MaximumReportLines)
+    {
+        if (string.IsNullOrWhiteSpace(report)) return null;
+
+        var all = report.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return all.Length == 0 ? null : string.Join("\n", all[^Math.Min(lines, all.Length)..]);
+    }
+
+    private const int MaximumReportLines = 6;
+
+    // Raised from 30 s: --repair-permissions performs the same install-directory lock walk as service startup
+    // (see Program.LockDirectories), so the old budget no longer described the work it was bounding.
+    private const int InstallerTimeoutMs = 120000;
+
+    // sc start blocks until the service reaches a terminal state, and the SCM's own verdict takes 30 s, so a
+    // shorter budget killed sc.exe while the service was still legitimately coming up and reported that as
+    // "installed but could not be started" -- on a slow boot, every time.
+    private const int StartTimeoutMs = 35000;
+
+    // Sits past the SCM's 30-second window on purpose: before that bound a pending start means the service is
+    // slow and a reinstall would destroy the work in progress; after it the start has failed and a reinstall is
+    // the answer. See ServiceStartSettleHelper.
+    private const int StartSettleTimeoutMs = 45000;
+    private const int StartSettlePollMs = 500;
     private static int _silentInstallInFlight;
     internal static bool IsSilentInstallInProgress => Volatile.Read(ref _silentInstallInFlight) != 0;
 
@@ -37,10 +115,11 @@ public static class ServiceInstallManager
         {
             var serviceExePath = GetServiceExePath();
             Logger.Log($"[ServiceInstallManager] Requesting service installation: {serviceExePath} --install");
-            if (RunElevatedInstaller("Service installation", serviceExePath))
+            if (RunElevatedInstaller("Service installation", serviceExePath, out var diagnostic))
                 onCompleted?.Invoke();
             else
-                onError?.Invoke(new InvalidOperationException("Service installation did not complete successfully."));
+                onError?.Invoke(new InvalidOperationException(
+                    diagnostic ?? "Service installation did not complete successfully."));
         }
         catch (Exception ex)
         {
@@ -66,9 +145,10 @@ public static class ServiceInstallManager
         {
             var serviceExePath = GetServiceExePath();
             Logger.Log($"[ServiceInstallManager] Attempting silent service installation: {serviceExePath}");
-            if (!RunElevatedInstaller("Silent service installation", serviceExePath))
+            if (!RunElevatedInstaller("Silent service installation", serviceExePath, out var diagnostic))
             {
-                onFailed?.Invoke(new InvalidOperationException("Silent service installation did not complete successfully (declined, timed out, or failed)."));
+                onFailed?.Invoke(new InvalidOperationException(diagnostic
+                    ?? "Silent service installation did not complete successfully (declined, timed out, or failed)."));
                 return SilentInstallResult.Failed;
             }
 
@@ -105,8 +185,9 @@ public static class ServiceInstallManager
         return SilentInstallResult.Started;
     }
 
-    private static bool RunElevatedInstaller(string operation, string serviceExePath)
+    private static bool RunElevatedInstaller(string operation, string serviceExePath, out string? diagnostic)
     {
+        diagnostic = null;
         var psi = new ProcessStartInfo
         {
             FileName = serviceExePath,
@@ -116,6 +197,17 @@ public static class ServiceInstallManager
             WindowStyle = ProcessWindowStyle.Hidden
         };
 
+        // The elevated process cannot answer us once it runs -- nothing about its stdout or stderr survives
+        // UseShellExecute -- so it records its steps in this file and the reason is read back from there.
+        //
+        // A start that is merely slow is waited out first, never reinstalled underneath: --install stops the
+        // service and re-ACLs its own directory tree as its first two steps, which is how one machine that
+        // needed longer than the App was willing to wait ended up with no service registered at all. Every
+        // caller reaches this on a background thread, so the wait cannot stall a window.
+        if (!ServiceStartSettleHelper.Wait(() => ServicePipe.IsStartPending, StartSettleTimeoutMs, StartSettlePollMs))
+            Logger.Log($"[ServiceInstallManager] {operation}: LertaroService was still starting after {StartSettleTimeoutMs}ms; installing anyway.", LogLevel.Warn);
+
+        PermissionRepairReport.Clear();
         using var proc = Process.Start(psi);
         if (proc == null)
         {
@@ -127,11 +219,20 @@ public static class ServiceInstallManager
         {
             Logger.Log($"[ServiceInstallManager] {operation} timed out after {InstallerTimeoutMs}ms.", LogLevel.Error);
             TryKill(proc);
+            diagnostic = DescribeInstallFailure(exited: false, exitCode: 0, PermissionRepairReport.Read(), serviceExePath);
+            Logger.Log($"[ServiceInstallManager] {diagnostic}", LogLevel.Error);
             return false;
         }
 
         Logger.Log($"[ServiceInstallManager] {operation} exited with code {proc.ExitCode}.");
-        return proc.ExitCode == 0;
+        if (proc.ExitCode == 0)
+            return true;
+
+        // The reason the service never came up, in the words of the process that knows it. Without this the
+        // caller only had the exit code, and the user only had "1053".
+        diagnostic = DescribeInstallFailure(exited: true, exitCode: proc.ExitCode, PermissionRepairReport.Read(), serviceExePath);
+        Logger.Log($"[ServiceInstallManager] {diagnostic}", LogLevel.Error);
+        return false;
     }
 
     /// <summary>

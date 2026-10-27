@@ -8,6 +8,7 @@ using System.Windows.Input;
 using Lertaro.PluginSdk.Services;
 using Lertaro.PluginSdk.Abstractions.Plugins.Preview;
 namespace Lertaro.Plugins.CoreExtensions.Preview.Providers;
+
 public class ImagePreviewProvider : IFilePreviewProvider
 {
     public string Name => TranslationService.Get("QuickLook_ImageProviderName");
@@ -116,11 +117,11 @@ public class TextPreviewProvider : IFilePreviewProvider
         };
         var txt = new TextBlock
         {
-            FontFamily = new FontFamily("Consolas, Courier New, monospace"),
-            FontSize = 12.5,
+            FontSize = 13,
             Margin = new Thickness(4),
             TextWrapping = TextWrapping.Wrap
         };
+        txt.SetResourceReference(TextBlock.FontFamilyProperty, "AppMonospaceFontFamily");
         txt.SetResourceReference(TextBlock.ForegroundProperty, "TextPrimary");
         scroll.Content = txt;
         try

@@ -68,7 +68,19 @@
                     <TextBlock Text="{Binding Description}" FontSize="10" Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" HorizontalAlignment="Left" Margin="0,0,0,6" Visibility="{Binding Description, Converter={StaticResource StringToVis}}"/>
 
                     <Border BorderBrush="{DynamicResource SeparatorBrush}" BorderThickness="1,0,0,0" Margin="8,0,0,0" Padding="12,0,0,0">
-                        <ItemsControl ItemsSource="{Binding Children}"/>
+                        <!-- Collapsed layouts still create children. Only the matching layout may
+                             host them: a plugin's CustomControl can have only one visual parent. -->
+                        <ItemsControl>
+                            <ItemsControl.Style>
+                                <Style TargetType="ItemsControl">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsObject}" Value="True">
+                                            <Setter Property="ItemsSource" Value="{Binding Children}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ItemsControl.Style>
+                        </ItemsControl>
                     </Border>
                 </StackPanel>
 
@@ -81,7 +93,17 @@
                     <TextBlock Text="{Binding Description}" FontSize="10" Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" HorizontalAlignment="Left" Margin="0,0,0,6" Visibility="{Binding Description, Converter={StaticResource StringToVis}}"/>
 
                     <Border BorderBrush="{DynamicResource SeparatorBrush}" BorderThickness="1,0,0,0" Margin="8,0,0,0" Padding="12,0,0,0">
-                        <ItemsControl ItemsSource="{Binding Children}"/>
+                        <ItemsControl>
+                            <ItemsControl.Style>
+                                <Style TargetType="ItemsControl">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsGroup}" Value="True">
+                                            <Setter Property="ItemsSource" Value="{Binding Children}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ItemsControl.Style>
+                        </ItemsControl>
                     </Border>
                 </StackPanel>
 
@@ -140,6 +162,15 @@
                                         ToolTip="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[Common_Add]}"/>
                                 <Button Style="{StaticResource ArrayHeaderDuplicateButton}"
                                         ToolTip="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[Common_Duplicate]}"/>
+                                <Button Style="{StaticResource ArrayHeaderAddButton}" Command="{x:Null}" Content="&#xE8B5;"
+                                        Click="ImportEntry_Click" Visibility="{Binding SupportsEntryTransfer, Converter={StaticResource BoolToVis}}"
+                                        ToolTip="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[Plugins_EntryImport]}"
+                                        AutomationProperties.Name="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[Plugins_EntryImport]}"/>
+                                <Button Style="{StaticResource ArrayHeaderAddButton}" Command="{x:Null}" Content="&#xEDE1;"
+                                        Click="ExportEntry_Click" Visibility="{Binding SupportsEntryTransfer, Converter={StaticResource BoolToVis}}"
+                                        IsEnabled="{Binding CanExportEntry}"
+                                        ToolTip="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[Plugins_EntryExport]}"
+                                        AutomationProperties.Name="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[Plugins_EntryExport]}"/>
                             </StackPanel>
                             <!-- No horizontal scrolling of its own. Left at the default it hands each
                                  row an unbounded width, the row's Star column resolves to however

@@ -3,9 +3,9 @@ layout: home
 hero:
   name: Lertaro
   text: 高性能で拡張可能な Windows 向けローカル検索システム
-  tagline: USN ジャーナルと列指向インメモリインデックスにより、数百万のファイルを瞬時に検索・実行。ファイルダイアログへの統合とプラグインに対応。
+  tagline: USN ジャーナルと列指向インメモリインデックスにより、数百万のファイルを検索・実行。ファイルダイアログへの統合とプラグインに対応。
   image:
-    src: /logo.png
+    src: /logo.svg
     alt: Lertaro Logo
 securityWarning:
   title: "セキュリティ警告：公式ソースのみをご利用ください"
@@ -13,7 +13,7 @@ securityWarning:
 features:
   - icon: 💡
     title: Listary のオープンソース代替
-    details: モダンで洗練された UI と高い拡張性を備えたオープンソースのファイル検索・ランチャーツール。
+    details: 拡張性を備えたオープンソースのファイル検索・ランチャーツール。
   - icon: ⚡
     title: USN & MFT 低レベルインデックス
     details: NTFS / ReFS の USN ジャーナルと $MFT を直接読み取り高速インデックスを構築。FAT32 / exFAT 変更監視やネットワーク共有キャッシュにも対応。

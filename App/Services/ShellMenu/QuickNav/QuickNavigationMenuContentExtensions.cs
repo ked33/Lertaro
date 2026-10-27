@@ -119,7 +119,7 @@ internal static class QuickNavigationMenuContentExtensions
     // scrolling instead -- without this, a long file/folder name (see GitHub issue #184: a level-3
     // Explorer folder with a long name) made the whole ContextMenu/Popup auto-size to fit it, dragging
     // every OTHER row's column out just as wide. Chosen to comfortably fit a typical folder name at this
-    // menu's own FontSize (12.5, see Menu.xaml) without still feeling like a Listary-style cramped fixed
+    // menu's own FontSize (13, see Menu.xaml) without still feeling like a Listary-style cramped fixed
     // width -- not user-configurable, matching how every other row metric in this menu is a fixed value.
     private const double MaxItemTextWidth = 220;
 
@@ -175,6 +175,12 @@ internal static class QuickNavigationMenuContentExtensions
             catch { }
         }
 
+        if (item.HBitmapItem == IntPtr.Zero && !string.IsNullOrWhiteSpace(item.IconPathData))
+        {
+            try { menuItem.Icon = new Image { Source = PluginSdk.Helpers.VectorIconHelper.CreateVectorIcon(item.IconPathData, "TextPrimary") }; }
+            catch (Exception ex) { Core.Logger.Log($"[QuickNavigation] Invalid vector icon: {ex.Message}", Core.LogLevel.Warn); }
+        }
+
         string? itemPath = null;
         if (item.HasSubMenu && item.SubMenuHandle != IntPtr.Zero)
         {
@@ -194,7 +200,7 @@ internal static class QuickNavigationMenuContentExtensions
             itemPath = QuickNavigationPathResolver.TryResolveCommandPath(provider, item.CommandId);
         }
 
-        if (item.HBitmapItem == IntPtr.Zero && !string.IsNullOrEmpty(itemPath) && item.OnExecute == null)
+        if (menuItem.Icon == null && !string.IsNullOrEmpty(itemPath) && item.OnExecute == null)
         {
             if (Helpers.FavoriteUrlHelper.IsWebUrl(itemPath))
             {

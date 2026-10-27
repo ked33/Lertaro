@@ -8,6 +8,7 @@ namespace Lertaro.Plugins.CustomCommands;
 public class CustomCommandsInstantProvider : IInstantResultProvider
 {
     public string Name => TranslationService.Get("CustomCommands_ProviderName");
+    public bool SupportsInlineSearch => true;
 
     // Every ENABLED command's keyword, published so the host strips the one the user typed before matching
     // file names -- the same treatment "mkdir" and "cs" get. A disabled command has no feature to serve, so
@@ -68,6 +69,8 @@ public class CustomCommandsInstantProvider : IInstantResultProvider
 
     public IEnumerable<InstantResultItem> GetInstantResults(string query) => GetResults(query, null);
 
+    public IEnumerable<InstantResultItem> GetInstantResults(string query, string? contextDirectory) => GetResults(query, null);
+
     public IEnumerable<InstantResultItem> GetInlineResults(string query, string currentDirectory) =>
         Directory.Exists(currentDirectory) ? GetResults(query, System.IO.Path.GetFullPath(currentDirectory)) : [];
 
@@ -108,6 +111,7 @@ public class CustomCommandsInstantProvider : IInstantResultProvider
                     Path = cmd.Path,
                     Arguments = resolvedParam,
                     WorkingDir = workingDir,
+                    UseCurrentDirectory = cmd.UseCurrentDirectory,
                     RunSilently = cmd.RunSilently,
                     RunAsAdmin = cmd.RunAsAdmin
                 };

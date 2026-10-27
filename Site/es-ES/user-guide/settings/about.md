@@ -19,7 +19,7 @@ Enlaces interactivos para abrir los directorios de almacenamiento en el Explorad
 
 ### Directorio de datos de usuario
 
-- **Contenido**: Configuración personal (`user-settings.json`), historial de búsqueda y palabras clave, cachés y certificados de seguridad.
+- **Contenido**: Configuración personal (`user-settings.json`, `plugin-settings.json`), historial de búsqueda y palabras clave, cachés y certificados de seguridad.
 - **Rotación de 5 copias de seguridad**: Cada vez que se guarda la configuración, Lertaro crea automáticamente una copia de respaldo `user-settings.json.bak.1`, conservando hasta `.bak.5`. Ante cualquier fallo o corte de energía, se puede restaurar cualquiera de las últimas 5 copias.
 
 ### Directorio de datos de equipo (Machine)
@@ -29,12 +29,24 @@ Enlaces interactivos para abrir los directorios de almacenamiento en el Explorad
 ### Estructura de rutas de almacenamiento
 
 - **Versión instalable**: Los datos de usuario se guardan en `%LocalAppData%\Lertaro` y los de máquina en `%ProgramData%\Lertaro`.
-- **Versión portátil**: Los datos se guardan en `Data\Users\<SID hash>` y `Data\Machine` junto al ejecutable (ver [**Aislamiento de datos en versión portátil**](../getting-started#arquitectura-de-aislamiento-de-datos-en-version-portatil)).
+- **Versión portátil**: Los datos se guardan en `Data\Users\<SID hash>` y `Data\Machine` junto al ejecutable (ver [**Aislamiento de datos en versión portátil**](../getting-started)).
+
+### Trasladar el directorio de datos (vínculos simbólicos y junctions)
+
+- **Compatible**: El directorio de datos de usuario (`%LocalAppData%\Lertaro` en la versión instalable, `<instalación>\Data\Users` en la portátil) puede trasladarse a otra partición o a otro disco local mediante un vínculo simbólico o una junction. Al arrancar, Lertaro resuelve esa cadena de vínculos al directorio real y trabaja sobre él.
+- **Solo volúmenes fijos locales**: El destino del vínculo debe ser una unidad fija local. Un vínculo que apunte a una ubicación de red o a un volumen extraíble se rechaza al arrancar indicando el motivo, en lugar de escribir en otro sitio sin avisar.
+- **Los vínculos por debajo del directorio de datos siguen rechazándose**: Ningún subdirectorio **dentro** del directorio de datos puede ser un vínculo, porque uno colocado mientras la aplicación se ejecuta redirigiría sus escrituras. Es un límite de seguridad, no una opción de configuración.
 
 ## 3. Comprobación y aplicación de actualizaciones
 
 - **Buscar actualizaciones**: Consulta en línea nuevas versiones con información dinámica en el propio botón ("Buscando actualizaciones..." → "Ya tienes la última versión" o detalles de la nueva versión).
 - **Vías de actualización**:
-  - **Actualización silenciosa** —— Descarga e instala en segundo plano, reiniciando Lertaro de forma transparente.
+  - **Actualización silenciosa** —— Descarga e instala en segundo plano y reinicia Lertaro al terminar.
   - **Ir a la página de descargas** —— Abre la página de lanzamientos de GitHub en el navegador predeterminado para su descarga manual.
 - **Avisos de permisos**: Si se ejecuta con una cuenta sin permisos de administrador para reiniciar el servicio, un aviso guiará hacia la página de descarga manual.
+
+## 4. Configuración de complementos y copias de seguridad
+
+Los parámetros nativos están en `plugin-settings.json`, junto a `user-settings.json`; cada archivo conserva hasta cinco copias rotativas. Los parámetros incrustados antiguos se migran una sola vez. El ZIP completo incluye ambos archivos, datos de Calendar y ajustes de Flow; los archivos ejecutables de complementos Flow requieren inclusión explícita. No transfiera solo el archivo principal para mover la configuración actual de complementos.
+
+Si el software de sincronización ocupa temporalmente el destino, un fallo recuperable conserva la configuración actual y abre la aplicación normalmente. El bloqueo de ejecución permanece en `%LocalAppData%\Lertaro\RuntimeLocks`, fuera de los datos sincronizados, también en instalaciones portátiles. Si la reversión no puede completarse, no se inician complementos sobre ajustes restaurados parcialmente.

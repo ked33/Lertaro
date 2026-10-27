@@ -57,7 +57,10 @@ internal static class AliasHighlightMarker
 
     // Reports the tier the match came from through `tier`, so ranking and highlighting agree on HOW a
     // candidate was found as well as on what lights up.
-    public static bool MarkViaAliasProviders(string text, string term, bool caseSensitive, FzfTermKind kind, Span<bool> highlights, out int tier)
+    //
+    // precise is the query's own alignment rule (FzfPattern.RequiresAlignedAliases): a precise term may only
+    // be painted where matching would have accepted it, i.e. on a syllable boundary.
+    public static bool MarkViaAliasProviders(string text, string term, bool caseSensitive, FzfTermKind kind, bool precise, Span<bool> highlights, out int tier)
     {
         tier = MatchRank.TierFull;
         var termLower = caseSensitive ? term : term.ToLowerInvariant();
@@ -102,16 +105,19 @@ internal static class AliasHighlightMarker
                         // "'abc" searches as a subsequence but was highlighted as a contiguous run,
                         // found nothing, and lit up nothing at all while the row itself was a hit.
                         //
-                        // Contiguous for every other kind, because a scattered subsequence lights up
-                        // characters that had nothing to do with the hit: "gsh" matches 格式化 through
-                        // the initials alias, but a subsequence search also finds g...s...h spread
-                        // across the full pinyin and lit 创 along with it.
+                        // Matching now reads a term against an alias BOTH ways (a contiguous run if it can
+                        // be, a subsequence otherwise -- see FzfPatternAliasReading), so painting offers the
+                        // same two, in the same order; anything stricter paints nothing on a row that did
+                        // match, and an empty mask is not "no match" to every caller. The occurrence painted
+                        // is the term's TIGHTEST one, not its earliest: the gate accepts a match when each
+                        // term has a tight occurrence somewhere, so painting the greedy leftmost alignment
+                        // instead lit characters the gate had not accepted (a 7-letter query lit six
+                        // characters over 116 positions of a flattened initials alias).
+                        // AliasMatchRules owns that measure so matching and painting agree.
                         int[]? positions = null;
                         foreach (var probe in probes)
                         {
-                            positions = kind == FzfTermKind.Fuzzy
-                                ? FindSubsequencePositions(aliasLower, probe)
-                                : FindContiguousPositions(aliasLower, probe, separator);
+                            positions = AliasHighlightPositions.ForProbe(aliasLower, probe, separator, kind, precise);
                             if (positions != null)
                                 break;
                         }
@@ -161,6 +167,14 @@ internal static class AliasHighlightMarker
         if (!mixedTerm.Provider.CanHandle(text))
             return;
 
+        // This lane matches an alias as text and maps the positions it took back onto the source, so the
+        // spelling comes from the provider itself (AppendSpellings) -- its readings are decided live and
+        // nothing bakes them; the alias strings added below are the ones that are not spellings of those
+        // readings.
+        var segments = new List<string>(4);
+        if (mixedTerm.Provider is IAliasLiveMatcherProvider liveProvider)
+            liveProvider.AppendSpellings(text, segments);
+
         foreach (var aliasGroup in mixedTerm.Provider.GetAliases(text))
         {
             if (string.IsNullOrEmpty(aliasGroup))
@@ -168,65 +182,15 @@ internal static class AliasHighlightMarker
 
             foreach (var alias in aliasGroup.Split('|'))
             {
-                if (string.IsNullOrEmpty(alias))
-                    continue;
-                if (MixedQueryMatcher.TryMatchAndHighlight(mixedTerm, text, alias, highlights))
-                    return;
+                if (alias.Length > 0)
+                    segments.Add(alias);
             }
         }
-    }
 
-    // Finds ANY valid subsequence alignment of `term` within `text`, returning the matched positions in
-    // `text` in order, or null if no such subsequence exists. Greedy (always takes the earliest possible
-    // next position), which is enough for a highlight/weight mask -- this doesn't need the optimal/
-    // highest-scoring alignment, just a real one.
-    private static int[]? FindSubsequencePositions(string text, string term)
-    {
-        if (term.Length == 0)
-            return null;
-
-        var positions = new int[term.Length];
-        var searchFrom = 0;
-        for (var i = 0; i < term.Length; i++)
+        foreach (var segment in segments)
         {
-            var idx = text.IndexOf(term[i], searchFrom);
-            if (idx < 0)
-                return null;
-            positions[i] = idx;
-            searchFrom = idx + 1;
+            if (MixedQueryMatcher.TryMatchAndHighlight(mixedTerm, text, segment, highlights))
+                return;
         }
-
-        return positions;
-    }
-
-    // Contiguous counterpart of the walk above, for when matching itself demands a contiguous run.
-    //
-    // Occurrences are scanned until one starts on a syllable boundary (see AliasMatchRules.IsBoundaryAligned).
-    // Skipping a misaligned occurrence rather than giving up is deliberate: this side must never be
-    // STRICTER than matching, or a row that matched would render with nothing highlighted. Matching
-    // rejects only when the first occurrence it scored is misaligned, so accepting any aligned occurrence
-    // here keeps the two in agreement for every realistic alias -- and errs toward lighting something up.
-    private static int[]? FindContiguousPositions(string text, string term, char separator)
-    {
-        if (term.Length == 0)
-            return null;
-
-        var searchFrom = 0;
-        while (searchFrom <= text.Length - term.Length)
-        {
-            var idx = text.IndexOf(term, searchFrom, StringComparison.Ordinal);
-            if (idx < 0)
-                return null;
-            if (AliasMatchRules.IsBoundaryAligned(separator, text, idx))
-            {
-                var positions = new int[term.Length];
-                for (var i = 0; i < term.Length; i++)
-                    positions[i] = idx + i;
-                return positions;
-            }
-            searchFrom = idx + 1;
-        }
-
-        return null;
     }
 }

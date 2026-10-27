@@ -19,10 +19,8 @@ public class SearchService : IDisposable
 
     public Task<bool> PingAsync(CancellationToken token = default) => _pipeClient.PingAsync(token);
 
-    // Asks the already-running --service instance to spawn the hook process directly into this caller's
-    // own session (see HookProcessBroker) -- the App itself never launches the hook process anymore, so
-    // it never has a "runas" UAC prompt of its own to show. requestElevation is only honored server-side
-    // when that session's user is genuinely an administrator; otherwise it just launches non-elevated.
+    // Asks the running service to launch the hook process into this caller's session. See SearchPipeClient's
+    // method of the same name for the elevation semantics.
     public Task<(bool Ok, int Pid, string? Error)> RequestHookLaunchAsync(bool requestElevation, CancellationToken token = default)
         => _pipeClient.RequestHookLaunchAsync(requestElevation, token);
 
@@ -31,9 +29,7 @@ public class SearchService : IDisposable
     public Task<(bool Ok, string? Error)> RequestApplyUpdateAsync(string sourceDir, CancellationToken token = default)
         => _pipeClient.RequestApplyUpdateAsync(sourceDir, token);
 
-    // Fire-and-forget, called whenever a search window closes/hides (mirrors ShellIconHelper.ClearCache()'s
-    // existing trigger points) -- gives back the local drives' per-row full-path memo, which otherwise
-    // only self-clears once it crosses its own high backstop threshold (see PathQueryExtensions).
+    // Fire-and-forget cache clear, forwarded to the pipe client -- see SearchPipeClient's method of the same name.
     public Task ClearPathCachesAsync(CancellationToken token = default) => _pipeClient.ClearPathCachesAsync(token);
 
     // bypassExclusions: opts this one search out of ExcludedPaths/IgnoredPathGlobs/IgnoredPathRegexes
@@ -72,22 +68,13 @@ public class SearchService : IDisposable
             OrFirstPrecedence = settings.OrFirstPrecedence,
             DisabledAliasComponents = settings.DisabledPluginComponents
                 .Where(c => c.Contains("::AliasProvider::", StringComparison.OrdinalIgnoreCase))
+                .Concat(settings.DisabledPluginAssemblies.Select(dll => dll + "::AliasProvider::*"))
                 .ToList(),
             FileTypeRule = fileTypeRule,
             FileNameFilter = fileNameFilter
         };
 
-        HashSet<byte>? disabledIds = null;
-        if (msg.DisabledAliasComponents != null && msg.DisabledAliasComponents.Count > 0)
-        {
-            disabledIds = new HashSet<byte>();
-            foreach (var comp in msg.DisabledAliasComponents)
-            {
-                var id = AliasProviderRegistry.GetProviderIdByComponentId(comp);
-                if (id != 255)
-                    disabledIds.Add(id);
-            }
-        }
+        var disabledIds = AliasProviderRegistry.ResolveDisabledProviders(msg.DisabledAliasComponents);
         SearchContext.DisabledAliasIds = disabledIds;
         // Applies to the sources this process searches itself (network drives, live directory scans);
         // the local-drive path carries the same flag over the pipe instead -- see SearchStreamPump.
@@ -207,10 +194,15 @@ public class SearchService : IDisposable
                     // "current folder" case that used to sit with zero results until the entire subtree
                     // walk finished; streaming matches out as each directory is walked keeps the first,
                     // cold keystroke from looking frozen even though the underlying walk cost is unchanged.
+                    // KeepObserved because this task outlives whoever started it: a superseded query abandons
+                    // the WaitAsync below, and GetOrAdd may discard a factory result outright, so a walk that
+                    // faults afterwards -- the dead query's accumulator throwing its cancellation into
+                    // onLiveMatch, or the service's own token cancelling at Dispose -- can be left with no
+                    // waiter at all. Its finalizer then reports a routine superseded search as a crash.
                     var scanTask = _sessionDirectoryCache.GetOrAdd(liveScanDir,
                         dir => Task.Run(() => LiveDirectorySearcher.ScanDirectory(dir, 10000, cacheFillToken,
                             liveQuery: liveScanFilter, onLiveMatch: uniqueOnResult,
-                            onlyDirectChildren: onlyDirectChildren, parentPath: liveScanDir)));
+                            onlyDirectChildren: onlyDirectChildren, parentPath: liveScanDir)).KeepObserved());
                     List<SearchResult> entries;
                     try
                     {

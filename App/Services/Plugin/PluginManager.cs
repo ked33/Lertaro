@@ -39,6 +39,7 @@ public class PluginManager : PluginRegistry
     private readonly List<PluginSdk.Abstractions.Plugins.IQueryTokenProvider> _queryTokenProviders = new();
     private readonly List<PluginSdk.Abstractions.Plugins.IQuickPanelTabProvider> _quickPanelTabProviders = new();
     private readonly List<PluginSdk.Abstractions.Plugins.ISearchScopeProvider> _searchScopeProviders = new();
+    private readonly List<PluginSdk.Abstractions.Plugins.ICalendarTextProvider> _calendarTextProviders = new();
     private uint _nextRuntimeActionId = 0x80000000;
 
     // pluginId -> (field Key -> schema DefaultValue), built once after all plugins are loaded, so
@@ -47,6 +48,8 @@ public class PluginManager : PluginRegistry
     private Dictionary<string, Dictionary<string, object?>> _pluginSchemaDefaults = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly ComponentFilter _filter = new();
+    private readonly HashSet<string> _disabledAtStartup = new(UserSettings.Load().DisabledPluginAssemblies, StringComparer.OrdinalIgnoreCase);
+    public bool RequiresPluginRestart => !_disabledAtStartup.SetEquals(UserSettings.Load().DisabledPluginAssemblies);
     private readonly PluginManagerOrderedProviders _orderedProviders;
 
     private PluginManager()
@@ -107,6 +110,8 @@ public class PluginManager : PluginRegistry
     void PluginRegistry.AddQuickPanelTabProvider(PluginSdk.Abstractions.Plugins.IQuickPanelTabProvider p) => _quickPanelTabProviders.Add(p);
     void PluginRegistry.AddSearchScopeProvider(PluginSdk.Abstractions.Plugins.ISearchScopeProvider p) => _searchScopeProviders.Add(p);
 
+    void PluginRegistry.AddCalendarTextProvider(PluginSdk.Abstractions.Plugins.ICalendarTextProvider p) => _calendarTextProviders.Add(p);
+
     // ── Public API ────────────────────────────────────────────────────────
 
     // Backs PluginSdkBridge's PluginSettingsService.GetSettingFunc wiring: falls back to a plugin's own
@@ -143,7 +148,7 @@ public class PluginManager : PluginRegistry
         // the row appears but every field in it shows blank until the app restarts and reloads from disk.
         object? normalized = value == null ? null : System.Text.Json.JsonSerializer.SerializeToElement(value);
         settings.SetPluginSetting(pluginId, key, normalized);
-        settings.Save();
+        if (!settings.SavePluginSettings()) throw new System.IO.IOException("Could not persist the plugin setting.");
     }
 
     // Raised so callers that cache anything derived from IsEnabled-filtered collections (e.g.
@@ -226,6 +231,10 @@ public class PluginManager : PluginRegistry
     public IEnumerable<PluginSdk.Abstractions.Plugins.ISearchScopeProvider> SearchScopeProviders
         => _searchScopeProviders.Where(p => _filter.IsEnabled(ComponentFilter.GetDllName(p), PluginComponentType.SearchScopeProvider, p.GetType().Name));
 
+    /// <summary>Providers that can describe a day in calendar terms for the host's clock line.</summary>
+    public IEnumerable<PluginSdk.Abstractions.Plugins.ICalendarTextProvider> CalendarTextProviders
+        => _calendarTextProviders.Where(p => _filter.IsEnabled(ComponentFilter.GetDllName(p), PluginComponentType.CalendarTextProvider, p.GetType().Name));
+
     // ── Unfiltered collections (settings UI ?show disabled as unchecked) ─
 
     public IEnumerable<IFilePreviewProvider> AllFilePreviewProviders => _previewProviders;
@@ -243,6 +252,7 @@ public class PluginManager : PluginRegistry
     public IEnumerable<PluginSdk.Abstractions.Plugins.IQueryTokenProvider> AllQueryTokenProviders => _queryTokenProviders;
     public IEnumerable<PluginSdk.Abstractions.Plugins.IQuickPanelTabProvider> AllQuickPanelTabProviders => _quickPanelTabProviders;
     public IEnumerable<PluginSdk.Abstractions.Plugins.ISearchScopeProvider> AllSearchScopeProviders => _searchScopeProviders;
+    public IEnumerable<PluginSdk.Abstractions.Plugins.ICalendarTextProvider> AllCalendarTextProviders => _calendarTextProviders;
 
     // ── Search and execution ──────────────────────────────────────────────
 

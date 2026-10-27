@@ -8,7 +8,7 @@ public static class PipeRequestBinarySerializer
     private const int Magic = 0x51504C53; // SLPQ
 
     private const int VersionString = 1;
-    private const int VersionIpc = 4;
+    private const int VersionIpc = 5;
 
     public static Task WriteStringAsync(Stream stream, string command, CancellationToken token = default)
     {
@@ -61,8 +61,8 @@ public static class PipeRequestBinarySerializer
             case IpcMessageId.KeyDown:
             case IpcMessageId.KeyLeft:
             case IpcMessageId.KeyRight:
-            case IpcMessageId.FocusInlineSearch:
             case IpcMessageId.ClearHookLog:
+            case IpcMessageId.RearmHooks:
                 break;
             case IpcMessageId.Activate:
                 writer.Write(msg.IntVal);
@@ -86,6 +86,7 @@ public static class PipeRequestBinarySerializer
             case IpcMessageId.NavigateDialog:
                 writer.Write(msg.Hwnd);
                 writer.Write(msg.StringVal1 ?? string.Empty);
+                writer.Write(msg.BoolVal);
                 break;
 
             case IpcMessageId.RestoreDialogFocus:
@@ -136,6 +137,7 @@ public static class PipeRequestBinarySerializer
                 break;
 
             case IpcMessageId.ExecuteInlineItem:
+            case IpcMessageId.LocateInlineItem:
                 writer.Write(msg.Hwnd);
                 writer.Write(msg.StringVal1 ?? string.Empty);
                 writer.Write(msg.StringVal2 ?? string.Empty);
@@ -196,8 +198,8 @@ public static class PipeRequestBinarySerializer
             case IpcMessageId.KeyDown:
             case IpcMessageId.KeyLeft:
             case IpcMessageId.KeyRight:
-            case IpcMessageId.FocusInlineSearch:
             case IpcMessageId.ClearHookLog:
+            case IpcMessageId.RearmHooks:
                 break;
 
             case IpcMessageId.Activate:
@@ -222,6 +224,7 @@ public static class PipeRequestBinarySerializer
             case IpcMessageId.NavigateDialog:
                 msg.Hwnd = reader.ReadInt64();
                 msg.StringVal1 = reader.ReadString();
+                msg.BoolVal = reader.ReadBoolean();
                 break;
 
             case IpcMessageId.RestoreDialogFocus:
@@ -272,6 +275,7 @@ public static class PipeRequestBinarySerializer
                 break;
 
             case IpcMessageId.ExecuteInlineItem:
+            case IpcMessageId.LocateInlineItem:
                 msg.Hwnd = reader.ReadInt64();
                 msg.StringVal1 = reader.ReadString();
                 msg.StringVal2 = reader.ReadString();

@@ -9,10 +9,21 @@ public sealed class GlobalHotkeyDetector
     private readonly ModifierDoubleTapDetector _quickSwitchTapDetector = new();
     private readonly ModifierKeyState _modifierKeyState = new();
 
-    public GlobalHotkeyDetector(UserSettings settings, ExplorerTracker explorerTracker)
+    /// <summary>
+    /// Where a recognized Quick Switch is handed off. The hook cannot do the work itself: deciding needs the
+    /// tracker lock, which the WinEvent thread holds across cross-process reads, and the navigation calls into
+    /// another process. Production posts a thread message to the tracker thread (see HookProcess).
+    /// </summary>
+    private readonly Action<IntPtr> _requestQuickSwitch;
+
+    public GlobalHotkeyDetector(UserSettings settings, ExplorerTracker explorerTracker, Action<IntPtr>? requestQuickSwitch = null)
     {
         _settings = settings;
         _explorerTracker = explorerTracker;
+        // Without a tracker thread to post to, the same policy runs here: that is what tests get, and what any
+        // caller that only needs the gesture answered gets.
+        _requestQuickSwitch = requestQuickSwitch
+            ?? (hwnd => QuickSwitchNavigator.Execute(_explorerTracker, hwnd));
     }
 
     public void OnKeyDown(int vkCode) => _modifierKeyState.OnKeyDown(vkCode);
@@ -95,6 +106,29 @@ public sealed class GlobalHotkeyDetector
         return triggered;
     }
 
+    /// <summary>
+    /// Whether this keystroke is the toggle hotkey's chord form -- the same test the combo branch of
+    /// <see cref="CheckToggleWindowHotkey"/> applies, answered without touching the tap detectors'
+    /// state. False for the bare-modifier form, which no chord with a key of its own can be.
+    /// </summary>
+    internal bool IsToggleWindowComboDown(int vkCode)
+    {
+        if (HotkeyStringFormat.IsBareModifier(_settings.Hotkeys.ToggleWindowHotkey, out _))
+            return false;
+
+        HotkeyStringFormat.ParseCombo(_settings.Hotkeys.ToggleWindowHotkey, out var modifier, out var key);
+        var targetVk = KeyboardUtils.GetKeyVirtualCode(key);
+        return targetVk != 0 && vkCode == targetVk && CheckModifiersMatch(modifier);
+    }
+
+    /// <summary>Whether this keystroke is the quick panel's own combination, answered without consuming it.</summary>
+    internal bool IsQuickPanelComboDown(int vkCode)
+    {
+        HotkeyStringFormat.ParseCombo(_settings.Hotkeys.QuickPanelHotkey, out var modifier, out var key);
+        var targetVk = KeyboardUtils.GetKeyVirtualCode(key);
+        return targetVk != 0 && vkCode == targetVk && CheckModifiersMatch(modifier);
+    }
+
     /// <summary>The quick panel's own global combo. A plain combination, with no bare-modifier form.</summary>
     /// <remarks>
     /// The tap detectors the other two hotkeys carry exist because those can be configured as a bare
@@ -152,7 +186,30 @@ public sealed class GlobalHotkeyDetector
     // navigation policy read as two separate steps, even though they still live in the same class.
     internal bool TryHandleQuickSwitchNavigation(bool triggered, out bool consumeKey)
     {
-        consumeKey = triggered && _explorerTracker.RequestQuickSwitch();
-        return consumeKey;
+        consumeKey = false;
+        if (!triggered) return false;
+
+        // Read without the lock, deliberately. These fields are written under StateLock, but waiting for it
+        // here used to drop the keystroke -- the WinEvent thread holds it across cross-process reads, and a
+        // low-level hook that overruns LowLevelHooksTimeout is removed by Windows. A stale answer costs one
+        // skipped or one futile hand-off, never a wrong window: the tracker thread re-reads the state before
+        // it navigates (see QuickSwitchNavigator.Execute).
+        if (!_explorerTracker.IsActiveWindowDialog || _explorerTracker.ActiveAdapter == null)
+        {
+            Logger.Log("[GlobalHotkeyDetector] Quick Switch ignored: no file dialog is tracked.", LogLevel.Info);
+            return false;
+        }
+
+        // Nothing to switch to, so the keystroke is left to the host window: a dialog that swallows Ctrl+G
+        // without navigating is a keystroke the user cannot get back.
+        if (!_explorerTracker.HasNavigationSource && string.IsNullOrEmpty(_explorerTracker.LastActiveExplorerPath) && _explorerTracker.LastPathProvider == null)
+        {
+            Logger.Log("[GlobalHotkeyDetector] Quick Switch ignored: no browsed folder is known yet.", LogLevel.Info);
+            return false;
+        }
+
+        _requestQuickSwitch(_explorerTracker.ActiveHwnd);
+        consumeKey = true;
+        return true;
     }
 }

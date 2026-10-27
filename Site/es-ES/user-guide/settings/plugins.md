@@ -7,6 +7,10 @@ Lertaro cuenta con una arquitectura modular de extensiones. Tanto los componente
 - **Insignia del SDK**: En la esquina superior derecha se muestra la versión cargada de `Lertaro.PluginSdk`. Al hacer clic se abre la [**Guía de desarrollo**](../../dev-guide/).
 - **Diseño de doble panel independiente**: La columna izquierda muestra los plugins instalados y la derecha presenta los detalles y el formulario de configuración del plugin seleccionado, con desplazamiento independiente.
 
+### Activación de complementos y reinicio
+
+Desactivar todos los componentes con interruptor desactiva el complemento completo. Puede editar varios complementos, pulsar Aplicar y seguir editando. **Después de Aplicar, cerrar Ajustes de cualquier forma reinicia Lertaro automáticamente sin avisos si cambió la activación; Aceptar guarda y cierra inmediatamente.** No necesita un botón de reinicio separado. Cerrar sin guardar descarta los cambios pendientes. Este reinicio registra un mensaje Info. Tras reiniciar, App y Hook por usuario no cargan complementos desactivados. Sus nombres, versiones y descripciones siguen visibles; para ver componentes y configuración debe activarlos y reiniciar. Los interruptores de temas y traducciones son de solo lectura, pero puede desactivar el complemento completo. El servicio compartido de indexación de Windows sigue usando los complementos de alias.
+
 ## 2. Detalles del plugin y conmutadores de componentes
 
 Al seleccionar un plugin a la izquierda, el panel derecho muestra su icono, nombre, versión y descripción:
@@ -43,9 +47,13 @@ El campo **Lista de bloqueo** acepta una cadena literal por línea. Un marcador 
 
 Si la base de datos local del navegador contiene un favicon coincidente, el plugin lo lee en modo de solo lectura y lo muestra en el resultado sin copiar el archivo de base de datos. Si no se puede leer el favicon, se usa el icono del navegador configurado y, después, el icono predeterminado de marcador o historial.
 
+### Búsqueda de configuración del sistema
+
+El complemento de configuración del sistema usa las palabras clave localizadas de Windows para las tareas del Panel de control. Por ejemplo, `env` encuentra las variables de entorno sin configurar alias. Cada palabra de la consulta debe coincidir con el inicio de una palabra del título o de las palabras clave. Estas dependen de la versión y del idioma de Windows.
+
 ## 3. Soporte del ecosistema de plugins de Flow Launcher
 
-Además de los plugins nativos de `Lertaro.PluginSdk`, el módulo integrado **Flow Launcher Bridge** ofrece compatibilidad total con el extenso catálogo de Flow Launcher.
+Además de los plugins nativos de `Lertaro.PluginSdk`, el módulo integrado **Flow Launcher Bridge** ofrece compatibilidad con el extenso catálogo de Flow Launcher.
 
 ### Entornos aislados y multilingües
 
@@ -67,7 +75,7 @@ Gestiona plugins de Flow directamente con comandos en la barra de búsqueda:
 - **Gestión de ActionKeyword**: En **Configuración → Plugins → Flow Launcher Bridge → Configuración**, activa o desactiva plugins individuales y modifica su **ActionKeyword** (almacenado en `FlowData\Settings\Plugins.json`).
 - **Formularios dinámicos**: Compatible con plantillas YAML/JSON (`SettingsTemplate.yaml`/`.json`) y paneles WPF (`ISettingProvider`), adaptados al tema visual activo y con soporte de traducción.
 - **Vistas previas interactivas con WebView2**: Muestra paneles ricos (diccionarios MDict, pronósticos del tiempo, depuradores API, capturas web) en la ventana de QuickLook.
-- **Integración profunda con el anfitrión**: Los plugins de Flow que abren carpetas respetan automáticamente el administrador de archivos de terceros configurado por el anfitrión, los cuadros de mensaje se muestran con el tema visual nativo y los registros internos se integran en el visor de registros de Configuración.
+- **Integración con el anfitrión**: Los plugins de Flow que abren carpetas respetan automáticamente el administrador de archivos de terceros configurado por el anfitrión, los cuadros de mensaje se muestran con el tema visual nativo y los registros internos se integran en el visor de registros de Configuración.
 - **Listado rápido**: Escribe `flow` en la barra de búsqueda para ver todos los plugins cargados y sus palabras clave activas; al seleccionar un plugin se abre su grupo de configuración correspondiente.
 
 ## 4. Selector de dispositivos de audio

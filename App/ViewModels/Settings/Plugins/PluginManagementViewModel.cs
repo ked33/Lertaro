@@ -39,6 +39,7 @@ public class PluginManagementViewModel : ViewModelBase
             // rebuilt view model shares with the old one -- the instances themselves are all new.
             var selectedDll = SelectedPlugin?.DllFileName;
             var newList = PluginLoaderHelper.BuildPluginList(_userSettings);
+            RestoreEnablementEdits(Plugins, newList);
             Plugins.Clear();
             foreach (var p in newList)
                 Plugins.Add(p);
@@ -198,19 +199,17 @@ public class PluginManagementViewModel : ViewModelBase
     /// <summary>Pure ordering for the plugin list: display-name order, with the core plugin leading each
     /// block and the pinned galleries always last.</summary>
     internal static List<PluginInfoViewModel> SortPluginsList(
-        IReadOnlyList<PluginInfoViewModel> plugins, bool disabledLast)
-    {
+        IReadOnlyList<PluginInfoViewModel> plugins, bool disabledLast) =>
         // The pinned key goes first so those two galleries land last in BOTH modes, including behind a
         // disabled plugin. Disabled plugins then sink below every active one (false < true), each side
         // still in name order -- and the leading key sits inside that split, so a disabled core plugin
         // leads the disabled tail rather than the whole list. In the name-first mode there is no split.
-        return plugins
+        plugins
             .OrderBy(PluginLoaderHelper.SortsLast)
             .ThenBy(p => disabledLast && p.IsFullyDisabled)
             .ThenBy(p => PluginLoaderHelper.SortsFirst(p) ? 0 : 1)
             .ThenBy(p => p, PluginLoaderHelper.DisplayNameOrder())
             .ToList();
-    }
 
     private void ApplyPluginSort()
     {
@@ -266,6 +265,8 @@ public class PluginManagementViewModel : ViewModelBase
 
     public void Save()
     {
+        SavePluginEnablement(_userSettings, Plugins);
+
         // Apply only the components the user actually toggled on this page (IsDirty), merged into the
         // CURRENT disabled list rather than replacing it wholesale -- Plugins is a snapshot taken when
         // the Settings window opened, so a blind replace would silently revert any component disabled
@@ -281,6 +282,16 @@ public class PluginManagementViewModel : ViewModelBase
                 disabled.Add(c.ComponentId);
         }
 
+        // A plugin whose every component the user has just switched off stops reaching the user with it: its
+        // notifications go, and whoever is waiting on one learns why through CancelledByPluginUnload. A plugin
+        // that owns no components cannot be "fully disabled" this way, so its notifications are left alone.
+        foreach (var plugin in Plugins)
+        {
+            var componentIds = plugin.RawComponents.Select(component => component.ComponentId).ToList();
+            if (componentIds.Count == 0 || !componentIds.All(disabled.Contains)) continue;
+            Services.Notifications.NotificationService.CancelPlugin(plugin.DllFileName);
+        }
+
         _userSettings.DisabledPluginComponents = disabled.ToList();
 
         // Every plugin the user edited is written here, not just the one on screen: staged edits survive
@@ -294,4 +305,40 @@ public class PluginManagementViewModel : ViewModelBase
     }
 
     public void Cleanup() => TranslationManager.Instance.PropertyChanged -= _translationHandler;
+
+    internal static void RestoreEnablementEdits(IEnumerable<PluginInfoViewModel> previous, IEnumerable<PluginInfoViewModel> current)
+    {
+        foreach (var edited in previous)
+        {
+            var replacement = current.FirstOrDefault(p => p.DllFileName.Equals(edited.DllFileName, StringComparison.OrdinalIgnoreCase));
+            if (replacement == null) continue;
+            if (edited.IsPluginEnablementDirty) replacement.IsPluginEnabled = edited.IsPluginEnabled;
+            foreach (var component in edited.RawComponents.Where(c => c.IsToggleable))
+            {
+                var target = replacement.RawComponents.FirstOrDefault(c => c.ComponentId.Equals(component.ComponentId, StringComparison.OrdinalIgnoreCase));
+                if (target != null && (component.IsDirty || edited.IsPluginEnablementDirty)) target.IsEnabled = component.IsEnabled;
+            }
+        }
+    }
+
+    internal static void SavePluginEnablement(UserSettings settings, IEnumerable<PluginInfoViewModel> plugins)
+    {
+        var disabled = new HashSet<string>(settings.DisabledPluginAssemblies, StringComparer.OrdinalIgnoreCase);
+        foreach (var plugin in plugins.Where(p => p.IsPluginEnablementDirty))
+        {
+            if (plugin.IsPluginEnabled)
+            {
+                disabled.Remove(plugin.DllFileName);
+                if (plugin.RawComponents.Count == 0)
+                    settings.DisabledPluginComponents.RemoveAll(c => c.StartsWith(plugin.DllFileName + "::", StringComparison.OrdinalIgnoreCase));
+            }
+            else disabled.Add(plugin.DllFileName);
+        }
+        foreach (var plugin in plugins.Where(p => p.RawComponents.Any(c => c.IsToggleable)))
+        {
+            if (plugin.RawComponents.Where(c => c.IsToggleable).All(c => !c.IsEnabled)) disabled.Add(plugin.DllFileName);
+            else disabled.Remove(plugin.DllFileName);
+        }
+        settings.DisabledPluginAssemblies = disabled.ToList();
+    }
 }

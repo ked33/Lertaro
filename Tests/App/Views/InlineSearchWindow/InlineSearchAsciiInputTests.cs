@@ -106,6 +106,24 @@ public sealed class InlineSearchAsciiInputTests
         Assert.AreEqual("*.txt 123", box.Text);
     }
 
+    [StaTestMethod]
+    public void ReusedBox_CanDisableAndReenableRestriction()
+    {
+        var box = new TextBox();
+        InlineSearchAsciiInput.Attach(box);
+        InlineSearchAsciiInput.Apply(box, false);
+        Assert.IsTrue(InputMethod.GetIsInputMethodEnabled(box));
+        box.Text = "中文";
+        Assert.AreEqual("中文", box.Text);
+        InlineSearchAsciiInput.Apply(box, true);
+        Assert.AreEqual("", box.Text, "re-enabling must discard an old non-ASCII accepted value");
+        Assert.IsFalse(InputMethod.GetIsInputMethodEnabled(box));
+        box.Text = "中文";
+        Assert.AreEqual("", box.Text);
+        box.Text = "ascii";
+        Assert.AreEqual("ascii", box.Text);
+    }
+
     private static DataObjectPastingEventArgs Paste(TextBox box, string text)
     {
         var args = new DataObjectPastingEventArgs(

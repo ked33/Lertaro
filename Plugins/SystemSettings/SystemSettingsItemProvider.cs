@@ -46,9 +46,15 @@ public class SystemSettingsItemProvider : ISearchableItemProvider
 
                 var hBitmap = ShellPathHelper.TryGetIconHBitmapForShellItem(item);
                 var capturedPath = path;
+                // Windows exposes the localized task-link synonyms through the Shell property store.
+                // A missing property must not discard an otherwise usable settings item.
+                string[] keywords;
+                try { keywords = ParseKeywords((object?)item.ExtendedProperty("System.Keywords")); }
+                catch { keywords = []; }
                 list.Add(new SearchableItem
                 {
                     Title = name,
+                    Keywords = keywords,
                     Description = desc,
                     HBitmapIcon = hBitmap,
                     ActionType = "None",
@@ -59,5 +65,18 @@ public class SystemSettingsItemProvider : ISearchableItemProvider
         catch { }
 
         return list;
+    }
+
+    internal static string[] ParseKeywords(object? value)
+    {
+        // FolderItem2 may return a semicolon-delimited string or a SAFEARRAY of strings.
+        var values = value switch
+        {
+            string text => new[] { text },
+            Array array => array.OfType<string>(),
+            _ => Enumerable.Empty<string>()
+        };
+        return values.SelectMany(text => text.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 }

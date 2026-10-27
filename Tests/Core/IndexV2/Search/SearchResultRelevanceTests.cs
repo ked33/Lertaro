@@ -4,76 +4,155 @@ using Lertaro.Core.SearchIndex.Fzf;
 
 namespace Lertaro.Core.Tests.IndexV2.Search;
 
-// How a name-mode result's RankSortKey is assembled. Key order, strongest first:
-//   start position > quality weight > tier
-// Small key = better, which is how SearchResultRankComparer reads it.
+// How a name-mode result's RankSortKey is assembled. The high 32 bits use exactly the same quality
+// sequence as the quick window (MatchRank.CompareQuality): left-contiguous, contiguity, start, coverage,
+// tier. History is compared after these bits by SearchResultRankComparer, not packed here.
 [TestClass]
 public sealed class SearchResultRelevanceTests
 {
     [TestMethod]
-    public void Apply_EarlierMatchInLongerName_RanksAboveLaterMatchInShorterName()
+    public void Apply_LeftContiguousHitRanksAboveLaterStart()
     {
-        var leftmost = Ranked(@"C:\data\wxfef.doc", "wxfef.doc", "wx");
-        var later = Ranked(@"C:\data\iwxfe.mp", "iwxfe.mp", "wx");
+        var atStart = Ranked(@"C:\data\atlas.txt", "atlas.txt", "atlas");
+        var later = Ranked(@"C:\data\code-atlas", "code-atlas", "atlas");
 
-        // Coverage alone favours the shorter name; the start position must overrule it.
-        Assert.IsLessThan(later, leftmost);
+        Assert.IsLessThan(later, atStart);
     }
 
     [TestMethod]
-    public void Apply_EarlierMatchRank_DoesNotDependOnDirectoryDepth()
+    public void Apply_ContiguityRanksAboveAnEarlierScatteredHit()
     {
-        var shallow = Ranked(@"C:\a\wxfef.doc", "wxfef.doc", "wx");
-        var deep = Ranked(@"C:\a\very\deep\nested\wxfef.doc", "wxfef.doc", "wx");
+        var contiguousLater = Ranked(@"C:\data\xxatlas", "xxatlas", "atlas");
+        var scatteredAtStart = Ranked(@"C:\data\axtlaxs", "axtlaxs", "atlas");
 
-        Assert.AreEqual(shallow, deep);
+        Assert.IsLessThan(scatteredAtStart, contiguousLater);
     }
 
     [TestMethod]
-    public void Apply_NameMatch_RanksAboveAncestorOnlyMatch()
+    public void Apply_StartRanksAboveCoverage()
     {
-        var nameMatch = Ranked(@"C:\unrelated\xwxfef.txt", "xwxfef.txt", "wx");
-        var ancestorOnly = Ranked(@"C:\wx_documents\report.txt", "report.txt", "wx");
+        var earlyLong = Ranked(@"C:\data\xatlasxxxxx", "xatlasxxxxx", "atlas");
+        var later = Ranked(@"C:\data\xxxxxatlas", "xxxxxatlas", "atlas");
 
-        Assert.IsLessThan(ancestorOnly, nameMatch);
-    }
-
-    // Tier is the WEAKEST key: it only separates rows that already agree on both start and weight. These
-    // assert the key layout directly, because a real match cannot be made to produce an arbitrary tier.
-    [TestMethod]
-    public void KeyLayout_StartOutranksTier()
-    {
-        // start 3 / tier 0 (literal)  vs  start 0 / tier 2 (full pinyin): the earlier start wins.
-        var laterLiteral = Key(start: 3, weight: 0, tier: MatchRank.TierName);
-        var earlierFull = Key(start: 0, weight: 0, tier: MatchRank.TierFull);
-
-        Assert.IsLessThan(laterLiteral, earlierFull);
+        Assert.IsLessThan(later, earlyLong);
     }
 
     [TestMethod]
-    public void KeyLayout_WeightOutranksTier()
+    public void Apply_CoverageRanksAboveTier()
     {
-        // Same start; the better weight wins even though its tier is the worst.
-        var betterWeightWorseTier = Key(start: 0, weight: 1, tier: MatchRank.TierFull);
-        var worseWeightBestTier = Key(start: 0, weight: 9, tier: MatchRank.TierName);
+        var fullCoverage = Key(start: 0, coverage: 1, contiguity: 1, tier: MatchRank.TierFull);
+        var lowCoverage = Key(start: 0, coverage: 0.5, contiguity: 1, tier: MatchRank.TierName);
 
-        Assert.IsLessThan(worseWeightBestTier, betterWeightWorseTier);
+        Assert.IsLessThan(lowCoverage, fullCoverage);
     }
 
     [TestMethod]
-    public void KeyLayout_TierBreaksTiesOnEqualStartAndWeight()
+    public void Apply_NoNameFallback_CarriesPathCoverage()
     {
-        var literal = Key(start: 0, weight: 5, tier: MatchRank.TierName);
-        var initials = Key(start: 0, weight: 5, tier: MatchRank.TierInitials);
-        var full = Key(start: 0, weight: 5, tier: MatchRank.TierFull);
+        var low = Key(MatchRank.NoNameFallback(0.2));
+        var high = Key(MatchRank.NoNameFallback(0.4));
+
+        Assert.IsLessThan(low, high);
+    }
+
+    [TestMethod]
+    public void KeyLayout_ShapeOutranksLeftContiguous()
+    {
+        var leftWordStart = Key(start: 0, coverage: 0.5, contiguity: 1, shape: MatchRank.ShapeWordStart);
+        var laterWholeWord = Key(start: 5, coverage: 1, contiguity: 1, shape: MatchRank.ShapeWholeWord);
+
+        Assert.IsLessThan(leftWordStart, laterWholeWord);
+    }
+
+    [TestMethod]
+    public void KeyLayout_LeftContiguousBreaksAShapeTie()
+    {
+        var leftWordStart = Key(start: 0, coverage: 0.5, contiguity: 1, shape: MatchRank.ShapeWordStart);
+        var laterWordStart = Key(start: 5, coverage: 1, contiguity: 1, shape: MatchRank.ShapeWordStart);
+
+        Assert.IsLessThan(laterWordStart, leftWordStart);
+    }
+
+    [TestMethod]
+    public void KeyLayout_ShapeOutranksStartAndCoverage()
+    {
+        var wholeLater = Key(start: 5, coverage: 0.5, contiguity: 1, shape: MatchRank.ShapeWholeWord);
+        var insideEarlier = Key(start: 0, coverage: 1, contiguity: 1, shape: MatchRank.ShapeInsideWord);
+
+        Assert.IsLessThan(insideEarlier, wholeLater);
+    }
+
+    [TestMethod]
+    public void KeyLayout_ShapeOrderIsWholeWordThenWordStartThenInsideThenScattered()
+    {
+        var whole = Key(start: 0, coverage: 1, contiguity: 1, shape: MatchRank.ShapeWholeWord);
+        var wordStart = Key(start: 0, coverage: 1, contiguity: 1, shape: MatchRank.ShapeWordStart);
+        var inside = Key(start: 0, coverage: 1, contiguity: 1, shape: MatchRank.ShapeInsideWord);
+        var scattered = Key(start: 0, coverage: 1, contiguity: 1, shape: MatchRank.ShapeScattered);
+
+        Assert.IsLessThan(wordStart, whole);
+        Assert.IsLessThan(inside, wordStart);
+        Assert.IsLessThan(scattered, inside);
+    }
+
+    [TestMethod]
+    public void KeyLayout_ContiguityOutranksShape()
+    {
+        var wholeLoose = Key(start: 0, coverage: 1, contiguity: 0.5, shape: MatchRank.ShapeWholeWord);
+        var scatteredTight = Key(start: 0, coverage: 1, contiguity: 1, shape: MatchRank.ShapeScattered);
+
+        Assert.IsLessThan(wholeLoose, scatteredTight);
+    }
+
+    [TestMethod]
+    public void KeyLayout_StartUsesAllSevenBits()
+    {
+        Assert.IsLessThan(Key(64, 1, 1), Key(63, 1, 1));
+        Assert.IsLessThan(Key(100, 1, 1), Key(64, 1, 1));
+        Assert.IsLessThan(Key(127, 1, 1), Key(126, 1, 1));
+        Assert.AreEqual(Key(127, 1, 1), Key(200, 1, 1), "past StartCap the packed key saturates, it does not overflow");
+    }
+
+    [TestMethod]
+    public void KeyLayout_ContiguityOutranksStart()
+    {
+        var contiguousLater = Key(start: 5, coverage: 0.5, contiguity: 1);
+        var scatteredAtStart = Key(start: 0, coverage: 1, contiguity: 0.5);
+
+        Assert.IsLessThan(scatteredAtStart, contiguousLater);
+    }
+
+    [TestMethod]
+    public void KeyLayout_StartOutranksCoverage()
+    {
+        var earlyLowCoverage = Key(start: 1, coverage: 0.2, contiguity: 1);
+        var laterHighCoverage = Key(start: 5, coverage: 1, contiguity: 1);
+
+        Assert.IsLessThan(laterHighCoverage, earlyLowCoverage);
+    }
+
+    [TestMethod]
+    public void KeyLayout_TierBreaksTies()
+    {
+        var literal = Key(start: 0, coverage: 0.5, contiguity: 1, tier: MatchRank.TierName);
+        var initials = Key(start: 0, coverage: 0.5, contiguity: 1, tier: MatchRank.TierInitials);
+        var full = Key(start: 0, coverage: 0.5, contiguity: 1, tier: MatchRank.TierFull);
 
         Assert.IsLessThan(initials, literal);
         Assert.IsLessThan(full, initials);
     }
 
-    // The documented packing: start(8) | weight(16) | tier(8), "smaller is better".
-    private static ulong Key(int start, uint weight, int tier) =>
-        ((ulong)(byte)start << 56) | ((ulong)weight << 40) | ((ulong)(byte)tier << 32);
+    [TestMethod]
+    public void Compare_FilesBeforeFolders_WhenTheMatchIsOtherwiseEqual()
+    {
+        var file = new SearchResult { Name = "atlas", Path = @"C:\data\atlas" };
+        var folder = new SearchResult { Name = "atlas", Path = @"C:\data\atlas", IsDir = true };
+        var pattern = FzfPattern.Parse("atlas");
+        SearchResultRelevance.Apply(file, pattern);
+        SearchResultRelevance.Apply(folder, pattern);
+
+        Assert.IsLessThan(0, SearchResultRankComparer.Instance.Compare(file, folder));
+    }
 
     [TestMethod]
     public void Apply_EmptyPattern_LeavesRankUnchanged()
@@ -98,6 +177,47 @@ public sealed class SearchResultRelevanceTests
 
         Assert.AreEqual(0xDEAD_BEEFUL, result.RankSortKey & 0xFFFF_FFFFUL);
     }
+
+    // The full window reads the two strong/weak signals back out of the packed key instead of rebuilding a
+    // MatchRank, so the bit layout and MatchRank.IsStrong have to stay in step -- a drift here would give
+    // one query two different strong/weak boundaries, and with them two different scores.
+    [TestMethod]
+    public void IsStrongMatch_AgreesWithMatchRankIsStrong()
+    {
+        var tiers = new[] { MatchRank.TierName, MatchRank.TierInitials, MatchRank.TierFull, MatchRank.TierFullRare };
+        var shapes = new[]
+        {
+            MatchRank.ShapeWholeWord,
+            MatchRank.ShapeWordStart,
+            MatchRank.ShapeInsideWord,
+            MatchRank.ShapeScattered,
+            MatchRank.ShapeNoName,
+        };
+
+        foreach (var tier in tiers)
+        {
+            foreach (var shape in shapes)
+            {
+                // A non-zero low word keeps the key distinguishable from "never packed" (see Apply below).
+                var rank = new MatchRank(tier, 0, 1d, 1d, shape);
+                var result = new SearchResult { Name = "atlas", Path = @"C:\atlas" };
+                result.RankSortKey = (ulong)Key(rank) << 32 | 0xFFFF_FFFFUL;
+
+                Assert.AreEqual(
+                    rank.IsStrong,
+                    SearchResultRelevance.IsStrongMatch(result.RankSortKey),
+                    $"tier {tier} shape {shape} disagree");
+            }
+        }
+
+        Assert.IsFalse(SearchResultRelevance.IsStrongMatch((ulong)Key(new MatchRank(MatchRank.TierFullRare, 0, 1d, 1d, MatchRank.ShapeWholeWord)) << 32));
+        Assert.IsFalse(SearchResultRelevance.IsStrongMatch((ulong)Key(new MatchRank(MatchRank.TierName, 0, 1d, 1d, MatchRank.ShapeScattered)) << 32));
+    }
+
+    private static uint Key(MatchRank rank) => SearchResultRelevance.HighKey(rank);
+
+    private static uint Key(int start, double coverage, double contiguity, int tier = 0, int shape = MatchRank.ShapeWholeWord) =>
+        SearchResultRelevance.HighKey(new MatchRank(tier, start, coverage, contiguity, shape));
 
     private static ulong Ranked(string path, string name, string query)
     {

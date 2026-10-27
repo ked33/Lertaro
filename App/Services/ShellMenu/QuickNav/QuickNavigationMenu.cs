@@ -24,6 +24,10 @@ public static class QuickNavigationMenu
     // already started by the time it runs -- see that handler's own comment for the empty-submenu bug
     // this exists to fix.
     private static int _sessionGeneration;
+    // The most recently opened popup. A new Show() takes ownership of the shared UI session, so it
+    // closes any older popup first; otherwise two popups can remain open against one provider and
+    // their asynchronous submenu loads can race each other.
+    private static ContextMenu? _activeContextMenu;
 
     public static void Show(int mouseX, int mouseY) => Show(mouseX, mouseY, null);
 
@@ -41,10 +45,11 @@ public static class QuickNavigationMenu
             IsDesktop: tracker.IsDesktop);
 
         var path = tracker.ActivePath;
+        var contextDirectory = path;
         if (string.IsNullOrEmpty(path) || !Directory.Exists(path))
             path = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-        ShowCore(mouseX, mouseY, trigger, path, hoveredFolder);
+        ShowCore(mouseX, mouseY, trigger, path, contextDirectory, hoveredFolder);
     }
 
     public static void ShowFromKeyboard()
@@ -61,13 +66,17 @@ public static class QuickNavigationMenu
             point.X,
             point.Y,
             new QuickNavTriggerContext(IntPtr.Zero, IntPtr.Zero, null, IsDesktop: true),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
     }
 
-    private static void ShowCore(int mouseX, int mouseY, QuickNavTriggerContext trigger, string path, string? hoveredFolder = null)
+    private static void ShowCore(int mouseX, int mouseY, QuickNavTriggerContext trigger, string path, string? contextDirectory, string? hoveredFolder = null)
     {
         var generation = ++_sessionGeneration;
-        ShowMenu(mouseX, mouseY, generation, trigger, path, hoveredFolder);
+        var previous = _activeContextMenu;
+        _activeContextMenu = null;
+        if (previous != null && previous.IsOpen) previous.IsOpen = false;
+        ShowMenu(mouseX, mouseY, generation, trigger, path, contextDirectory, hoveredFolder);
     }
 
     private static async Task<IReadOnlyList<string>> CaptureOpenedFoldersAsync()
@@ -88,22 +97,25 @@ public static class QuickNavigationMenu
         return PluginSdk.Services.ExplorerPathService.GetOpenedFolderPaths();
     }
 
-    private static void ShowMenu(int mouseX, int mouseY, int generation, QuickNavTriggerContext trigger, string path, string? hoveredFolder)
+    private static void ShowMenu(int mouseX, int mouseY, int generation, QuickNavTriggerContext trigger, string path, string? contextDirectory, string? hoveredFolder)
     {
         // Hover identity is already resolved; all directory contents load only on submenu expansion.
         var dummyResult = new AppSearchResult
         {
-            FullPath = path, Name = Path.GetFileName(path), IsDir = true,
+            FullPath = path, Name = Path.GetFileName(path), IsDir = true, ContextDirectory = contextDirectory ?? string.Empty,
             HoveredFolderPath = hoveredFolder, OpenedFolderPathsLoader = CaptureOpenedFoldersAsync
         };
         var contextMenu = new ContextMenu();
         contextMenu.PreviewKeyDown += (_, e) => QuickNavigationMenuKeyHandler.HandleShortcutKeyDown(contextMenu, e);
         contextMenu.PreviewKeyDown += (s, e) => { if (e.Key == System.Windows.Input.Key.Escape) { contextMenu.IsOpen = false; e.Handled = true; } };
 
+        // Do not ClearSession here: an older popup may still have a background submenu fetch in
+        // flight. Provider handles are monotonically allocated and every live popup closes through the
+        // generation-guarded Closed handler below, so sharing the map until then is safe; clearing it
+        // here can corrupt the newer menu while that stale fetch is still allocating handles.
         foreach (var provider in PluginManager.Instance.QuickNavigationProviders)
         {
             if (!PluginPerformanceMonitor.Measure(provider, () => provider.CanProvide(dummyResult))) continue;
-            PluginPerformanceMonitor.Measure(provider, provider.ClearSession);
             var providerItems = PluginPerformanceMonitor.Measure(provider,
                 () => provider.GetMenuItems(dummyResult, IntPtr.Zero)?.ToList() ?? new List<DynamicMenuItem>());
             if (providerItems.Count == 0) continue;
@@ -179,6 +191,9 @@ public static class QuickNavigationMenu
 
         contextMenu.Closed += (s, e) =>
         {
+            if (ReferenceEquals(_activeContextMenu, contextMenu))
+                _activeContextMenu = null;
+
             if (App.HookClient != null)
             {
                 App.HookClient.OnMouseClick -= clickOutsideHandler;
@@ -196,8 +211,8 @@ public static class QuickNavigationMenu
             // from under it, so hovering e.g. "This PC" resolved no path for its handle and rendered a
             // visibly empty submenu even though the menu itself was still open and otherwise fine. Only
             // clear when no NEWER Show() has started since this one did -- an older Closed event finding a
-            // mismatch just skips cleanup this time, which is harmless (the next real Show() clears these
-            // same lightweight dictionaries at its own start anyway, see the ClearSession call above).
+            // mismatch just skips cleanup this time, which is harmless: the newer menu owns the shared
+            // provider session and will clear it when that menu eventually closes.
             //
             // Release everything the menu pulled in so memory falls back immediately on close: dispose the
             // shell COM sessions (they own the native HMENU/HBITMAPs), drop the icon cache, then return
@@ -218,6 +233,7 @@ public static class QuickNavigationMenu
         };
 
         contextMenu.Opened += (s, e) => contextMenu.Focus();
+        _activeContextMenu = contextMenu;
         contextMenu.IsOpen = true;
     }
 

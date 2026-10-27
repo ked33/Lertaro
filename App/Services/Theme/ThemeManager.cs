@@ -37,6 +37,7 @@ public class ThemeManager
 
     public IEnumerable<PluginSdk.Abstractions.ITheme> GetAvailableThemes() => PluginManager.Instance.ThemeProviders
             .SelectMany(p => PluginPerformanceMonitor.Measure(p, () => p.GetThemes()?.ToList() ?? new List<PluginSdk.Abstractions.ITheme>()))
+            .Concat([new BuiltInTheme("Light", false), new BuiltInTheme("Dark", true)])
             .GroupBy(t => t.Id)
             .Select(g => g.First()); // Avoid duplicates
 
@@ -67,8 +68,7 @@ public class ThemeManager
 
     /// <summary>Resolves the "follow system" light/dark theme pair's configured Id to one that
     /// actually exists (and is still the right light/dark flavor) among currently loaded theme
-    /// providers. Themes come entirely from plugins (including the built-ins), so a hardcoded
-    /// "Light"/"Dark" fallback isn't safe -- if the configured Id is unset, its provider got
+    /// providers or the host's built-in themes. If the configured Id is unset, its provider got
     /// uninstalled/disabled, or it no longer matches the requested flavor, fall back to whatever
     /// theme of that flavor happens to be first in the available list instead.</summary>
     public string ResolveLightDarkThemeId(bool wantLight, UserSettings? settings = null)
@@ -124,15 +124,14 @@ public class ThemeManager
                 SetBackgroundActive(newDict, true);
                 foreach (Window window in System.Windows.Application.Current.Windows)
                 {
-                    WindowEffectHelper.ApplyThemeEffects(window, theme);
                     if (window.Content is UIElement content && !MotionTransition.HasCompletion(content, UIElement.OpacityProperty))
                     {
                         if (animate)
-                            MotionTransition.Start(content, UIElement.OpacityProperty, theme.WindowOpacity, TimeSpan.FromMilliseconds(180));
+                            MotionTransition.Start(content, UIElement.OpacityProperty, 1.0, TimeSpan.FromMilliseconds(180));
                         else
                         {
                             MotionTransition.Cancel(content, UIElement.OpacityProperty);
-                            content.SetCurrentValue(UIElement.OpacityProperty, theme.WindowOpacity);
+                            content.SetCurrentValue(UIElement.OpacityProperty, 1.0);
                         }
                     }
                 }

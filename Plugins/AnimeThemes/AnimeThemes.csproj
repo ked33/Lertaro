@@ -6,7 +6,7 @@
     <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Lertaro.Plugins.AnimeThemes</AssemblyName>
-    <Version>1.1.1</Version>
+    <Version>1.2.1</Version>
       <GenerateDependencyFile>false</GenerateDependencyFile>
   </PropertyGroup>
 
@@ -21,4 +21,8 @@
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
     <Copy SourceFiles="$(TargetDir)$(TargetName).dll" DestinationFolder="..\..\App\bin\$(Configuration)\net10.0-windows\Plugins\" SkipUnchangedFiles="true" />
   </Target>
+  <ItemGroup>
+    <AssemblyMetadata Include="Lertaro.Plugin.NameKey" Value="AnimeThemes_PluginName" />
+    <AssemblyMetadata Include="Lertaro.Plugin.DescriptionKey" Value="AnimeThemes_PluginDesc" />
+  </ItemGroup>
 </Project>

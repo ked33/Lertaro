@@ -1,14 +1,17 @@
 # Supported File Managers & Dialog Integrations
 
-Lertaro is more than a standalone search launcher — it deeply embeds into Windows File Explorer, third-party file managers, and software dialogs, dramatically streamlining file opening, saving, and folder navigation.
+Lertaro works both as a standalone search launcher and embedded inside Windows File Explorer, third-party file managers, and software dialogs, streamlining file opening, saving, and folder navigation.
 
 ## 1. Three Core Integration Capabilities
 
 Depending on the host window's characteristics, Lertaro provides up to three distinct integration features:
 
-- **Inline Search**: Lertaro's fast search box embeds directly at the top of the host window or file dialog, enabling instant directory-scoped or global searches without context switching.
-- **Quick Navigation**: Middle-click (or double-left-click) empty areas or click the embedded logo to summon a cascading menu of active folders, favorites, history, and custom categories.
+- **Inline Search**: Lertaro's fast search box embeds directly at the top of the host window or file dialog, enabling instant directory-scoped or global searches without context switching. It appears the moment you type a letter or digit in a supported file list, carrying that first character into its own box.
+- **Quick Navigation**: Middle-click (or, if you enable it, double-left-click — **off by default**) empty areas or click the embedded logo to summon a Quick Navigation menu of active folders, favorites, history, and custom categories. Third-party file managers support middle-click only.
 - **Active Path Detection**: Senses the physical directory currently opened in the host window, scoping searches automatically and resolving relative path actions.
+
+> [!TIP]
+> An inline card docked in a file dialog deliberately **keeps the keyboard on the dialog's side**, so typing continues to work exactly as before. Double-tap `Ctrl` — or whatever summon hotkey you configured — to move the caret into the card, and press it again on an empty card to hand focus back. See [**Hotkeys**](./hotkeys), section "Summoning and Focus Handover in the Inline Window".
 
 ## 2. Native Windows Components (Built-in Out of the Box)
 
@@ -16,7 +19,7 @@ These native components are supported directly by Lertaro's core engine without 
 
 | Host Window Type | Inline Search | Quick Navigation Trigger | Active Path Detection |
 | :--- | :--- | :--- | :--- |
-| **Windows File Explorer** | Supported | Double-left-click or middle-click empty areas | Supported |
+| **Windows File Explorer** | Supported | Middle-click empty areas, or double-left-click once enabled | Supported |
 | **Modern Open/Save Dialogs** | Supported (Directly embedded) | Middle-click, or left-click the embedded logo | — |
 | **Legacy Open/Save Dialogs** | Supported | Middle-click, or left-click the embedded logo | — |
 | **Legacy Browse for Folder Dialogs** | Supported | Middle-click, or left-click the embedded logo | — |
@@ -36,14 +39,14 @@ For advanced users relying on third-party file managers, Lertaro offers dedicate
 | **Files** | Supported | Middle-click in the file list area | Supported | Windows UI Automation framework |
 | **One Commander** | Supported | Middle-click in the file list area | Supported | Windows UI Automation framework |
 
-### Directory Opus Exclusive Deep Integration
+### Directory Opus Exclusive Integration
 
 - **Recursive Folder Size Column (Lertaro Size)**: When "Enable Lertaro Size Column" is enabled, Lertaro installs a custom script column into Directory Opus. This column reads recursive folder sizes directly from Lertaro's in-memory index, displaying total folder sizes across entire drives in sub-seconds **with zero disk I/O**.
 - **Persistent Format**: Add the "Lertaro Size" column in Directory Opus, then click **Folder → Folder Formats → Save → Save Format to All Folders** to make it permanent globally.
 
 ### Everything Compatibility Service (IPC)
 
-Under [**Settings → General → System**](./settings/general#system), enable **Enable Everything Compatibility Service (IPC)** to emulate the standard Everything Win32 IPC interface. Tools like Directory Opus, Total Commander, and Flow Launcher can query Lertaro's fast in-memory index directly via their existing Everything plugins.
+Under [**Settings → General → System**](./settings/general#_1-system), enable **Enable Everything Compatibility Service (IPC)** to emulate the standard Everything Win32 IPC interface. Tools like Directory Opus, Total Commander, and Flow Launcher can query Lertaro's in-memory index directly via their existing Everything plugins.
 
 ## 4. Custom Application Dialogs (Dedicated Plugins)
 

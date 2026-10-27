@@ -27,9 +27,10 @@ public static class SearchStreamPump
             FullMode = BoundedChannelFullMode.Wait
         });
 
-    public static async Task RunAsync(SearchEngine? engine, SearchRequestMessage msg, Stream stream, CancellationToken token)
+    internal static async Task RunAsync(SearchEngine? engine, SearchRequestMessage msg, Stream stream, CallerVisibility visibility,
+        CancellationToken token)
     {
-        Logger.Log($"[SearchStreamPump] Starting query: '{msg.Query}', limit={msg.Limit}, appLimit={msg.AppLimit}, directoryFilter='{msg.DirectoryFilter}'", LogLevel.Debug);
+        Logger.Log($"[SearchStreamPump] Starting request {msg.Id}, limit={msg.Limit}, appLimit={msg.AppLimit}", LogLevel.Debug);
         using var queryCts = CancellationTokenSource.CreateLinkedTokenSource(token);
         var queryToken = queryCts.Token;
 
@@ -42,17 +43,7 @@ public static class SearchStreamPump
         using var watchdogStopCts = new CancellationTokenSource();
         _ = WatchForClientDisconnectAsync(stream, queryCts, watchdogStopCts.Token);
 
-        HashSet<byte>? disabledIds = null;
-        if (msg.DisabledAliasComponents != null && msg.DisabledAliasComponents.Count > 0)
-        {
-            disabledIds = new HashSet<byte>();
-            foreach (var comp in msg.DisabledAliasComponents)
-            {
-                var id = AliasProviderRegistry.GetProviderIdByComponentId(comp);
-                if (id != 255)
-                    disabledIds.Add(id);
-            }
-        }
+        var disabledIds = AliasProviderRegistry.ResolveDisabledProviders(msg.DisabledAliasComponents);
         SearchContext.DisabledAliasIds = disabledIds;
         // The service runs as a different identity and cannot read the calling user's settings file,
         // so this preference only exists here as whatever the request carried over the pipe.
@@ -73,26 +64,36 @@ public static class SearchStreamPump
             // results cannot say the difference between "not indexed" and "that directory is empty",
             // and only the first of those is worth walking the disk over.
             var notIndexed = false;
+            // The consumer applies the caller's profile exclusions before anything reaches the pipe.
+            void Emit(SearchResult result)
+            {
+                channel.Writer.WriteAsync(result, queryToken).AsTask().GetAwaiter().GetResult();
+            }
+
             var producer = Task.Run(() =>
             {
                 try
                 {
+                    if (msg.Id is SearchRequestId.SearchDir or SearchRequestId.EnumerateDir &&
+                        !visibility.IsVisible(msg.DirectoryFilter))
+                    {
+                        channel.Writer.TryComplete();
+                        return;
+                    }
                     if (msg.Id == SearchRequestId.EnumerateDir)
                     {
                         // Query carries the filename filter here, not a search term (see EnumerateDir).
                         // No engine at all counts as not indexed: the client should fall back, not
                         // conclude the directory is empty.
                         notIndexed = engine == null || !engine.EnumerateDirectory(msg.DirectoryFilter ?? string.Empty,
-                            msg.Recursive, msg.Query ?? "*", msg.Limit,
-                            result => channel.Writer.WriteAsync(result, queryToken).AsTask().GetAwaiter().GetResult(), queryToken);
+                            msg.Recursive, msg.Query ?? "*", msg.Limit, Emit, queryToken);
                         channel.Writer.TryComplete();
                         return;
                     }
 
                     var directory = msg.Id == SearchRequestId.SearchDir ? msg.DirectoryFilter : null;
 
-                    engine?.SearchStreaming(msg.Query ?? string.Empty, msg.Limit, msg.AppLimit, directory,
-                        result => channel.Writer.WriteAsync(result, queryToken).AsTask().GetAwaiter().GetResult(), queryToken,
+                    engine?.SearchStreaming(msg.Query ?? string.Empty, msg.Limit, msg.AppLimit, directory, Emit, queryToken,
                         msg.FileNameFilter);
                     channel.Writer.TryComplete();
                 }
@@ -104,17 +105,7 @@ public static class SearchStreamPump
 
             try
             {
-                var count = 0;
-                await foreach (var item in channel.Reader.ReadAllAsync(queryToken).ConfigureAwait(false))
-                {
-                    await SearchResponseBinarySerializer.WriteFileResultAsync(bufferedStream, item, queryToken).ConfigureAwait(false);
-
-                    count++;
-                    if (count <= 10 || count % 50 == 0)
-                    {
-                        await bufferedStream.FlushAsync(queryToken).ConfigureAwait(false);
-                    }
-                }
+                await WriteResultsAsync(channel.Reader, bufferedStream, visibility, queryToken).ConfigureAwait(false);
 
                 await bufferedStream.FlushAsync(queryToken).ConfigureAwait(false);
                 await producer.ConfigureAwait(false);
@@ -161,10 +152,24 @@ public static class SearchStreamPump
         }
     }
 
+    internal static async Task WriteResultsAsync(ChannelReader<SearchResult> reader, Stream stream,
+        CallerVisibility visibility, CancellationToken token)
+    {
+        var written = 0;
+        await foreach (var item in reader.ReadAllAsync(token).ConfigureAwait(false))
+        {
+            token.ThrowIfCancellationRequested();
+            if (!visibility.IsIndexedPathVisible(item.Path)) continue;
+            await SearchResponseBinarySerializer.WriteFileResultAsync(stream, item, token).ConfigureAwait(false);
+            if (++written <= 10 || written % 50 == 0)
+                await stream.FlushAsync(token).ConfigureAwait(false);
+        }
+    }
+
     // Polls PeekNamedPipe on the raw pipe handle every 25ms and cancels `queryCts` the moment the OS
     // reports the connection is gone -- lets an abandoned scan (see the comment at the call site) abort
     // between chunks instead of always running to completion. No-ops for a non-pipe stream (e.g. tests).
-    private static async Task WatchForClientDisconnectAsync(Stream stream, CancellationTokenSource queryCts, CancellationToken stopToken)
+    internal static async Task WatchForClientDisconnectAsync(Stream stream, CancellationTokenSource queryCts, CancellationToken stopToken)
     {
         if (stream is not NamedPipeServerStream pipe)
             return;

@@ -7,7 +7,7 @@ This chapter summarizes fundamental data models, read-only contracts, and schema
 Plugins interact with search results through the read-only `ISearchResult` interface:
 
 ```csharp
-namespace Lertaro.PluginSdk;
+namespace Lertaro.PluginSdk.Abstractions;
 
 public interface ISearchResult
 {
@@ -16,10 +16,13 @@ public interface ISearchResult
     string ContextDirectory { get; }      // Parent folder path
     bool IsDir { get; }                   // True if directory
     bool IsApplication { get; }           // True if executable / app
-    FileMetadata Metadata { get; }        // High-precision file metadata
-    bool[]? GetHighlightMask(string text, string query); // Highlight bitmask
+    bool[]? GetHighlightMask(string text, string query) => null; // Highlight bitmask
+    FileMetadata Metadata => default;     // High-precision file metadata
+    string? InstantActionArgument => null; // What an instant result points at
 }
 ```
+
+`FullPath` is the identity most actions work from, so an instant result that acts on something which is not a path — `activatewindow:12345`, `kill:4321`, a custom command payload — carries that target in `InstantActionArgument` instead, and providers read it there. It stays `null` for every other kind of row: ordinary file and folder results, plugin search actions, history entries.
 
 > [!NOTE]
 > `ISearchResult.Metadata` is populated directly by the in-memory USN/MFT index. **Accessing this property incurs zero disk I/O and zero IPC calls**. Use `FileMetadataService.GetMetadataAsync` only when querying external paths not present in the active result set.
@@ -69,20 +72,37 @@ public interface IConfigurable
 | Field Type | Visual Control & Behavior |
 | :--- | :--- |
 | **`Boolean`** | Toggle switch or checkbox. |
-| **`Text`** | Text input box. Supports `RequireNonEmpty` to fall back to `DefaultValue` when cleared. |
-| **Text selection** | `SelectionStart` and `SelectionLength` specify the zero-based initial selection in a `Text` field's prompt editor. |
+| **`Text`** | Text input box. `RequireNonEmpty` falls back to `DefaultValue` when the user clears it; `MaxLength` caps the length (0 or unset means no cap); `SelectionStart` / `SelectionLength` set the zero-based initial selection in the prompt editor that opens for this field. |
 | **`Integer`** | Numeric stepper with minimum and maximum bounds. |
 | **`Choice`** | Dropdown selector backed by a `Choices` or `ChoiceOptions` collection. |
+| **`Array`** | A list value. With `SubFields` it is a list of **records** rendered as a master/detail editor (one nested form per entry — the shape the file-filter, custom-command and web-search plugins use); without `SubFields` it is a plain list of scalars rendered as a compact single-column editor. The SDK gives `DefaultValue` no default at all (`object?`, `null!` in the declaration), which is why every in-repo plugin passes `new List<object>()` for an empty list. |
+| **`Object`** | A single structured value edited through its `SubFields`, without the list affordances of `Array`. |
+| **`Group`** | Collapsible card grouping containing nested `SubFields`. |
+| **`StringList`** | Editable multi-line list box supporting addition, deletion, reordering, and soft wrapping. Real line breaks are marked visually, but the markers are not part of the setting value. |
 | **`Hotkey`** | Key recording box with optional `RequireModifier = true`. |
 | **`FilePath` / `FolderPath`** | Text box with native Windows file/folder browse dialog picker buttons. |
-| **`StringList`** | Editable multi-line list box supporting addition, deletion, reordering, and soft wrapping. Real line breaks are marked visually, but the markers are not part of the setting value. |
-| **`Group`** | Collapsible card grouping containing nested `SubFields`. |
-| **`CustomControl`** | Mounts a custom WPF `UIElement` control directly. |
+| **`CustomControl`** | Mounts a custom WPF `UIElement` control directly (also reachable through `CustomControl`). |
 | **`Button`** | Renders an action button and invokes the field's `OnClick` delegate; it stores no setting value. |
+
+The remaining `PluginConfigField` members are what the host renders or persists around those types: `Key` (the persisted setting name), `GroupKey` (which `Group` card the field sits in), `LabelKey` / `DescriptionKey` (translation keys, not literal text), `RequireNonEmpty`, `Choices` / `ChoiceOptions` / `SubFields`, `IsTriggerWord` (see [**Core Search & Actions**](./core-search-actions), "Trigger Words"), `MaxLength`, `SelectionStart` / `SelectionLength`, `CustomControl`, `OnClick`, and two delegates that let a plugin store a value somewhere other than the host's settings store: `Func<object?>? GetValue` and `Action<object?>? SetValue`.
 
 ### Icon fields
 
 A text field whose schema key is `Icon` is rendered with an icon preview. It accepts WPF Path Data directly; when a complete SVG/XML document is pasted, the host extracts every `<path d>` value, combines them, and stores only the resulting WPF Path Data. Invalid icon content is cleared and reported with a themed error dialog. Empty values remain valid when no icon is desired.
+
+### Single-entry import and export
+
+Set `AllowEntryTransfer = true` on a host-managed `Array` field to enable single-entry JSON import/export. It defaults to false and supports only flat `Boolean`, `Text`, `Hotkey`, `FilePath`, and `FolderPath` children, without custom getter/setter delegates. Custom Actions (`Actions`), Custom Commands (`Commands`), and Web Search (`SearchSources`) enable it.
+
+The file is a UTF-8 JSON object, limited to 1 MiB and depth 8. Export writes no BOM; import accepts an optional UTF-8 BOM and rejects malformed encoding. Its required properties are `format: "lertaro.plugin-config-entry"`, `version: 1`, stable `pluginId`, the host's assembly version `pluginVersion`, `settingKey`, `fields`, and `item`. `fields` maps every field name to its `ConfigFieldType` name (for example, `"Path": "FilePath"`); `item` maps field names to their current values. Use a JSON serializer for quoting, backslashes, newlines, and Unicode escapes.
+
+Export includes all fields and unapplied edits. Import requires identical field names and types. A different plugin version must also supply every value; otherwise the entire entry is rejected without changing the list. Same-version files may omit values to use current defaults. Wrong types, unknown or duplicate properties (including case aliases), mismatched plugin/setting identifiers, and unknown format versions are rejected. There is no automatic migration.
+
+The `Icon` field preserves SVG/WPF Path Data verbatim, including unapplied icon edits. Invalid paths are rejected without clearing the icon. Complete SVG documents pasted into the icon editor are converted to Path Data before export. Data URIs and attachments are not supported. Ordinary file/directory paths remain references, including environment variables and paths on another machine. No files or scripts are bundled or executed.
+
+Errors distinguish mismatched plugins or settings, incompatible plugin or file-format versions, damaged content, invalid fields or icons, and oversized files. File access errors report missing files or folders, invalid paths, access denial, file locks, or insufficient disk space, with system details where available.
+
+Import appends and selects an independent entry. Keyword/hotkey conflicts produce a warning and duplicates remain allowed. Edits survive page changes, commit through Apply/OK, and roll back on Cancel. Export writes a temporary file in the destination directory and replaces the target only after writing succeeds.
 
 `PluginConfigSchema` also supports `OnSave` and `OnRollback` lifecycle delegates: `OnSave` runs when the user clicks **OK/Apply** to commit changes, while `OnRollback` restores state when changes are cancelled or rolled back.
 
@@ -122,16 +142,24 @@ public interface IFullSearchFileResultProvider : IPluginComponent
 }
 ```
 
-The host calls the provider on a background thread while the full search window's own file search is still streaming, and paints its rows as soon as they arrive rather than once the search has settled. Return an empty list when the provider does not handle the query. Every returned `InstantResultItem` must represent an existing file or folder so the full window's path, size, and type columns remain meaningful. A provider whose answer takes seconds -- a full-text index walk, for instance -- can override `GetFileResultsStreamed` to hand out hits as it finds them, which puts the first rows on screen while the rest are still being looked up; overriding it is optional because the interface's default body walks `GetFileResults`. The component is managed by the same enable/disable switch as the plugin's instant-result provider.
+The host calls the provider on a background thread while the full search window's own file search is still streaming, and paints its rows as soon as they arrive rather than once the search has settled. Return an empty list when the provider does not handle the query. Every returned `InstantResultItem` must represent an existing file or folder so the full window's path, size, and type columns remain meaningful. A provider whose answer takes seconds -- a full-text index walk, for instance -- can override `GetFileResultsStreamed` to hand out hits as it finds them, which puts the first rows on screen while the rest are still being looked up; overriding it is optional because the interface's default body walks `GetFileResults`. The component has **its own** enable/disable switch under **Settings → Plugins**, keyed by its own component type — turning the plugin's instant-result provider off does not turn this off, or vice versa.
 
 ## 6. User-configured path resolution `UserPathResolver`
 
 Use `Lertaro.PluginSdk.Helpers.UserPathResolver` whenever a plugin accepts a path from the user or its settings. It applies the same rules for environment variables and Windows Shell virtual paths before filesystem APIs are called:
 
 ```csharp
-string expanded = UserPathResolver.Expand(rawPath);
+string expanded = UserPathResolver.Expand(rawPath);            // takes string?, returns string
 bool isVirtual = UserPathResolver.IsVirtualPath(expanded);
-string resolved = UserPathResolver.Resolve(rawPath);
+string resolved = UserPathResolver.Resolve(rawPath);           // optional 2nd arg below
+
+// Both Resolve and ResolveForNavigation accept an optional Func<string, string>? used to
+// turn an unparseable virtual token into a real path before the filesystem is asked; with no
+// resolver and nothing to parse, the input comes back as a last resort.
+
+// Use ResolveForNavigation, not Resolve, when the path is about to be opened or browsed: it
+// additionally normalises a virtual shell item to the filesystem target the host can navigate to.
+string target = UserPathResolver.ResolveForNavigation(rawPath);
 ```
 
 `Expand` trims the input and expands references such as `%USERPROFILE%`. `Resolve` performs that expansion and resolves tokens such as `shell:Downloads` or `::{CLSID}` to a physical path when possible. A virtual folder that has no physical path, such as `shell:AppsFolder`, resolves to its canonical `::{CLSID}` name instead, so every spelling of it compares equal; that result is still virtual. Only a token the Shell cannot parse at all comes back unchanged. Test the result with `IsVirtualPath` before passing it to filesystem APIs. Directory indexing APIs can only enumerate a path after it resolves to a real, index-covered folder.

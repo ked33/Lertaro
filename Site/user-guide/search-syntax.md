@@ -1,6 +1,6 @@
 # Search Syntax
 
-Lertaro's search bar supports far more than simple plain-text search. Equipped with a blazing-fast matching algorithm, it supports fuzzy jump matching, boolean logic, word boundary operators, drive and path scoping, secondary filtering query tokens, and multilingual aliases. All syntaxes can be freely mixed within the same query.
+Lertaro's search bar supports fuzzy jump matching, boolean logic, word boundary operators, drive and path scoping, secondary filtering query tokens, and multilingual aliases. All syntaxes can be freely mixed within the same query.
 
 ## 1. Basic Matching & Case
 
@@ -16,6 +16,28 @@ Lertaro enables Fuzzy Matching by default. Simply enter any characters in order,
 
 Turn this off under **Settings → General → System → Enable fuzzy matching** and plain search terms (without operators) will require a contiguous substring — `abc` will only match names containing contiguous `abc`, no longer matching `a-b-c`. This toggle only affects bare terms; all operators described below maintain their exact behaviors either way.
 
+### How results are ranked
+
+Results are ordered first by **how** your text sits in the name, and only then by where it starts:
+
+1. **Whole word**: `atlas` finds `atlas`, `code-atlas`, `atlas.png` and `CodeAtlas`. A word starts at the beginning of the name, after a space, `-`, `_`, `.` or a path separator, at a lowercase-to-capital step, and where letters meet digits.
+2. **Start of a word**: `atlasing`.
+3. **Inside a word**: `metatlas.txt`.
+4. **Scattered letters**: fuzzy matches such as `AutofillStates` (**A**u**t**ofil**l**St**a**te**s**) always come last.
+
+Within each group:
+
+- Something created or changed **recently** comes first, in bands: today, the past week, the past month, then older. The later of the created and modified dates counts, so a file you have just copied or downloaded counts as new.
+- Then the **shallower path**: `D:\dev\code-atlas` comes before the same word ten folders down inside a game or package folder.
+- Then a match starting further left, then a tighter, fuller match.
+
+When everything else is equal, a file is listed before a folder (the Inline window's current-folder listing keeps folders first, like Explorer). With several terms, the weakest term decides the group.
+
+Across all search windows, explicit pins and monotonic match grades keep ordering predictable:
+
+1. **Explicit pins first**: rules marked **High + Always on Top** and clean matches in **Favorites** stay pinned at the top, while system/cache **Low** rules stay demoted below normal results.
+2. **Direct matches before aliases & history recall**: exact and clean direct title/filename matches always rank ahead of approximate fuzzy matches, clean secondary aliases (such as shortcut targets or product metadata, shown with an `Alias:` / `Target:` subtitle), and confirmed **Query Associations** (which refine within equal match grades or supplement after direct matches).
+
 ### Case Insensitivity
 
 Matching always ignores case, in both directions — the case you type never changes what matches, and the case of the file name never does either. `myfile`, `MyFile` and `MYFILE` all match each other.
@@ -26,9 +48,11 @@ There is no case-sensitive mode: typing a capital no longer narrows a term to ex
 
 Chinese names are searchable by pinyin, in two forms: the **initials** (one letter per character — `ex` for 恶性) and the **full reading** (every syllable spelled out — `zhengshu` for 证书).
 
-**Ranking: match position > coverage > English > initials > full pinyin.** A match starting further left wins first; then a tighter, fuller match; English/initials/full-pinyin only separate results that already agree on both of those. So an English match no longer automatically outranks a pinyin one — it does when the two are equally well placed and equally tight. A partial last syllable still matches, so `zhengsh` keeps finding 证书 while you are still typing.
+**Ranking:** a pinyin match counts as a *start of a word* match (see "How results are ranked" above), so it sits below an English whole-word match and above an English match from the middle of a word. Within the same group the order is recency > path depth > match position > coverage > English > initials > full pinyin, so English/initials/full pinyin only separate results that already agree on everything else. A partial last syllable still matches, so `zhengsh` keeps finding 证书 while you are still typing.
 
 **With fuzzy matching off**, pinyin matches must line up with word starts. `ex` finds 恶性 (initials of two characters) but not 学习 (which would have to splice the end of `xue` onto the start of `xi`). With fuzzy matching on, that loose reading is what you asked for and remains available.
+
+In the inline window’s Current Folder section, direct children come before deeper descendants. Direct children are sorted by the leftmost match position, then folders before files at equal positions, then match type and Explorer-style name order. Name length does not determine their order.
 
 ## 2. Multiple Terms & Boolean Logic
 
@@ -90,7 +114,7 @@ A quoted phrase `'...'` never spans a pipe — the pipe always ends the phrase's
 
 ### Escaping Spaces & Quoted Phrases
 
-To search for a phrase containing spaces within a single term, escape the space with a backslash `\ `, or enclose the phrase in single quotes `'...'` or double quotes `"..."`:
+To search for a phrase containing spaces within a single term, escape the space with a backslash `\ `, or enclose the phrase in single quotes `'...'`:
 
 ```text
 final\ report
@@ -184,17 +208,17 @@ Even if `dcj` never appears in the file's own name, Lertaro finds `d01j.txt` loc
 
 Lertaro supports appending **Query Tokens** guided by a colon prefix `:` (customizable in **Settings → General → System → Query Token Global Prefix Character**) to perform chained secondary filtering and sorting on primary results.
 
-Multiple tokens can be combined in a single `:` suffix separated by commas `,`, such as `report :@doc,M-,:-F`.
+Multiple tokens can be combined in a single `:` suffix separated by commas `,`, such as `report :@doc,M-`.
 
 ### Category Filters (`:@<category>`)
 
 Quickly apply preset file extension category rules, supporting `|` combinations:
 
-- `:@doc`: Documents (`*.doc; *.docx; *.pdf; *.txt; *.ppt; *.pptx; *.xls; *.xlsx; *.csv; *.rtf; *.md; *.wps`)
-- `:@img`: Images (`*.jpg; *.jpeg; *.png; *.gif; *.bmp; *.webp; *.ico; *.svg; *.tif; *.tiff; *.psd; *.ai`)
+- `:@doc`: Documents (`*.doc; *.docx; *.pdf; *.txt; *.ppt; *.pptx; *.xls; *.xlsx; *.csv; *.rtf; *.md; *.wps; *.et; *.dps; *.odf; *.odt; *.ods; *.odg; *.odb; *.eqp; *.mmx; *.tex`)
+- `:@img`: Images (`*.jpg; *.jpeg; *.png; *.gif; *.bmp; *.webp; *.ico; *.svg; *.tif; *.tiff; *.psd; *.ai; *.jxl; *.avif`)
 - `:@video`: Videos (`*.mp4; *.mkv; *.avi; *.mov; *.wmv; *.flv; *.m4v; *.webm; *.3gp; *.rmvb; *.ts`)
 - `:@audio`: Audio (`*.mp3; *.wav; *.flac; *.aac; *.ogg; *.m4a; *.wma; *.ape`)
-- `:@zip`: Archives (`*.zip; *.rar; *.7z; *.tar; *.gz; *.bz2; *.xz; *.iso`)
+- `:@zip`: Archives (`*.zip; *.rar; *.7z; *.tar; *.gz; *.bz2; *.xz; *.iso; *.wim; *.esd`)
 
 **Examples**:
 
@@ -230,7 +254,7 @@ The bare letter indicates **ascending order** (smallest / oldest first); adding 
 | `:F` | **Folders only** (filters out regular files) | `config :F` (find only directories named config) |
 | `:-F` or `:F-` | **Files only** (filters out folders/directories) | `config :-F` (find only files named config) |
 
-### Wildcard Secondary Filters (`:?<expression>` or `?<expression>`)
+### Wildcard Secondary Filters (`:?<expression>`)
 
 Use standard Windows wildcards (`?` for single character, `*` for zero or more characters) for precise matching, supporting `|` or `;` for multiple OR conditions:
 
@@ -249,14 +273,14 @@ Requires ancestor directory names or the filename itself to match the specified 
 Tokens can be combined together after a single `:` prefix:
 
 - `report :@doc,M-`: Searches "report", filters to documents, sorted by modified time descending (newest first).
-- `backup :.zip,S-,:-F`: Searches "backup", filters to `.zip` archives, sorted by size descending, files only.
+- `backup :.zip,S-,F-`: Searches "backup", filters to `.zip` archives, sorted by size descending, files only.
 - `icon ::assets,?*128*`: Searches "icon", located under `assets` paths, with `128` size tags in the name.
 
 ## 6. Special Search Features
 
 ### Bypassing Exclusion Rules for One Search
 
-Prefix a query with `*` to temporarily bypass user-configured path exclusions, globs, and regular expressions in [**Exclusion Rules**](./settings/index-drives#exclusion-rules) for this single search, without modifying settings:
+Prefix a query with `*` to temporarily bypass user-configured path exclusions, globs, and regular expressions in [**Exclusion Rules**](./settings/index-drives#_5-exclusions) for this single search, without modifying settings:
 
 ```text
 *node_modules
@@ -274,7 +298,7 @@ Typing the trigger as the very first character in the quick search window displa
 ;vs
 ```
 
-If `;` is assigned to "Applications", the above query searches Visual Studio exclusively among applications. In Quick and Inline search windows, History and Favorites remain pinned at the top regardless of triggers.
+If `;` is assigned to "Applications", the above query searches Visual Studio exclusively among applications. In the Quick Search Window, typing a trigger temporarily suppresses history candidates, while Favorites stay pinned at the top regardless of triggers.
 
 ## 7. Multilingual Aliases
 
@@ -290,7 +314,7 @@ You can verify that `PinyinAlias` is active under **Settings → Plugins**.
 
 ### Spanish filenames: accent aliasing
 
-Bundled with the `SpanishAlias` plugin, filenames containing Spanish accented characters (`á`, `é`, `í`, `ó`, `ú`, `ü`, `ñ`) can be searched seamlessly using unaccented ASCII letters:
+Bundled with the `SpanishAlias` plugin, filenames containing Spanish accented characters (`á`, `é`, `í`, `ó`, `ú`, `ü`, `ñ`) can be searched using unaccented ASCII letters:
 
 - Typing `cancion` matches `Canción.mp3`.
 - Typing `nino` matches `Niño.txt`.
@@ -305,6 +329,6 @@ Matched characters (including accented vowels in the original name) are accurate
 Lertaro does not provide a generic "custom search alias/macro" mechanism. The closest native solutions:
 
 - [**Favorites**](./settings/favorites): pin any file, folder, or URL under a custom display name, making it searchable by that custom title (marked with a ★ icon in results).
-- **File Filters** (see [**Instant Answers**](./instant-answers#file-filters)): bind a trigger keyword to chosen folders, then typing `keyword term` in the quick search window restricts a normal index search to those folders.
+- **File Filters** (see [**Instant Answers**](./instant-answers#_5-file-filters)): bind a trigger keyword to chosen folders, then typing `keyword term` in the quick search window restricts a normal index search to those folders.
 
-If you want to trigger custom scripts or launch programs using custom keywords, see [**Custom Commands**](./instant-answers#custom-commands).
+If you want to trigger custom scripts or launch programs using custom keywords, see [**Custom Commands**](./instant-answers#_6-custom-commands).

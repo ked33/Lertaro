@@ -219,7 +219,7 @@ public partial class AboutSettingsPage : System.Windows.Controls.UserControl, IN
 
         var downloadingFormat = TranslationManager.Instance["About_Downloading"];
 
-        var success = await UpdateInstaller.Instance.StartSilentUpdateAsync(zipAsset.BrowserDownloadUrl, (progress) => Dispatcher.Invoke(() =>
+        var (success, error) = await UpdateInstaller.Instance.StartSilentUpdateAsync(zipAsset.BrowserDownloadUrl, (progress) => Dispatcher.Invoke(() =>
             {
                 PbUpdate.Value = progress * 100;
                 TxtUpdateStatus.Text = string.Format(downloadingFormat, (int)(progress * 100));
@@ -228,8 +228,8 @@ public partial class AboutSettingsPage : System.Windows.Controls.UserControl, IN
         if (success)
         {
             TxtUpdateStatus.Text = TranslationManager.Instance["About_Success"];
-            // Quit App so batch script can replace files
-            TrayCleanExitHelper.CleanExit();
+            // Quit without stopping the service: the updater owns its stop/restart.
+            TrayCleanExitHelper.CleanExit(stopService: false);
         }
         else
         {
@@ -237,7 +237,11 @@ public partial class AboutSettingsPage : System.Windows.Controls.UserControl, IN
             BtnCheckUpdate.IsEnabled = true;
             BtnAutoUpdate.IsEnabled = true;
             BtnGoToPage.IsEnabled = true;
-            TxtUpdateStatus.Text = TranslationManager.Instance["About_Failed"];
+            // The reason is a sentence from the service or the file system, not a translated key: it names
+            // what to fix ("requires an administrator account", "is missing from this install"), and the log
+            // is not where the user who just pressed the button will look.
+            var failed = TranslationManager.Instance["About_Failed"];
+            TxtUpdateStatus.Text = string.IsNullOrWhiteSpace(error) ? failed : $"{failed}: {error}";
         }
     }
 
@@ -277,7 +281,7 @@ public partial class AboutSettingsPage : System.Windows.Controls.UserControl, IN
 
     // Config Management card: the flows (file pickers, confirms, message boxes) live in
     // UserConfigBackups to keep this page under the repo's per-file line limit.
-    private async void BtnExportConfig_Click(object sender, RoutedEventArgs e) => await UserConfigBackups.RunExportFlowAsync();
+    private async void BtnExportConfig_Click(object sender, RoutedEventArgs e) => await UserConfigBackups.RunExportFlowAsync(DataContext as ViewModels.Settings.SettingsViewModel);
 
     private async void BtnImportConfig_Click(object sender, RoutedEventArgs e) => await UserConfigBackups.RunImportFlowAsync();
 

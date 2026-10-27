@@ -1,6 +1,6 @@
 # 官方外掛模組範例
 
-為了幫助開發者深入理解 `Lertaro.PluginSdk` 的各模組協同機制，本章節選取了 Lertaro 官方存放庫自帶的四個典型開源外掛模組進行深度案例剖析。
+為了幫助開發者深入理解 `Lertaro.PluginSdk` 的各模組協同機制，本章節深入剖析隨 Lertaro 官方存放庫發布的四個典型開源外掛模組。
 
 ## 1. CoreExtensions —— 動作、Shell 選單與快速面板
 
@@ -9,32 +9,32 @@
 ### 核心實作要點
 
 - **靜態結果動作（`IActionProvider.GetActions()`）**：註冊了一組常用的基礎檔案動作，包括開啟與定位項目、複製路徑和檔案、加入我的最愛、重新命名、終端機命令、刪除以及以管理員身分執行等。
-- **原生 Shell 選單整合（`IDynamicActionProvider`）**：透過 `ShellMenuActionProvider` 與 Windows Shell COM 介面互動，將完整的 Windows 快顯級聯選單（如「傳送到」、7-Zip、VS Code 開啟等）無縫轉譯至 Lertaro 的 `Ctrl+O` 動作選單中。
-- **結構描述驅動的設定表單（`IConfigurable`）**：展示了如何定義包含巢狀分組（`Group`）、多行字串清單（`StringList`）與熱鍵錄製（`Hotkey`）的複雜設定表單，無需手寫任何 XAML 即可在設定中心中自動產生。
+- **原生 Shell 選單整合（`IDynamicActionProvider`）**：透過 `ShellMenuActionProvider` 與 Windows Shell COM 介面互動，將完整的 Windows 快顯級聯選單（如「傳送到」、7-Zip、VS Code 開啟等）轉譯至 Lertaro 的 `Ctrl+O` 動作選單中。
+- **結構描述驅動的設定表單（`IConfigurable`）**：展示了如何定義包含巢狀分組（`Group`）、多行字串清單（`StringList`）與快速鍵錄製（`Hotkey`）的複雜設定表單，無需手寫任何 XAML 即可在設定中心中自動產生。
 - **多樣化的快速面板標籤（`IQuickPanelTabProvider`）**：
-  - `FavoritesTabProvider` / `HistoryTabProvider`：直接將記憶體中的結構化清單包裝為結果集，屬於零 I/O 極簡實作。
+  - `FavoritesTabProvider` / `HistoryTabProvider`：直接使用宿主已載入好的我的最愛與歷程資料，而非再從磁碟重讀一次；歷程查詢會派工到 UI 執行緒之外（`Task.Run`），因此呼叫快速面板時絕不會等待它。
   - `WindowsRecentTabProvider`：在背景任務中周遊系統 `Recent` 目錄並透過 COM 剖析捷徑目標，預先截斷並填入 `Metadata.Modified` 時間戳記以實現「最新在前」。
   - `LastDirectoryTabProvider` / `RecentFilesTabProvider`：直接呼叫宿主公開的 [`ExplorerPathService`](./sdk/services) 與 `RecentFilesService` 查詢宿主已有狀態。
 
 ## 2. PinyinAlias —— 非 ASCII 別名轉寫引擎
 
-`PinyinAlias` 外掛模組專門為中文檔案名稱提供拼音全拼與首字母縮寫檢索支援，同時實作了 `IAliasProvider` 與 `ITranslationProvider` 兩個介面。
+`PinyinAlias` 外掛模組專門為中文檔案名稱提供拼音全拼與首字母縮寫檢索支援，同時實作了 `IAliasLiveMatcherProvider`（`IAliasProvider` 的延伸）與 `ITranslationProvider` 兩個介面。
 
 ### 核心實作要點
 
-- **輸入/輸出字母表邊界（`InputRanges` / `OutputRanges`）**：宣告輸入來源字元範圍為 CJK 表意文字區塊，輸出字元範圍為小寫 `a`–`z`。宿主利用該邊界智慧將「大cj」等混合查詢切分為字面比對與拼音別名比對。
+- **輸入/輸出字母表邊界（`InputRanges` / `OutputRanges`）**：宣告一個 CJK 表意文字範圍（U+3007–U+9FFD）作為輸入邊界，輸出字元範圍為小寫 `a`–`z`。宿主利用該邊界智慧將「大cj」等混合查詢切分為字面比對與拼音別名比對。
 - **快速預檢過濾（`CanHandle(text)`）**：在產生別名前先掃描文字中是否存在中文字元，對於純英文字串直接返回 `false`，完全跳過後續開銷。
-- **多音字組合與別名建置（`GetAliases(text)`）**：先建置字元級音節表，對於含多音字的檔案名稱（如「重」、「長」），自動產生各常見讀音組合並使用 `|` 管道符連接（上限 32 種組合以防爆炸），供搜尋引擎作為候選集並行比對。
+- **讀音即時比對（`IAliasLiveMatcherProvider`）**：讀音不再寫入索引。外掛為每個查詢詞建立一個不可變的位元平行比對器（2–63 個 ASCII 字母／數字），宿主以它逐字元扫描候選名稱：每個字元可吃掉該字任一讀音的非空前綻，因此命中必是一段連續片段，多音字名稱也不額外佔空間。`GetAliases(text)` 現在只輸出繁轉簡寫法。
 - **內嵌多語言與執行緒安全快取**：透過 `ITranslationProvider` 提供外掛模組顯示名稱與描述的多語言當地語系化，並在內部使用帶 `lock` 保護的字典快取剖析後的 JSON 翻譯，避免每次查詢重複剖析。
 
 ## 3. FlowLauncherBridge —— 跨生態橋接與隔離執行階段
 
-`FlowLauncherBridge` 外掛模組展示了如何建置一個大型複合型橋接系統，將外部開源社群生態無縫吸納進 Lertaro 體系。
+`FlowLauncherBridge` 外掛模組展示了如何建置一個大型複合型橋接系統，將外部開源社群生態接入 Lertaro 體系。
 
 ### 核心實作要點
 
 - **多語言跨程序橋接**：相容 C# (.NET)、Python 3.12、Node.js v20 LTS 及獨立 `.exe` 形式的 Flow Launcher 外掛模組。
-- **純淨自包含環境**：在使用者資料目錄中自動隔離部署 Python / Node.js 執行階段，並透過具名管道與子程序進行 JSON-RPC 通訊。
+- **純淨自包含環境**：將隔離的 Python 與 Node.js 執行階段部署在 Lertaro 的**共用資料目錄**（`SharedDataDirectory\FlowData\PythonEmbeded-{arch}`）之下，而非個別使用者資料夾。每個外掛模組都是透過**重新導向的標準輸入/輸出**與自己的直譯器溝通，其上承載 JSON-RPC——沒有具名管道，也完全不碰系統 PATH。
 - **動態設定與富文本預覽**：剖析外部外掛模組的 `SettingsTemplate.yaml`/`.json` 並動態對應為 `PluginConfigSchema`；在 QuickLook 預覽面板中利用 WebView2 轉譯外部外掛模組返回的富文本卡片（如詞典釋義、即時天氣等）。
 
 ## 4. FileUnlocker —— 解除檔案佔用動作

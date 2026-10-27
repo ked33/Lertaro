@@ -2,7 +2,7 @@
 > 本仓库基于上游 Lertaro 项目进行定制修改，原项目介绍与文档见下文。
 
 <p align="center">
-  <img src="App/logo.png" alt="Lertaro logo" width="120">
+  <img src="logo.svg" alt="Lertaro logo" width="120">
 </p>
 
 # ⚡ Lertaro

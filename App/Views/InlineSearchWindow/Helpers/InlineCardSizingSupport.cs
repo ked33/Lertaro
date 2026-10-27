@@ -1,5 +1,6 @@
 using System.Windows;
 using Lertaro.App.Services;
+using Lertaro.Core;
 
 namespace Lertaro.App.Views.InlineSearchWindow.Helpers;
 
@@ -10,19 +11,25 @@ namespace Lertaro.App.Views.InlineSearchWindow.Helpers;
 // is trimmed to the rows it is actually showing. This covers completed searches, empty results, and the
 // empty-query startup panel without exposing a transient full-budget layout.
 //
-// Split out of InlineSearchWindow to keep that file under the repo's per-file line limit; it holds only
-// the pulse animation and always operates on the one window it is given.
+// Split out of InlineSearchWindow to keep that file under the repo's per-file line limit; it holds the
+// card's row budget and the height application that reads it, and always operates on the one window it
+// is given.
 internal sealed class InlineCardSizingSupport
 {
-    // The window's own transparent margin around the card (MainBorder's Margin in the XAML).
-    private const double CardMargin = 12;
+    // The window's own margin around the card, which used to be the transparent room it reserved for a
+    // shadow (MainBorder's Margin in the XAML). The window is opaque now, so there is no room to reserve:
+    // the card IS the window. Kept as a named zero rather than deleted because the shell height, the full
+    // card height and the card's content width are all derived from it in both directions, and this is the
+    // one place that says how much of the window is not card.
+    private const double CardMargin = 0;
 
     private readonly Lertaro.App.InlineSearchWindow _window;
     private int? _searchAreaRows;
 
-    // The row budget that currently fits on screen: never more than the Ctrl+1..9 range, and never more than
-    // the space this card actually has (see InlineCardSpace.AvailableHeight). Starts at the full budget so the
-    // first sizing pass, which runs before any screen query has happened, behaves exactly as it always did.
+    // The row budget that currently fits on screen, in LIST rows: never more than the configured result count
+    // plus the titles it rides on (RowCap + TitleRows), and never more than the space this card actually has
+    // (see InlineCardSpace.AvailableHeight). Starts at the default result count so the first sizing pass, which
+    // runs before any screen query has happened, behaves as it always did.
     private int _rowBudget = InlineCardMetrics.DefaultRows;
 
     internal InlineCardSizingSupport(Lertaro.App.InlineSearchWindow window) => _window = window;
@@ -30,13 +37,33 @@ internal sealed class InlineCardSizingSupport
     /// <summary>The row budget in force right now: what the results area, and the actions area, size to.</summary>
     internal int RowBudget => _rowBudget;
 
-    // How tall the card may get where it is now. A file dialog caps at four rows because the card is a guest
-    // over somebody else's window, and the shorter it is the less of that window it costs the user; a card
-    // over a file manager's window has that window's whole list to fill, and keeps the Ctrl+1..9 budget. This
-    // is also what FullCardHeight prices, so the two cannot disagree about which corner to hang from.
-    private int RowCap => _window.Manager.ExplorerTracker.IsActiveWindowDialog
-        ? InlineCardMetrics.DialogRows
-        : InlineCardMetrics.DefaultRows;
+    // How tall the card may get where it is now, in RESULTS: the count the user set for this context. An
+    // ordinary window and a file dialog are two separate boxes in General settings, because the card over a
+    // dialog is a guest over somebody else's controls and the shorter it is the less of those it costs the user.
+    // This is also what FullCardHeight prices, so the two cannot disagree about which corner to hang from.
+    // Read per sizing pass, like the card's width: the screen, the host and the setting can all change while
+    // the card is open, and a saved setting has to reach the very next layout.
+    private int RowCap => InlineCardMetrics.ResolveRowCap(
+        _window.Manager.ExplorerTracker.IsActiveWindowDialog
+            ? UserSettings.Load().InlineSearchDialogMaxRows
+            : UserSettings.Load().InlineSearchWindowMaxRows);
+
+    // How many section titles the bound list carries right now. A title costs the card height but not one of
+    // the user's rows, so they are added to the ceiling the screen fit is clamped against -- and clamped to
+    // what FullCardHeight prices, so a list with more titles than that still stays inside the room the
+    // placement chose a corner with.
+    private int TitleRows => Math.Min(CountTitleRows(), InlineCardMetrics.MaxSectionTitleRows);
+
+    private int CountTitleRows()
+    {
+        var count = 0;
+        foreach (var result in _window.ViewModel.Results)
+        {
+            if (result.IsSearchSectionHeader) count++;
+        }
+
+        return count;
+    }
 
     /// <summary>Re-applies the card's size once the window has been laid out at least once.</summary>
     internal void Attach()
@@ -111,11 +138,13 @@ internal sealed class InlineCardSizingSupport
             return layout;
         }
 
-        // Do not expose the full search budget to the visual tree while a query is in flight. The old
-        // result area remains allocated until the final snapshot arrives; otherwise WPF first arranges
-        // nine rows and then immediately arranges the smaller settled result set, which is the visible
-        // large-list flash when deleting a no-results query.
-        var areaRows = _searchAreaRows ?? layout.AreaRows;
+        // Do not expose the full search budget to the visual tree while a query is in flight. What the card is
+        // sized to instead is the area it was already showing (frozen below), so a card mid-typing does not
+        // resize on every batch -- or, when it has nothing on screen to keep still, the rows that have actually
+        // arrived. Falling back to the budget there is the 324 DIP empty box; falling back to the frozen zero
+        // is the search-bar strip that held for the whole 459ms of its own search (first batch at +60ms, shell
+        // resized only at the settle -- read out of the live log).
+        var areaRows = _searchAreaRows ?? layout.ShownItems;
         return new InlineCardMetrics.CardLayout(Math.Min(layout.ShownItems, areaRows), areaRows);
     }
 
@@ -127,7 +156,11 @@ internal sealed class InlineCardSizingSupport
             return;
         }
 
-        _searchAreaRows = ComputeResultLayout(_window.ViewModel.Results, isSearching: false).AreaRows;
+        // A zero-row area is not something to keep still: freezing it pins the card to the search bar for the
+        // whole search, which is what the summoned card was doing for 459ms while its first batch sat in the
+        // collection since +60ms. Letting it stay null sends the sizing to the rows as they arrive instead.
+        var frozen = ComputeResultLayout(_window.ViewModel.Results, isSearching: false).AreaRows;
+        if (frozen > 0) _searchAreaRows = frozen;
     }
 
     private InlineCardMetrics.CardLayout ComputeResultLayout(
@@ -138,7 +171,7 @@ internal sealed class InlineCardSizingSupport
         for (var i = 0; i < results.Count; i++)
             isHeader[i] = results[i].IsSearchSectionHeader;
 
-        return InlineCardMetrics.ComputeLayout(isHeader, isSearching, _rowBudget);
+        return InlineCardMetrics.ComputeLayout(isHeader, isSearching, RowCap, _rowBudget);
     }
 
     /// <summary>Sizes the window shell to the settled row count.</summary>
@@ -147,12 +180,35 @@ internal sealed class InlineCardSizingSupport
     /// is what lets a taller card extend upward within it (the positioner pins the card's bottom edge; see
     /// InlineSearchWindowPositioner). The results area's own height belongs to
     /// InlineSearchWindowLayoutManager, which is re-queued rather than duplicated here.
+    ///
+    /// forSummon: the one pass that must not wait for a settled search. See the guard below.
     /// </remarks>
-    internal void ApplyCardHeight()
+    internal void ApplyCardHeight(bool forSummon = false)
     {
-        // Searching produces intermediate result snapshots. Their full-budget layout is not a stable size,
-        // so wait for IsSearching=false and resize once from the settled result set.
-        if (_window.ViewModel.IsSearching) return;
+        // Searching produces intermediate result snapshots. Rows that are still arriving are not a stable size,
+        // so such a pass waits for IsSearching=false and resizes once from the settled result set. A frozen area
+        // (with the list drawn) makes the size stable anyway, so a pass driven by a new host, another monitor or
+        // the banner applies mid-search -- vetoing those pinned the card to the previous host's height, and a
+        // search that never settles never freed it.
+        //
+        // A summon is exempt, and it has to be: the summon clears the box, that clear starts the empty-query
+        // search, so an unconditional veto here also vetoes the only sizing pass that runs before the card is
+        // on screen -- leaving it at whatever height the previous session ended with, and at the XAML's own
+        // 550 DIP on the process's first summon. That slab is what read as a black frame. CurrentLayout()
+        // answers correctly for a summon regardless: the cleared list has no rows, so the card is sized to the
+        // empty state and the settled search corrects it like any later pass.
+        var searching = _window.ViewModel.IsSearching;
+        if (!InlineCardMetrics.CanApplyWhileSearching(
+                searching,
+                forSummon,
+                _searchAreaRows,
+                _window.ResultsPanelControl.Visibility == Visibility.Visible))
+        {
+            // Said out loud because a veto here is the difference between the card arriving at the size this
+            // session's content has and arriving at whatever height it last settled to.
+            Logger.Log("[InlineCardSize] skipped: rows are still arriving and this is not a summon pass", LogLevel.Debug);
+            return;
+        }
 
         // Re-derived on every size pass, before anything is measured from it: the screen, its DPI and the
         // window this card is docked to can all change while it is open (the dialog is dragged to a smaller
@@ -161,7 +217,19 @@ internal sealed class InlineCardSizingSupport
 
         // Card plus its margin on both sides, plus a further margin so the drop shadow above the card is
         // not clipped by the window bounds.
-        var shellHeight = CardHeight(CurrentLayout().AreaRows) + (CardMargin * 3);
+        var layout = CurrentLayout();
+        var shellHeight = CardHeight(layout.AreaRows) + (CardMargin * 3);
+        // The summon pass speaks at Info: it is the frame the user sees or does not see, and the level setting
+        // applies at process start, so a diagnostic that only arrives when somebody remembered to change it is
+        // not a diagnostic. Every later pass stays at Debug.
+        Logger.Log(
+            "[InlineCardSize] "
+            + $"forSummon={forSummon} searching={searching} "
+            + $"areaRows={layout.AreaRows} shown={layout.ShownItems} rowBudget={_rowBudget} rowCap={RowCap} titles={TitleRows} "
+            + $"results={_window.ViewModel.Results.Count} frozen={_searchAreaRows?.ToString() ?? "null"} "
+            + $"panel={_window.ResultsPanelControl.Visibility} banner={_window.PathPreviewBorder.Visibility} "
+            + $"visibleContent={HasVisibleContent} height={_window.Height:F0}->{shellHeight:F0}",
+            forSummon ? LogLevel.Info : LogLevel.Debug);
         if (Math.Abs(_window.Height - shellHeight) <= 0.5)
         {
             // Nothing to resize. This early return is what keeps a streaming search cheap: the results
@@ -185,8 +253,8 @@ internal sealed class InlineCardSizingSupport
         _window.InputHandler.QueueResultsLayoutUpdate();
     }
 
-    /// <summary>The card's height: the natural content (rows, search bar, and the path banner when it is
-    /// actually shown) plus the shell's transparent margin.</summary>
+    /// <summary>The card's height: the natural content (the rows the results area draws, the search bar, and
+    /// the path banner when it is actually shown) plus the shell's transparent margin.</summary>
     /// <remarks>
     /// Separated and taking the row count so the arithmetic is testable without a laid-out window. The
     /// search bar and path banner are measured when WPF has not produced their arranged heights yet.
@@ -197,17 +265,21 @@ internal sealed class InlineCardSizingSupport
     /// not. That reserve only ever protected a BOTTOM-anchored search bar, and the docked layout is now
     /// always drop-down (search box pinned at the top, banner grown downward), so the search bar no longer
     /// moves when the banner appears -- the reserve bought nothing and cost the correct corner.
+    ///
+    /// The rows are the layout's area rows, never the row budget: reserving budget-height rows while the
+    /// layout manager trims the list to the rows that actually arrived is what put a blank band under an
+    /// empty-state card (two headers and two folders, four of six rows drawn) until a real search filled the
+    /// budget. And only while the panel is drawn, so the first summon cannot reserve rows for a stale
+    /// Visibility (550->324->36->324 in three passes, with results=0,0,58).
     /// </remarks>
-    internal double CardHeight(int rows)
-    {
-        if (HasVisibleContent)
-            rows = Math.Max(rows, _rowBudget);
+    internal double CardHeight(int rows) =>
+        InlineCardMetrics.CardHeight(
+            rows,
+            _window.ResultsPanelControl.Visibility == Visibility.Visible,
+            ChromeHeight());
 
-        return InlineCardMetrics.ResultsAreaHeight(rows) + ChromeHeight();
-    }
-
-    /// <summary>The tallest the STABLE card can be, in DIP: the full row budget plus the search bar and the
-    /// shell margin, but deliberately NOT the path banner.</summary>
+    /// <summary>The tallest the STABLE card can be, in DIP: the row ceiling plus the section titles it is priced
+    /// with, the search bar and the shell margin, but deliberately NOT the path banner.</summary>
     /// <remarks>
     /// Excluding the banner is what makes this a constant the placement can be decided against: the banner
     /// flicks on and off as the selection moves between truncated and ordinary paths, so charging it here
@@ -217,7 +289,7 @@ internal sealed class InlineCardSizingSupport
     /// into the room below rather than forcing the card to the top when there is none.
     /// </remarks>
     internal double FullCardHeight() =>
-        InlineCardMetrics.ResultsAreaHeight(RowCap)
+        InlineCardMetrics.ResultsAreaHeight(RowCap + InlineCardMetrics.MaxSectionTitleRows)
         + StableChromeHeight() + CardMargin * 3;
 
     // Everything the card spends that is not a result row and does not come and go with the selection: the
@@ -249,7 +321,7 @@ internal sealed class InlineCardSizingSupport
         var available = InlineCardSpace.AvailableHeight(_window, FullCardHeight());
 
         _rowBudget = InlineCardMetrics.ComputeRowBudget(
-            available, ChromeHeight() + margin, UiMetrics.InlineRowHeight, maxRows: RowCap);
+            available, ChromeHeight() + margin, UiMetrics.InlineRowHeight, maxRows: RowCap + TitleRows);
     }
 
     /// <summary>Measures the search bar at its natural height for the current card width.</summary>

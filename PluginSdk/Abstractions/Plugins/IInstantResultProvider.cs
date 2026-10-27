@@ -14,15 +14,21 @@ public interface IInstantResultProvider : IPluginComponent
     /// </summary>
     IEnumerable<InstantResultItem> GetInstantResults(string query);
 
+    /// <summary>Directory captured for this search. Existing providers keep their original entry point.</summary>
+    IEnumerable<InstantResultItem> GetInstantResults(string query, string? contextDirectory) => GetInstantResults(query);
+
+    /// <summary>Opt in to the explorer inline window; command providers can use its directory context.</summary>
+    bool SupportsInlineSearch => false;
+
     /// <summary>
     /// Opt-in results for an inline window. The directory belongs to this search, not to a global
     /// active-window service. Existing providers remain absent from inline search by default.
     /// </summary>
-    IEnumerable<InstantResultItem> GetInlineResults(string query, string currentDirectory) => [];
+    IEnumerable<InstantResultItem> GetInlineResults(string query, string currentDirectory) => SupportsInlineSearch ? GetInstantResults(query, currentDirectory) : [];
 
     /// <summary>Window-specific trigger inventory; the property remains the inventory for all windows.</summary>
     IReadOnlyList<string> GetQueryTriggerKeywords(SearchWindowType windowType) =>
-        windowType == SearchWindowType.Inline ? [] : QueryTriggerKeywords;
+        windowType == SearchWindowType.Inline && !SupportsInlineSearch ? [] : QueryTriggerKeywords;
 
     /// <summary>
     /// Returns a custom highlight mask if supported.
@@ -42,7 +48,7 @@ public interface IInstantResultProvider : IPluginComponent
     /// receives the untouched box text: the provider that owns a word has to keep recognising it, so
     /// declaring the word here is what removes it from OTHER results, not from the provider's own.
     ///
-    /// Where a word counts as typed is <see cref="Lertaro.PluginSdk.Services.TriggerWord"/>'s rule
+    /// Where a word counts as typed is <see cref="Services.TriggerWord"/>'s rule
     /// -- the same one the host
     /// applies, which is the point: a provider that recognised its word by some other rule could be
     /// silently out of sync with the strip. The one difference is deliberate and is each side's policy, not

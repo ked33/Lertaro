@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Lertaro.PluginSdk.Services;
 using Lertaro.Plugins.ContentSearch.Indexing;
 using Lertaro.Plugins.ContentSearch.Storage;
@@ -5,15 +6,14 @@ using Lertaro.Plugins.ContentSearch.Tests.TestSupport;
 
 namespace Lertaro.Plugins.ContentSearch.Tests.Indexing;
 
-// Shares the process-wide PluginSdk.Logger.LogAction hook and a temp database, so it
-// must not run concurrently with anything that reads or resets them.
+// Shares the process-wide LogAction hook and a temp database; canonical note at ContentIndexSchedulerTests.
 [TestClass]
 [DoNotParallelize]
 public sealed class ContentIndexSchedulerMissingObservationTests
 {
     private string _tempDbPath = null!;
     private ContentSearchDatabase _database = null!;
-    private readonly List<string> _logLines = new();
+    private readonly ConcurrentQueue<string> _logLines = new();
 
     [TestInitialize]
     public void SetUp()
@@ -22,7 +22,7 @@ public sealed class ContentIndexSchedulerMissingObservationTests
         _database = new ContentSearchDatabase(_tempDbPath);
         _database.Initialize();
         _logLines.Clear();
-        PluginSdk.Logger.LogAction = (message, level) => _logLines.Add($"{level}: {message}");
+        PluginSdk.Logger.LogAction = (message, level) => _logLines.Enqueue($"{level}: {message}");
         // The App host normally supplies this hook; scheduler tests run without the App,
         // so a real filesystem walk stands in for the host's index enumeration.
         DirectoryIndexerService.EnumerateDirectoryFunc = LiveDirectoryEnumerator.EnumerateAsync;
@@ -56,12 +56,12 @@ public sealed class ContentIndexSchedulerMissingObservationTests
             File.Delete(file);
 
             using var scheduler = CreateScheduler(tempDir);
-            scheduler.TriggerFullScan();
-            await WaitUntilAsync(() => _database.GetFileRecord(file) is { MissingCount: 1 });
+            await scheduler.TriggerFullScan().WaitAsync(TimeSpan.FromSeconds(10));
+
             Assert.AreEqual(1, _database.GetFileRecord(file)!.MissingCount);
 
-            scheduler.TriggerFullScan();
-            await WaitUntilAsync(() => _database.GetFileRecord(file) is { MissingCount: 2 });
+            await scheduler.TriggerFullScan().WaitAsync(TimeSpan.FromSeconds(10));
+
             Assert.AreEqual(2, _database.GetFileRecord(file)!.MissingCount);
         }
         finally
@@ -85,9 +85,8 @@ public sealed class ContentIndexSchedulerMissingObservationTests
             File.Delete(file);
 
             using var scheduler = CreateScheduler(tempDir);
-            scheduler.TriggerFullScan();
+            await scheduler.TriggerFullScan().WaitAsync(TimeSpan.FromSeconds(10));
 
-            await WaitUntilAsync(() => _database.GetFileRecord(file) == null);
             Assert.IsNull(_database.GetFileRecord(file));
         }
         finally
@@ -104,12 +103,11 @@ public sealed class ContentIndexSchedulerMissingObservationTests
         _database.InsertOrUpdateFile(offlineFile, DateTime.UtcNow, 1024, "offline searchable text");
 
         using var scheduler = CreateScheduler(offlineRoot);
-        scheduler.TriggerFullScan();
-        await WaitUntilAsync(() => CountLogLines("Full scan completed") >= 1);
+        await scheduler.TriggerFullScan().WaitAsync(TimeSpan.FromSeconds(10));
 
-        scheduler.TriggerFullScan();
-        await WaitUntilAsync(() => CountLogLines("Full scan completed") >= 2);
+        await scheduler.TriggerFullScan().WaitAsync(TimeSpan.FromSeconds(10));
 
+        Assert.AreEqual(0, CountLogLines("Full scan failed"), string.Join("; ", _logLines));
         var record = _database.GetFileRecord(offlineFile);
         Assert.IsNotNull(record);
         Assert.AreEqual(0, record!.MissingCount);
@@ -132,19 +130,57 @@ public sealed class ContentIndexSchedulerMissingObservationTests
             File.Delete(file);
 
             using var scheduler = CreateScheduler(tempDir);
-            scheduler.TriggerFullScan();
-            await WaitUntilAsync(() => _database.GetFileRecord(file) is { MissingCount: 1 });
+            await scheduler.TriggerFullScan().WaitAsync(TimeSpan.FromSeconds(10));
 
-            scheduler.TriggerFullScan();
-            await WaitUntilAsync(() => _database.GetFileRecord(file) is { MissingCount: 2 });
+            await scheduler.TriggerFullScan().WaitAsync(TimeSpan.FromSeconds(10));
 
             await File.WriteAllTextAsync(file, "indexed text");
             File.SetLastWriteTimeUtc(file, originalWriteTime);
 
-            scheduler.TriggerFullScan();
-            await WaitUntilAsync(() => _database.GetFileRecord(file) is { MissingCount: 0 });
+            await scheduler.TriggerFullScan().WaitAsync(TimeSpan.FromSeconds(10));
 
             Assert.AreEqual(0, _database.GetFileRecord(file)!.MissingCount);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
+    [TestMethod]
+    public async Task TriggerFullScan_FileMissedByBatchThenGenuinelyGone_IsDeletedByRetention()
+    {
+        // The batch-time "discovered but not visible" path and the scan-time retention pass
+        // share one grace counter, so the two cannot disagree: the batch's single miss leaves
+        // the row intact, and two further scans of genuine absence then remove it.
+        var tempDir = Path.Combine(Path.GetTempPath(), "TestIndexSchedulerMissing_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        var file = Path.Combine(tempDir, "note.txt");
+
+        try
+        {
+            await File.WriteAllTextAsync(file, "indexed text");
+            _database.InsertOrUpdateFile(file, DateTime.UtcNow.AddMinutes(-5), new FileInfo(file).Length, "indexed text");
+            File.Delete(file);
+
+            var processor = new IndexBatchProcessor(_database);
+            await processor.ProcessBatchAsync(new[] { file }, new ContentIndexConfig
+            {
+                MonitoredFolders = new List<string> { tempDir },
+                AllowedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".txt" }
+            }, CancellationToken.None);
+
+            Assert.IsNotNull(_database.GetFileRecord(file), "the batch miss alone must not delete the row");
+            Assert.AreEqual(1, _database.GetFileRecord(file)!.MissingCount);
+
+            using var scheduler = CreateScheduler(tempDir);
+            await scheduler.TriggerFullScan().WaitAsync(TimeSpan.FromSeconds(10));
+
+            Assert.IsNotNull(_database.GetFileRecord(file), "still inside the grace period");
+
+            await scheduler.TriggerFullScan().WaitAsync(TimeSpan.FromSeconds(10));
+
+            Assert.IsNull(_database.GetFileRecord(file));
         }
         finally
         {
@@ -165,14 +201,4 @@ public sealed class ContentIndexSchedulerMissingObservationTests
 
     private int CountLogLines(string fragment) =>
         _logLines.Count(l => l.Contains(fragment, StringComparison.Ordinal));
-
-    private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 5000)
-    {
-        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
-        while (DateTime.UtcNow < deadline)
-        {
-            if (condition()) return;
-            await Task.Delay(50);
-        }
-    }
 }

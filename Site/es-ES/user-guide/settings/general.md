@@ -6,12 +6,16 @@ Configuración general abarca el comportamiento central del sistema, las dimensi
 
 - **Iniciar Lertaro al arrancar el sistema**: Inicia Lertaro automáticamente al iniciar sesión en Windows.
 - **Buscar actualizaciones al iniciar**: Comprueba automáticamente en línea si hay nuevas versiones al abrir la aplicación.
-- **Actualizaciones silenciosas**: Solo disponible cuando "Buscar actualizaciones" está activo. Descarga e instala actualizaciones en segundo plano sin cuadros de diálogo molestos.
-- **Habilitar aceleración por hardware**: Activado por defecto. Si tu portátil con doble GPU (como NVIDIA Advanced Optimus) no cambia de gráfica por la presencia de Lertaro, desactívalo para usar renderizado por software. Requiere reiniciar Lertaro.
+- **Actualizaciones silenciosas**: Solo disponible cuando se ejecuta como administrador y "Buscar actualizaciones" está activo. Descarga e instala actualizaciones en segundo plano sin cuadros de diálogo molestos.
+- **Habilitar aceleración por hardware**: Activado por defecto. Se aplica a las ventanas que mantienes abiertas (Ajustes, la ventana completa de búsqueda y la vista previa); las ventanas que invocas y cierras (búsqueda rápida, tarjeta en línea y notificaciones) se dibujan siempre por software, que es lo que hace que aparezcan ya pintadas en lugar de como un marco vacío. Si tu portátil con doble GPU (como NVIDIA Advanced Optimus) no cambia de gráfica por la presencia de Lertaro, desactívalo para renderizar todas las ventanas por software. Requiere reiniciar Lertaro.
 - **Ocultar icono de la bandeja del sistema**: Oculta el icono del área de notificación. El logotipo dentro de la barra de búsqueda rápida sigue desplegando el menú completo de la bandeja.
 - **Habilitar servicio de compatibilidad Everything (IPC)**: Emula el protocolo Win32 IPC de Everything para que Directory Opus, Total Commander y otras herramientas consulten el índice en memoria de Lertaro directamente.
 - **Habilitar coincidencia difusa**: Activado por defecto. Permite coincidencias no consecutivas; si se desactiva, solo coincidirán subcadenas continuas (ver [**Sintaxis de búsqueda**](../search-syntax)). Surte efecto inmediato.
+- **Mantener el contenido del cuadro de búsqueda al cerrar**: Desactivado por defecto. Cuando está activo, ni ocultar la Ventana rápida ni pulsar `Escape` en la Ventana principal vacían el cuadro; `Escape` en la Ventana principal cierra la ventana a la primera pulsación en lugar de pedirlo dos veces. La consulta que recibe una ventana en su siguiente invocación llega **seleccionada completa**, así que la primera tecla la sustituye en lugar de añadirse. Esto solo dura la ejecución actual; el texto nunca se escribe en disco.
 - **Mostrar las carpetas abiertas actualmente en la búsqueda integrada**: Cuando la ventana integrada está acoplada a un cuadro de diálogo de archivos, muestra las carpetas abiertas actualmente en ese diálogo cuando la consulta está vacía. Está activado de forma predeterminada.
+- **Ancho de la Ventana Integrada (%)**: Cuadro de texto que acepta de `20` a `100`, por defecto `60`. La ventana integrada toma ese porcentaje del ancho de la ventana a la que se acopla. Guardar `60` no deja ninguna elección registrada, así que una tarjeta intacta toma el mayor entre el 40 % de esa ventana y una quinta parte del ancho de la pantalla. La pantalla sigue poniendo límites: nunca por debajo del mayor entre el 20 % de esa ventana y una sexta parte del ancho de la pantalla, y nunca por encima del menor entre esa ventana misma y el 90 % del ancho de la pantalla. Redúcelo si la tarjeta tapa demasiado una ventana maximizada.
+- **Filas de la Ventana Integrada (Ventana Normal)**: Cuadro de texto que acepta de `4` a `10`, por defecto `10`. Cuántos resultados muestra la ventana integrada acoplada a una ventana normal. Los títulos de sección no cuentan: ocupan filas propias además del número que fijes. `Ctrl+1`–`Ctrl+9` seleccionan el primero al noveno resultado y `Ctrl+0` el décimo, de ahí el límite de 10. Si la pantalla no es lo bastante alta se muestran las filas que caben con desplazamiento.
+- **Filas de la Ventana Integrada (Selector de Archivos)**: El mismo rango, por defecto `4`. Es el número de la tarjeta acoplada sobre un selector de archivos (Abrir/Guardar/Examinar); un selector es en gran parte controles de otro programa, así que esa tarjeta empieza más baja. Títulos, atajos y límite de pantalla funcionan igual que arriba.
 - **Delimitador de tokens de consulta**: Campo de un solo carácter (por defecto `:`). Define el prefijo para los tokens de sufijo (p. ej. `:.pdf`, `:@doc`, `:[S]`).
 - **Nivel de registro**: Selecciona Error / Advertencia / Información (predeterminado) / Depuración para la verbosidad de los registros.
 - **Idioma de la interfaz**: Selecciona el idioma global de la aplicación.
@@ -32,8 +36,9 @@ Permite ajustar con precisión las dimensiones geométricas y las prioridades de
 
 ### Prioridad de tipos de resultado y activadores
 
-- **Lista de ordenación de prioridades**: Arrastra los controles para cambiar la precedencia de aplicaciones, ajustes, archivos y extensiones de plugins.
+- **Lista de ordenación de prioridades**: Arrastra los controles para decidir qué tipos van primero **entre coincidencias directas con relevancia similar**, sin superar nunca a coincidencias directas exactas.
 - **Carácter activador exclusivo**: Asigna un prefijo de un solo carácter (p. ej. `;` para Filtros de archivos) para aislar las búsquedas a ese tipo concreto.
+- **Exportación de detalles de ordenación**: En la ventana rápida, haz clic derecho en cualquier resultado y elige **Exportar los detalles de ordenación de esta página** para escribir un archivo de texto de toda la página mostrada. El ajuste **Permitir exportar los detalles de ordenación** está activado por defecto.
 
 ## 3. Ventana de búsqueda principal
 
@@ -54,7 +59,7 @@ Configura las dimensiones predeterminadas y la vista de tabla para la ventana pr
 
 ## 5. Navegación rápida
 
-- **Orden de proveedores**: Reordena las secciones de nivel superior en el menú de Navegación rápida (Favoritos, Historial, Carpetas abiertas y marcadores de exploradores).
+- **Orden de proveedores**: Reordena los grupos de proveedores del nivel superior en el menú de Navegación rápida. Cada fila es un proveedor, por ejemplo Cascada de Carpetas y Ejecutor de Comandos del Sistema, además de los grupos de marcadores de los complementos de exploradores.
 
 ## 6. Vista previa y miniaturas
 

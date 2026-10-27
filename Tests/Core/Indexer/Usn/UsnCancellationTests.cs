@@ -17,7 +17,7 @@ public sealed class UsnCancellationTests
         var token = new CancellationToken(canceled: true);
 
         Assert.ThrowsExactly<OperationCanceledException>(() =>
-            indexer.ApplyUsnRecords("C", new[] { Record(2) }, token));
+            indexer.ApplyUsnRecords("C", new[] { Record(2) }, token: token));
         Assert.AreEqual(0, fixture.Index.PendingChangeCount);
     }
 
@@ -33,7 +33,7 @@ public sealed class UsnCancellationTests
 
         Assert.ThrowsExactly<OperationCanceledException>(() =>
         {
-            if (indexer.ApplyUsnRecords("C", new CancellingBatch(cancellation), cancellation.Token))
+            if (indexer.ApplyUsnRecords("C", new CancellingBatch(cancellation), token: cancellation.Token))
                 indexer.AdvanceJournalWatermark("C", 7, 200);
         });
 

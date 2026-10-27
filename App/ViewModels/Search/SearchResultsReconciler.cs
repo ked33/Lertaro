@@ -76,6 +76,9 @@ internal static class SearchResultsReconciler
             // instant providers can derive them from the query even when the row identity stays equal.
             live[i].SearchQuery = target[i].SearchQuery;
             live[i].Index = target[i].Index;
+            // Ranking output, recomputed per search: whether this row landed in a history tier depends on
+            // this query's budget, not on the path.
+            live[i].IsFrequent = target[i].IsFrequent;
             live[i].PluginActionId = target[i].PluginActionId;
             live[i].PluginActionArgumentText = target[i].PluginActionArgumentText;
             live[i].InstantResultActionType = target[i].InstantResultActionType;
@@ -83,6 +86,8 @@ internal static class SearchResultsReconciler
             live[i].InstantResultOnExecute = target[i].InstantResultOnExecute;
             live[i].InstantResultOnExecuteFunc = target[i].InstantResultOnExecuteFunc;
             live[i].TabCompletion = target[i].TabCompletion;
+            // Retained rows must carry the explanation rebuilt for this page.
+            live[i].RankingExplanation = target[i].RankingExplanation;
             // Read by the full window's type filter, from the freshly-built list rather than from the
             // displayed one, so a stale value here is currently benign -- kept in step anyway so a future
             // reader of a retained row cannot be handed the previous search's answer.

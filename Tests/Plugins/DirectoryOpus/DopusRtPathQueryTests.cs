@@ -15,9 +15,13 @@ public sealed class DopusRtPathQueryTests
     // It calls the query's own tool runner directly because %TEMP% cannot be redirected in-process --
     // Path.GetTempPath() caches its answer -- so the space would otherwise never reach the argument.
     [TestMethod]
+    [TestCategory("Integration")]
     public void RunTool_FillsInAPreCreatedFileWhosePathContainsASpace()
     {
-        var output = Path.Combine(Path.GetTempPath(), "lertaro space test", $"paths-{Guid.NewGuid():N}.xml");
+        var tool = FindDopusRt();
+        if (tool == null)
+            Assert.Inconclusive("Requires a running Directory Opus with accessible dopusrt.exe.");
+        var output = Path.Combine(Path.GetTempPath(), $"lertaro space test-{Guid.NewGuid():N}", "paths.xml");
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(output)!);
@@ -30,12 +34,12 @@ public sealed class DopusRtPathQueryTests
             Assert.IsNotNull(runner, "RunTool should still exist for this regression guard to work");
 
             // The third element receives the out parameter (whether the tool exited on its own).
-            runner.Invoke(null, [FindDopusRt() ?? @"C:\Program Files\GPSoftware\Directory Opus\dopusrt.exe", output, null]);
+            runner.Invoke(null, [tool, output, null]);
 
             // Opus writes the file asynchronously, so poll exactly as the production reader does rather
             // than assuming the content is on disk the moment the process exits.
-            var deadline = DateTime.UtcNow.AddSeconds(2);
-            while (new FileInfo(output).Length == 0 && DateTime.UtcNow < deadline) Thread.Sleep(50);
+            var elapsed = Stopwatch.StartNew();
+            while (new FileInfo(output).Length == 0 && elapsed.Elapsed < TimeSpan.FromSeconds(2)) Thread.Sleep(50);
 
             var file = new FileInfo(output);
             Assert.IsTrue(file.Exists);

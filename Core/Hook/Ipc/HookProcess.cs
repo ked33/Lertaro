@@ -34,7 +34,13 @@ public sealed class HookProcess : IDisposable
 
     private const uint WM_QUIT = 0x0012;
     private const uint WM_REFRESH_ACTIVE_ADAPTERS = 0x8001;
-    private const uint WM_COMPLETE_SEARCH_ACTIVATION = 0x8002;
+    private const uint WM_COMPLETE_SEARCH_ACTIVATION = 0x8004;
+    // Quick Switch on the tracker thread: the gesture is recognized in the low-level keyboard hook, which may
+    // not take the tracker lock (see GlobalHotkeyDetector) and may not block on another process.
+    private const uint WM_QUICK_SWITCH = 0x8002;
+    // Re-installing a hook has to happen on the thread that installed it (the callback is dispatched
+    // there), and this is that thread's only pump, so the resume notice arrives as a message.
+    private const uint WM_REARM_HOOKS = 0x8003;
 
     private readonly HookIpcServer _ipcServer;
     private readonly HookCommandHandler _commandHandler;
@@ -56,6 +62,9 @@ public sealed class HookProcess : IDisposable
     private uint _appProcessId;
     private int _watchedAppPid;
     private bool _isHotkeysDisabledTemporarily;
+    // Written by the keyboard hook thread, read by the tracker thread; the window message between them is the
+    // synchronization, and a plain field read here would be the one place the value could still be torn.
+    private IntPtr _quickSwitchDialog;
 
     internal KeyboardHookService? KeyboardHook => _keyboardHook;
     internal ExplorerTracker? ExplorerTracker => _explorerTracker;
@@ -66,6 +75,38 @@ public sealed class HookProcess : IDisposable
         if (_trackerThreadId != 0)
             PostThreadMessage(_trackerThreadId, WM_REFRESH_ACTIVE_ADAPTERS, IntPtr.Zero, IntPtr.Zero);
     }
+
+    /// <summary>
+    /// Asks this thread to put its low-level hooks back up. Windows removes such a hook as soon as one
+    /// callback overruns the hook timeout, and still reports the handle it gave back as installed -- so
+    /// <see cref="KeyboardHookService.Start"/>, which keeps that handle, can never re-arm anything by
+    /// itself. The App notices the resume and sends this (see IpcMessageId.RearmHooks).
+    /// </summary>
+    internal void RearmHooks()
+    {
+        if (_nativeThreadId != 0)
+            PostThreadMessage(_nativeThreadId, WM_REARM_HOOKS, IntPtr.Zero, IntPtr.Zero);
+    }
+
+    private void RearmHooksNow()
+    {
+        // Stop first: the handle a dropped hook leaves behind still unhooks cleanly, and Start() is a
+        // no-op while one is set.
+        _keyboardHook?.Stop(); _keyboardHook?.Start();
+        _mouseHook?.Stop(); _mouseHook?.Start();
+        // A plugin read abandoned before the sleep says nothing about the shell running after it, and
+        // without this the budget counting them is a latch that nothing ever unlocks.
+        ExplorerStaInvoker.ResetAbandonedReads();
+        Logger.Log("[HookProcess] Low-level hooks re-armed.", LogLevel.Info);
+    }
+
+    /// <summary>
+    /// Hands one Quick Switch to the tracker thread. False when there is no such thread to hand it to -- a
+    /// tracker thread that never started (id 0) and one that has already exited both fail in the post itself --
+    /// which the caller reports: the keystroke was claimed by then either way.
+    /// </summary>
+    internal static bool RequestQuickSwitch(int trackerThreadId) =>
+        PostThreadMessage(trackerThreadId, WM_QUICK_SWITCH, IntPtr.Zero, IntPtr.Zero);
 
     internal void PublishOpenedFolders() => _openedFolderSnapshots.Publish();
 
@@ -268,9 +309,9 @@ public sealed class HookProcess : IDisposable
                         StringVal2 = className,
                         IsDesktop = isDesktop
                     });
-                    // Focus changes are not memory pressure. TrimWorkingSet forces two blocking
-                    // full GCs and evicts working pages; ETW showed repeated pairs during ordinary
-                    // Explorer interaction. Notify the App and let the runtime schedule collection.
+                    // No working-set trim here, unlike the App: this process holds the system-wide input
+                    // hooks, and emptying its pages puts a hard fault into every keystroke callback --
+                    // which is exactly the stall that gets a hook removed for good.
                     _explorerTracker.OnExplorerDeactivated += () =>
                         _ipcServer.SendMessage(new IpcMessage { Id = IpcMessageId.ExplorerDeactivated });
                     _explorerTracker.OnPathCaptured += (path, isDesktop, isDialog) => _ipcServer.SendMessage(new IpcMessage
@@ -303,6 +344,14 @@ public sealed class HookProcess : IDisposable
                         if (msg.message == WM_REFRESH_ACTIVE_ADAPTERS)
                         {
                             _explorerTracker?.RefreshActiveWindowAdapters();
+                            continue;
+                        }
+                        if (msg.message == WM_QUICK_SWITCH)
+                        {
+                            // A later keystroke replaces an unanswered one, which is what the user means by
+                            // pressing Ctrl+G twice: the newest dialog is the one on screen.
+                            var dialogHwnd = Volatile.Read(ref _quickSwitchDialog);
+                            if (_explorerTracker != null) QuickSwitchNavigator.Execute(_explorerTracker, dialogHwnd);
                             continue;
                         }
                         TranslateMessage(ref msg);
@@ -352,6 +401,15 @@ public sealed class HookProcess : IDisposable
                 _ipcServer.SendQuickPanelHotkey();
             };
             _keyboardHook.OnQuickNavigationHotkey += () => _ipcServer.SendQuickNavigationHotkey();
+            _keyboardHook.OnQuickSwitchRequested += dialogHwnd =>
+            {
+                Volatile.Write(ref _quickSwitchDialog, dialogHwnd);
+                // The gesture has already claimed the keystroke by the time this runs -- the detector consumes it
+                // as soon as this callback returns -- so a hand-off that never arrived is a Ctrl+G the user
+                // cannot get back: it has to say so rather than vanish.
+                if (!RequestQuickSwitch(_trackerThreadId))
+                    Logger.Log($"[HookProcess] Quick Switch could not be handed to the tracker thread ({_trackerThreadId}); the keystroke was consumed.", LogLevel.Warn);
+            };
             _keyboardHook.OnDoubleCtrl += () =>
             {
                 Logger.Log("[HookProcess] Double-Ctrl detected, sending ACTIVATE.", LogLevel.Debug);
@@ -382,7 +440,6 @@ public sealed class HookProcess : IDisposable
             _keyboardHook.OnLeftPressed += () => _ipcServer.SendMessage(new IpcMessage { Id = IpcMessageId.KeyLeft });
             _keyboardHook.OnRightPressed += () => _ipcServer.SendMessage(new IpcMessage { Id = IpcMessageId.KeyRight });
             _keyboardHook.OnCtrlNumberPressed += num => _ipcServer.SendMessage(new IpcMessage { Id = IpcMessageId.KeyCtrlNumber, IntVal = num });
-            _keyboardHook.OnFocusInlineSearchRequested += () => _ipcServer.SendMessage(new IpcMessage { Id = IpcMessageId.FocusInlineSearch });
             _keyboardHook.Start();
 
             _mouseHook = new MouseHookService();
@@ -393,12 +450,14 @@ public sealed class HookProcess : IDisposable
             {
                 if (ShouldSuppressQuickNavTrigger()) return;
                 Logger.Log($"[HookProcess] OnMouseDoubleClick at ({x}, {y}). ActiveHwnd={_explorerTracker?.ActiveHwnd}, IsExplorerOrDesktopActive={_explorerTracker?.IsExplorerOrDesktopActive}", LogLevel.Debug);
+                RequestMenuTriggerPathRead();
                 _ipcServer.SendMessage(new IpcMessage { Id = IpcMessageId.MouseDoubleClick, MouseX = x, MouseY = y });
             };
             _mouseHook.OnMouseMiddleClick += (x, y) =>
             {
                 if (ShouldSuppressQuickNavTrigger()) return;
                 Logger.Log($"[HookProcess] OnMouseMiddleClick at ({x}, {y}). ActiveHwnd={_explorerTracker?.ActiveHwnd}, IsExplorerOrDesktopActive={_explorerTracker?.IsExplorerOrDesktopActive}", LogLevel.Debug);
+                RequestMenuTriggerPathRead();
                 _ipcServer.SendMessage(new IpcMessage { Id = IpcMessageId.MouseMiddleClick, MouseX = x, MouseY = y });
             };
             _mouseHook.Start();
@@ -421,6 +480,11 @@ public sealed class HookProcess : IDisposable
                     }
                     continue;
                 }
+                if (msg.message == WM_REARM_HOOKS)
+                {
+                    RearmHooksNow();
+                    continue;
+                }
                 TranslateMessage(ref msg);
                 DispatchMessage(ref msg);
             }
@@ -430,6 +494,12 @@ public sealed class HookProcess : IDisposable
             CleanupHooks();
         }
     }
+
+    // A mouse-summoned quick-nav menu is built from whatever path the tracker already had, and a click inside
+    // an ALREADY-active window raises no foreground change that would refresh it -- so the menu would name the
+    // folder the user just left, which is what "add current folder" writes into its prompt. Ask for a read
+    // ahead of the click's own IPC message; it runs on the scheduler's thread, never on this hook callback.
+    private void RequestMenuTriggerPathRead() => _explorerTracker?.RequestHostPathRead(immediate: true);
 
     // A temporarily-disabled, blacklisted, or fullscreen foreground app suppresses quick-nav mouse
     // triggers, except recognized file dialogs and file managers which remain eligible.

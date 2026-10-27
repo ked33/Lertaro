@@ -64,6 +64,8 @@ public class TranslationManager : INotifyPropertyChanged
                     System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = ci;
                 }
                 catch { }
+                if (System.Windows.Application.Current is { } app)
+                    AppTypography.UpdateLanguage(app.Resources, value);
                 ReloadTranslations();
                 PluginSdk.Services.TranslationService.NotifyCultureChanged(value);
                 OnPropertyChanged();
@@ -107,6 +109,10 @@ public class TranslationManager : INotifyPropertyChanged
     public void ReloadTranslations()
     {
         _translations.Clear();
+
+        foreach (var culture in new[] { "en-US", _currentCulture })
+            foreach (var pair in PluginSdk.Services.TranslationService.LoadEmbeddedTranslations(typeof(TranslationManager).Assembly, culture, "App"))
+                _translations[pair.Key] = pair.Value;
 
         // Load translations from registered plugins with fallbacks
         foreach (var provider in PluginManager.Instance.TranslationProviders)

@@ -13,9 +13,9 @@ using Lertaro.App.Helpers.Visuals;
 namespace Lertaro.App;
 
 /// <summary>
-/// Compact inline search window that appears at the bottom-right corner of
-/// the active Explorer window or Desktop when the user types any character.
-/// Results expand upward, search box stays anchored at bottom.
+/// Compact inline search card summoned by typing. Docked to a host window it uses the drop-down layout:
+/// search box pinned at the top, results growing downward. Anchoring at the bottom-right corner with
+/// results expanding upward is only the fallback for when no valid dock rectangle is available.
 /// </summary>
 public partial class InlineSearchWindow : Window, ISearchWindow
 {
@@ -24,7 +24,7 @@ public partial class InlineSearchWindow : Window, ISearchWindow
     private readonly ShellMenuPresenter _menuPresenter;
     private readonly InlineSearchWindowInputHandler _inputHandler;
     private bool _isImeComposing;
-    internal bool AsciiOnlyInput { get; } = InlineSearchAsciiInput.IsEnabled;
+    internal bool AsciiOnlyInput => InlineSearchAsciiInput.IsEnabled;
     private readonly InlineSearchWindowPositioner _positioner;
     private readonly DispatcherTimer _activeTimer;
     private string _searchText = string.Empty;
@@ -54,10 +54,15 @@ public partial class InlineSearchWindow : Window, ISearchWindow
         InitializeComponent();
         ThemedWindowIconHelper.Apply(this);
         SystemMenuBlocker.Attach(this);
+        // The card is the window, so its corners are the window's own shape rather than a painting inside
+        // a transparent one. Windows 11 rounds the real window; older Windows keeps the painted radius
+        // ApplyLayoutMode maintains.
+        DwmWindowCorners.ApplyRound(this);
         _viewModel = viewModel;
         _manager = manager;
         this.DataContext = _viewModel;
-        if (AsciiOnlyInput) InlineSearchAsciiInput.Attach(SearchBox.SearchTextBox);
+        InlineSearchAsciiInput.Attach(SearchBox.SearchTextBox);
+        InlineSearchAsciiInput.Apply(SearchBox.SearchTextBox, AsciiOnlyInput);
         _menuPresenter = new ShellMenuPresenter(this);
         _inputHandler = new InlineSearchWindowInputHandler(this);
         TextCompositionManager.AddPreviewTextInputStartHandler(SearchBox.SearchTextBox, (_, _) => _isImeComposing = true);
@@ -79,6 +84,10 @@ public partial class InlineSearchWindow : Window, ISearchWindow
         SearchBox.IsIconClickable = true;
         SearchBox.IsIconDraggable = true;
         SearchBox.IconDragCompleted += _positioner.RememberUserDrag;
+
+        // And the same right click that brings the quick window back to the middle brings this card back to the
+        // edge it docks to: it drops the displacement the drag above recorded, for this host.
+        SearchBox.IconRightClicked += _positioner.ResetUserDrag;
 
         _sizing = new InlineCardSizingSupport(this);
         _sizing.Attach();
@@ -152,25 +161,22 @@ public partial class InlineSearchWindow : Window, ISearchWindow
 
         this.SourceInitialized += (s, e) =>
         {
+            // Composed on the CPU, like every card the user only ever summons (see CardRenderMode). Here, not
+            // in the constructor: the handle does not exist yet there, and the mode is a property of the
+            // composition target the handle brings with it.
+            CardRenderMode.Apply(this);
+
             var helper = new System.Windows.Interop.WindowInteropHelper(this);
             var hwnd = helper.Handle;
             if (hwnd != IntPtr.Zero)
             {
-                // 1. Decouple window hierarchy: Set active Explorer/Desktop as native owner HWND
-
-                var tracker = _manager.ExplorerTracker;
-                if (tracker.ActiveHwnd != IntPtr.Zero)
-                {
-                    InlineSearchWindowNativeMethods.SetWindowLongPtr(hwnd, InlineSearchWindowNativeMethods.GWL_HWNDPARENT, tracker.ActiveHwnd);
-                }
-
-                // 2. Set Extended Styles: WS_EX_TOOLWINDOW (hide from Alt+Tab)
+                // 1. Set Extended Styles: WS_EX_TOOLWINDOW (hide from Alt+Tab)
 
                 var exStyle = InlineSearchWindowNativeMethods.GetWindowLongPtr(hwnd, InlineSearchWindowNativeMethods.GWL_EXSTYLE);
                 exStyle = new IntPtr(exStyle.ToInt64() | InlineSearchWindowNativeMethods.WS_EX_TOOLWINDOW);
                 InlineSearchWindowNativeMethods.SetWindowLongPtr(hwnd, InlineSearchWindowNativeMethods.GWL_EXSTYLE, exStyle);
 
-                // 3. Ensure topmost
+                // 2. Ensure topmost
 
                 InlineSearchWindowNativeMethods.SetWindowPos(hwnd, InlineSearchWindowNativeMethods.HWND_TOPMOST, 0, 0, 0, 0,
                     InlineSearchWindowNativeMethods.SWP_NOMOVE | InlineSearchWindowNativeMethods.SWP_NOSIZE | InlineSearchWindowNativeMethods.SWP_SHOWWINDOW);
@@ -231,6 +237,46 @@ public partial class InlineSearchWindow : Window, ISearchWindow
     }
 
     public bool ActivateAndFocusSearchBox() => _focusSupport.ActivateAndFocus();
+
+    /// <summary>Docks the card onto the window it is being summoned for.</summary>
+    /// <remarks>
+    /// Owner rather than topmost alone, because that is what keeps the card with its host's group; and it is
+    /// re-applied on every summon now that the card outlives the summon it was built for -- the owner belongs
+    /// to the handle, and the handle is what is being reused while the host window changes.
+    /// </remarks>
+    internal void HostOnto(IntPtr hostHwnd)
+    {
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero || hostHwnd == IntPtr.Zero) return;
+        InlineSearchWindowNativeMethods.SetWindowLongPtr(hwnd, InlineSearchWindowNativeMethods.GWL_HWNDPARENT, hostHwnd);
+    }
+
+    /// <summary>Takes the card off its host again, for when it is dismissed rather than destroyed.</summary>
+    /// <remarks>
+    /// The system destroys an owned window along with its owner. Left docked, a parked card therefore goes
+    /// away with the host it was last summoned for -- and WPF reports that as a closed window, which the
+    /// manager would keep handing to the next summon. Ownership is what keeps a visible card with its host's
+    /// group, and nothing is served by keeping it once the card is out of sight.
+    /// </remarks>
+    internal void ReleaseHost()
+    {
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero) return;
+        InlineSearchWindowNativeMethods.SetWindowLongPtr(hwnd, InlineSearchWindowNativeMethods.GWL_HWNDPARENT, IntPtr.Zero);
+    }
+
+    /// <summary>Puts the card back into the state a brand-new one would be in: no half-open actions menu, and
+    /// the host watchdog running again -- it stops itself when the dialog it was watching goes away.</summary>
+    internal void BeginSession()
+    {
+        ViewModel.FilterSession.Set(null, refresh: false);
+        InlineSearchAsciiInput.Apply(SearchBox.SearchTextBox, AsciiOnlyInput);
+        if (_menuPresenter.IsInActionsMode) _menuPresenter.ExitActionsMode();
+        _activeTimer.Start();
+    }
+
+    /// <summary>Puts back the keyboard layout that the last summon adopted from its host.</summary>
+    internal void RestoreKeyboardLayout() => _focusSupport.RestoreLayout();
 
     public void HideWindow() => _manager.CloseInlineSearch();
 

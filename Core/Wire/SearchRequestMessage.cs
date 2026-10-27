@@ -1,3 +1,5 @@
+using Lertaro.Core.IndexV2.Space;
+
 namespace Lertaro.Core.Wire;
 
 public enum SearchRequestId : byte
@@ -40,7 +42,10 @@ public enum SearchRequestId : byte
     // holding a runas/UAC prompt of its own. Carries the staging directory and nothing else: where the
     // files go is decided by the service, from its own location, so a caller cannot point the elevated copy
     // at a directory of its choosing.
-    ApplyUpdate = 20
+    ApplyUpdate = 20,
+    // No payload. A genuine App may ask the service to stop itself for tray "clean exit".
+    StopService = 21,
+    GetServiceLog = 22
 }
 
 public struct SearchRequestMessage
@@ -52,6 +57,10 @@ public struct SearchRequestMessage
     public string? DirectoryFilter { get; set; }
     // Drive maintenance: drive key. GetSpaceEntries: null/empty for roots, otherwise a directory path.
     public string? Drive { get; set; }
+    // GetSpaceEntries: which children the caller wants, applied inside the index walk so rows that are
+    // not wanted never pay a path rebuild, a recursive size or a permission open. Default (None) is the
+    // historical unfiltered space view.
+    public SpaceEntryFilters SpaceOptions { get; set; }
     public MachineSettings? MachineSettings { get; set; }
     public List<string>? DisabledAliasComponents { get; set; }
     public List<string>? FilePaths { get; set; }

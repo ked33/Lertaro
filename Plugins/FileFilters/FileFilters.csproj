@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Lertaro.Plugins.FileFilters</AssemblyName>
-    <Version>1.1.3</Version>
+    <Version>1.2.1</Version>
     <GenerateDependencyFile>false</GenerateDependencyFile>
   </PropertyGroup>
 
@@ -25,4 +25,8 @@
     <Copy SourceFiles="$(TargetDir)$(TargetName).dll" DestinationFolder="..\..\App\bin\$(Configuration)\net10.0-windows\Plugins\" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(TargetDir)$(TargetName).dll" DestinationFolder="..\..\Service\bin\$(Configuration)\net10.0-windows\Plugins\" SkipUnchangedFiles="true" />
   </Target>
+  <ItemGroup>
+    <AssemblyMetadata Include="Lertaro.Plugin.NameKey" Value="FileFilters_PluginName" />
+    <AssemblyMetadata Include="Lertaro.Plugin.DescriptionKey" Value="FileFilters_PluginDesc" />
+  </ItemGroup>
 </Project>

@@ -3,9 +3,9 @@ using Lertaro.PluginSdk.Services;
 
 namespace Lertaro.Plugins.CustomActions.Tests;
 
-// PluginSettingsService.GetSettingFunc is a shared static delegate, and DynamicActionProvider caches
-// what it loads in a static field -- [DoNotParallelize] plus resetting both in TestInitialize keeps
-// tests in this class from seeing each other's configured actions.
+// PluginSettingsService.GetSettingFunc and ClipboardService.GetTextFunc are shared static delegates,
+// and DynamicActionProvider caches what it loads in a static field -- [DoNotParallelize] plus resetting
+// all of that in TestInitialize keeps tests in this class from seeing each other's configuration.
 [TestClass]
 [DoNotParallelize]
 public sealed class DynamicActionProviderTests
@@ -14,6 +14,7 @@ public sealed class DynamicActionProviderTests
     public void Reset()
     {
         PluginSettingsService.GetSettingFunc = null;
+        ClipboardService.GetTextFunc = null;
         DynamicActionProvider.InvalidateCache();
     }
 
@@ -32,7 +33,8 @@ public sealed class DynamicActionProviderTests
 
     private static DynamicActionProvider.ActionItem MakeAction(
         bool enabled = true, string title = "Do Thing", string path = "tool.exe",
-        bool folderOnly = false, string extensions = "", bool multiSelect = false, string hotkey = "") => new()
+        bool folderOnly = false, string extensions = "", bool multiSelect = false, string hotkey = "",
+        string icon = "") => new()
         {
             Enabled = enabled,
             Title = title,
@@ -41,6 +43,7 @@ public sealed class DynamicActionProviderTests
             Extensions = extensions,
             MultiSelect = multiSelect,
             Hotkey = hotkey,
+            Icon = icon,
         };
 
     [TestMethod]
@@ -130,6 +133,24 @@ public sealed class DynamicActionProviderTests
     }
 
     [TestMethod]
+    public void GetMenuItems_ActionWithConfiguredIcon_CarriesItsPathData()
+    {
+        // The Icon field is stored as WPF path data (the settings field converts a pasted SVG document to
+        // it), and the menu row can only show it if the provider hands it over -- an item that arrives with
+        // no icon at all is exactly what the configured field used to produce.
+        ConfigureActions(new()
+        {
+            MakeAction(title: "Compress", icon: "M7 2v11h3v9l7-12h-4l3-8z"),
+            MakeAction(title: "Reveal"),
+        });
+
+        var items = new DynamicActionProvider().GetMenuItems(new[] { new FakeResult() }, IntPtr.Zero).ToList();
+
+        Assert.AreEqual("M7 2v11h3v9l7-12h-4l3-8z", items[0].IconPathData);
+        Assert.AreEqual(string.Empty, items[1].IconPathData);
+    }
+
+    [TestMethod]
     public void GetMenuItems_NonZeroHMenu_YieldsNothing()
     {
         ConfigureActions(new() { MakeAction() });
@@ -158,6 +179,76 @@ public sealed class DynamicActionProviderTests
         var actions = new DynamicActionProvider().GetHotkeyActions(new[] { new FakeResult() }).ToList();
 
         Assert.IsEmpty(actions);
+    }
+
+    [TestMethod]
+    public void BuildArguments_NoTemplate_PassesEveryPathQuoted() =>
+        Assert.AreEqual("\"C:\\a b.txt\" C:\\c.txt",
+            DynamicActionProvider.BuildArguments(null, [@"C:\a b.txt", @"C:\c.txt"]));
+
+    [TestMethod]
+    public void BuildArguments_BothPlaceholders_EachGetsThePaths() =>
+        Assert.AreEqual("--left C:\\c.txt --right C:\\c.txt",
+            DynamicActionProvider.BuildArguments("--left %s --right {}", [@"C:\c.txt"]));
+
+    [TestMethod]
+    public void BuildArguments_PathContainingAPlaceholder_IsSubstitutedExactlyOnce() =>
+        // A file named with "{}", dropped in for %s, must not then be expanded again by the {} pass.
+        Assert.AreEqual("--open \"C:\\odd {} name.txt\"",
+            DynamicActionProvider.BuildArguments("--open %s", [@"C:\odd {} name.txt"]));
+
+    [TestMethod]
+    public void BuildArguments_ClipboardPlaceholders_SubstituteTheQuotedTextReadOnce()
+    {
+        var reads = 0;
+        ClipboardService.GetTextFunc = () => { reads++; return "copied text"; };
+
+        var arguments = DynamicActionProvider.BuildArguments("--from %c --to {c}", [@"C:\c.txt"]);
+
+        Assert.AreEqual("--from \"copied text\" --to \"copied text\"", arguments);
+        Assert.AreEqual(1, reads);
+    }
+
+    [TestMethod]
+    public void BuildArguments_NoClipboardPlaceholder_NeverReadsTheClipboard()
+    {
+        var reads = 0;
+        ClipboardService.GetTextFunc = () => { reads++; return "unused"; };
+
+        DynamicActionProvider.BuildArguments("--open %s --also {}", [@"C:\c.txt"]);
+
+        Assert.AreEqual(0, reads);
+    }
+
+    [TestMethod]
+    public void BuildArguments_ClipboardHoldsNoText_PlaceholderVanishes()
+    {
+        ClipboardService.GetTextFunc = () => null;
+
+        Assert.AreEqual("[]", DynamicActionProvider.BuildArguments("[%c]", [@"C:\c.txt"]));
+    }
+
+    [TestMethod]
+    public void BuildArguments_LongerPercentToken_IsLeftAloneAndNeverReadsTheClipboard()
+    {
+        // A letter after %s or %c means it is some other program's own token, not a placeholder here --
+        // and a template with no placeholder must not open the clipboard either.
+        var reads = 0;
+        ClipboardService.GetTextFunc = () => { reads++; return "unused"; };
+
+        Assert.AreEqual("--pretty=%cd --dir %cd% --root=%systemroot%",
+            DynamicActionProvider.BuildArguments("--pretty=%cd --dir %cd% --root=%systemroot%", [@"C:\c.txt"]));
+        Assert.AreEqual(0, reads);
+    }
+
+    [TestMethod]
+    public void BuildArguments_ClipboardTextContainingAPlaceholder_IsSubstitutedExactlyOnce()
+    {
+        // Clipboard text naming "{}", dropped in for %c, must not then be expanded by the {} pass.
+        ClipboardService.GetTextFunc = () => "a {} b";
+
+        Assert.AreEqual("--paste \"a {} b\"",
+            DynamicActionProvider.BuildArguments("--paste %c", [@"C:\c.txt"]));
     }
 
     [TestMethod]

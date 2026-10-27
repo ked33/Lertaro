@@ -7,6 +7,10 @@ Lertaro features a modular plugin architecture. Core extensions, native C# plugi
 - **Plugin SDK Badge**: The top-right badge displays the currently loaded `Lertaro.PluginSdk` version. Clicking it opens the [**Developer Guide**](../../dev-guide/) directly.
 - **Independent Dual-Pane Layout**: The left pane lists all installed plugins, while the right pane renders details and configuration forms for the selected plugin, with independent scrolling.
 
+### Plugin activation and restart
+
+Turning off all toggleable components also disables the whole plugin. You can edit several plugins, click Apply, and continue editing. **After Apply, closing Settings by any method restarts Lertaro silently if plugin activation changed; OK saves and closes immediately.** No separate restart button is needed. Closing without saving discards unsaved changes. The host records one Info message for this restart. After restart, disabled plugins are not loaded in the App or per-user Hook. Their names, versions and introductions remain visible; components and configuration require re-enabling and restarting. Theme/translation component switches are read-only, but their whole plugin can be disabled. The shared Windows indexing service continues using alias plugins.
+
 ## 2. Plugin Details & Component Toggles
 
 Clicking any plugin on the left displays its icon, name, version, and overview in the right pane:
@@ -24,6 +28,10 @@ Clicking any plugin on the left displays its icon, name, version, and overview i
 - **Icon Input Fields**: Text fields using the schema key `Icon` show an icon preview and accept WPF Path Data. Pasting a complete SVG/XML document automatically extracts and combines its path data; invalid icon content is cleared and reported in a themed dialog.
 - **Multiline Configuration Editors**: `StringList` fields use soft wrapping in the expanded editor. Actual line breaks show a subtle `↵` marker for readability; the marker is visual only and is never saved or included in copied text.
 - **Safe Staging & Rollback**: Modifications are staged in memory and survive switching to another plugin or leaving the page, so nothing is lost while you compare plugins. The Settings window's **Apply**/**OK** saves the configuration of every plugin you edited in one go before the window closes; **Cancel** (or closing the window without applying) restores the previously saved values.
+
+### System Settings Search
+
+The **System Settings Search** plugin uses the localized keywords supplied by Windows for Control Panel tasks. For example, `env` finds environment-variable tasks without a custom alias table. Each query word must match the start of a title or keyword word. Available keywords depend on the Windows version and system language.
 
 ### CoreExtensions Search Type Filters
 
@@ -49,7 +57,7 @@ In addition to native plugins built against `Lertaro.PluginSdk`, Lertaro include
 
 ### Multi-Language Isolated Runtimes
 
-- **Full Language Compatibility**: Seamlessly executes Flow Launcher plugins written in **C# (.NET)**, **Python 3.12**, **Node.js v20 LTS**, and standalone executables (`.exe`).
+- **Full Language Compatibility**: Runs Flow Launcher plugins written in **C# (.NET)**, **Python 3.12**, **Node.js v20 LTS**, and standalone executables (`.exe`).
 - **Isolated Self-Contained Environments**: Python (`FlowData\PythonEmbeded-{arch}`) and Node.js (`FlowData\NodeEmbeded-{arch}`) runtimes are automatically deployed on-demand within Lertaro's data directory, ensuring zero contamination of system PATH.
 - **Automated Dependency Management**: Automatically installs Python `pip` packages from `requirements.txt` or Node.js `npm` dependencies from `package.json` silently in the background upon first load.
 
@@ -66,8 +74,8 @@ Manage Flow plugins directly from the Lertaro search box:
 
 - **Centralized ActionKeywords**: Under **Settings → Plugins → Flow Launcher Bridge → Configure**, toggle individual Flow plugins and customize their **ActionKeyword**. Settings persist cleanly in `FlowData\Settings\Plugins.json`.
 - **Dynamic Configuration Forms**: Fully supports YAML/JSON template forms (`SettingsTemplate.yaml`/`.json`) and C# WPF panels (`ISettingProvider`), automatically styled to match the active theme with full i18n support.
-- **WebView2 Rich Previews**: Renders complex interactive preview panels (e.g. MDict dictionary definitions, live weather, API debuggers, webpage snapshots) seamlessly inside QuickLook with automatic dark/light styling and custom scrollbars.
-- **Deep Host Integration**: Flow plugins opening directories automatically respect the host's configured third-party file manager, message boxes render in host-native themed dialogs, and internal plugin logs flow directly into the Settings log viewer.
+- **WebView2 Rich Previews**: Renders complex interactive preview panels (e.g. MDict dictionary definitions, live weather, API debuggers, webpage snapshots) inside QuickLook with automatic dark/light styling and custom scrollbars.
+- **Host Integration**: Flow plugins opening directories automatically respect the host's configured third-party file manager, message boxes render in host-native themed dialogs, and internal plugin logs flow directly into the Settings log viewer.
 - **Quick Overview**: Type `flow` into the search box to list all loaded Flow plugins and their action keywords; selecting a plugin opens its corresponding configuration group in Settings.
 
 ## 4. Audio Device Selector

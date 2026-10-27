@@ -85,7 +85,17 @@ public static class LiveDirectorySearcher
                 }
 
                 if (onLiveMatch != null && TryMatchEntry(result, livePattern, liveSlab, onlyDirectChildren, normalizedParent))
-                    onLiveMatch(result);
+                {
+                    try
+                    {
+                        onLiveMatch(result);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // A superseded query can cancel its own live-result callback. Keep the shared
+                        // directory walk alive so later queries can still reuse the completed scan.
+                    }
+                }
 
                 // Checked after the result is delivered, not before it is built: `maxProcessed` is a cap on
                 // what the caller gets, so stopping here yields exactly that many rows. Stopping at the top
@@ -157,23 +167,39 @@ public static class LiveDirectorySearcher
         if (pattern == null)
             return true;
 
-        // 1. Try match the name itself using the core FZF engine
-        if (pattern.TryMatch(entry.Name, out _, FzfScoringScheme.Default, slab))
+        var matchName = SearchTextNormalizer.Normalize(entry.Name);
+
+        // 1. Try match the name itself, live first (a registered live provider decides from the name's
+        // own readings, see PinyinNameEvaluator); without one, the core FZF engine runs as always.
+        var live = IndexV2.Search.PinyinNameEvaluator.ForPattern(pattern);
+        if (live.HasProviders)
+        {
+            if (live.TryScore(matchName, slab, out _))
+                return true;
+        }
+        else if (pattern.TryMatch(matchName, out _, FzfScoringScheme.Default, slab))
+        {
             return true;
+        }
 
         // 2. Try match aliases generated for the name
-        var aliases = GenerateAliases(entry.Name);
+        var aliases = GenerateAliases(matchName);
         if (aliases == null)
             return false;
 
+        // Aliases are read the alias side's way: each term as a contiguous run if it can be, as a
+        // subsequence otherwise (see FzfPatternAliasReading). The name itself was matched above, with the
+        // user's own precision, and so is the alignment rule. A provider that declares no structure keeps
+        // the strict reading.
         foreach (var (alias, separator) in aliases)
         {
-            if (!pattern.TryMatch(alias, out var aliasMatch, FzfScoringScheme.Default, slab))
+            var aliasPattern = pattern.ReadingFor(separator);
+            if (!aliasPattern.TryMatch(alias, out var aliasMatch, FzfScoringScheme.Default, slab))
                 continue;
             // Same syllable-alignment rule the index scan applies (see AliasMatchRules).
             if (!AliasMatchRules.AllowsMatch(pattern, separator, alias, aliasMatch.MinBegin))
                 continue;
-            if (pattern.IsAcceptableAliasMatch(aliasMatch, pattern.GetTotalTermLength(), alias, FzfScoringScheme.Default, slab))
+            if (aliasPattern.IsAcceptableAliasMatch(aliasMatch, pattern.GetTotalTermLength(), alias, FzfScoringScheme.Default, slab))
             {
                 return true;
             }

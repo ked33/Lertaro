@@ -1,5 +1,6 @@
 using Lertaro.App.ViewModels.Search;
 using Lertaro.App.ViewModels.Search.Mapping;
+using Lertaro.Core;
 using Lertaro.Core.SearchIndex;
 
 namespace Lertaro.App.Tests.ViewModels.Search;
@@ -12,8 +13,25 @@ public sealed class ExplorerSearchHelperTests
     private static AppSearchResult Item(string path, bool isDir = false) =>
         new() { FullPath = path, Name = System.IO.Path.GetFileName(path), ResultKind = "File", IsDir = isDir };
 
-    private static ExplorerSearchHelper.RankedRow Row(string path, int tier = MatchRank.TierName, int start = 0, double weight = 1.0, bool isDir = false) =>
-        new(Item(path, isDir), new MatchRank(tier, start, weight));
+    private static ExplorerSearchHelper.RankedRow Row(string path, int tier = MatchRank.TierName, int start = 0, double coverage = 1.0, double contiguity = 1.0, bool isDir = false) =>
+        new(Item(path, isDir), new MatchRank(tier, start, coverage, contiguity));
+
+    // Within a direct-children group the shared quality ladder leads: a contiguous hit at index 0 beats
+    // a later start. Shape is no longer a ranking key.
+    [TestMethod]
+    public void OrderByDirectoryTier_DirectChildren_QualityLadderLeads()
+    {
+        var result = ExplorerSearchHelper.OrderByDirectoryTier(
+            [
+                Row(@"C:\Root\AutofillStates"),
+                Row(@"C:\Root\code-atlas", start: 5),
+            ],
+            @"C:\Root");
+
+        CollectionAssert.AreEqual(
+            new[] { @"C:\Root\AutofillStates", @"C:\Root\code-atlas" },
+            result.Select(item => item.FullPath).ToArray());
+    }
 
     [TestMethod]
     public void OrderByDirectoryTier_DirectChildrenPrecedeDescendantMatches()
@@ -54,7 +72,9 @@ public sealed class ExplorerSearchHelperTests
     }
 
     // Folders group ahead of files rather than interleaving with them, matching Explorer -- so a folder
-    // whose name sorts after a file's still leads, and one sorting before a file's still trails it.
+    // whose name sorts after a file's still leads, and one sorting before a file's still trails it. The
+    // grouping is a tie-break on the match POSITION: a file matching further left than every folder leads
+    // them all, which is the leftmost-match test below.
     [TestMethod]
     public void OrderByDirectoryTier_DirectChildren_FoldersGroupBeforeFiles()
     {
@@ -72,7 +92,8 @@ public sealed class ExplorerSearchHelperTests
             result.Select(item => item.FullPath).ToArray());
     }
 
-    // Each group keeps the name ordering inside it.
+    // Each group keeps the name ordering inside it (every row here matches at position 0, so the groups are
+    // the only thing separating them).
     [TestMethod]
     public void OrderByDirectoryTier_DirectChildren_NameOrderAppliesWithinEachGroup()
     {
@@ -90,8 +111,8 @@ public sealed class ExplorerSearchHelperTests
             result.Select(item => item.FullPath).ToArray());
     }
 
-    // Folder-first is the OUTER key, so it holds even when a file matches better -- but tier and start
-    // still order items WITHIN a group.
+    // Folder grouping is a tie-break after start; at the same start it leads regardless of tier, and tier
+    // only separates rows within the same group.
     [TestMethod]
     public void OrderByDirectoryTier_DirectChildren_FolderGroupLeadsRegardlessOfMatchTier()
     {
@@ -105,6 +126,26 @@ public sealed class ExplorerSearchHelperTests
 
         CollectionAssert.AreEqual(
             new[] { @"C:\Root\better-folder", @"C:\Root\weak-folder", @"C:\Root\perfect.txt" },
+            result.Select(item => item.FullPath).ToArray());
+    }
+
+    // The match POSITION is the strongest direct-child key: it leads the folder/file grouping, so a plain
+    // file matching at position 0 sits above a folder matching at position 3 -- a file whose match is
+    // leftmost must not be buried under the folders, however few rows fit on screen. Rows whose matches
+    // start at the same position still group folders ahead of files, which the first two rows show.
+    [TestMethod]
+    public void OrderByDirectoryTier_DirectChildren_LeftmostMatchOutranksTheFolderGroup()
+    {
+        var result = ExplorerSearchHelper.OrderByDirectoryTier(
+            [
+                Row(@"C:\Root\Downloads", isDir: true, start: 3),
+                Row(@"C:\Root\notes.txt", start: 0),
+                Row(@"C:\Root\Network", isDir: true, start: 0),
+            ],
+            @"C:\Root");
+
+        CollectionAssert.AreEqual(
+            new[] { @"C:\Root\Network", @"C:\Root\notes.txt", @"C:\Root\Downloads" },
             result.Select(item => item.FullPath).ToArray());
     }
 
@@ -230,5 +271,55 @@ public sealed class ExplorerSearchHelperTests
 
         for (var i = 0; i < result.Count; i++)
             Assert.AreEqual(i, result[i].Index);
+    }
+
+    // Both rows live outside the window's folder, so they share one proximity tier and whatever
+    // RankCandidates decided is what reaches the list. The pinned row is the WORSE name match on purpose:
+    // only the pinned section can put it first.
+    [TestMethod]
+    public void CreateLocalSnapshot_PinnedHighRuleLeadsItsProximityGroup()
+    {
+        var matches = new[] { Item(@"D:\sub-atlas.txt"), Item(@"D:\atlas.txt") };
+
+        var withoutRules = ExplorerSearchHelper.CreateLocalSnapshot(
+            matches, new List<SearchResultMapper.RankedCandidate>(), "atlas", @"C:\Root");
+        CollectionAssert.AreEqual(
+            new[] { @"D:\atlas.txt", @"D:\sub-atlas.txt" },
+            withoutRules.Select(item => item.FullPath).ToArray());
+
+        var rankContext = new RankContext((path, _) => path.Contains("sub-atlas", StringComparison.OrdinalIgnoreCase)
+            ? new ExclusionRuleSet.PriorityVerdict(IndexRuleEffect.High, true)
+            : new ExclusionRuleSet.PriorityVerdict(IndexRuleEffect.Normal, false));
+
+        var pinned = ExplorerSearchHelper.CreateLocalSnapshot(
+            matches, new List<SearchResultMapper.RankedCandidate>(), "atlas", @"C:\Root", rankContext: rankContext);
+        CollectionAssert.AreEqual(
+            new[] { @"D:\sub-atlas.txt", @"D:\atlas.txt" },
+            pinned.Select(item => item.FullPath).ToArray());
+    }
+
+    [TestMethod]
+    public void CreateLocalSnapshot_LearnedAliasTrailsDirectMatchesWithinProximityTier()
+    {
+        var direct = Item(@"C:\Root\notes.txt");
+        var learned = new SearchResultMapper.RankedCandidate(
+            Item(@"C:\Root\archive.bin"),
+            IsFavorite: false,
+            HistoryCount: 8,
+            TypeRank: int.MaxValue,
+            new MatchRank(MatchRank.TierName, 0, 1.0, 1.0),
+            @"C:\Root\archive.bin",
+            IsHistoryOnly: true,
+            Source: RankingCandidateSource.History);
+
+        var result = ExplorerSearchHelper.CreateLocalSnapshot(
+            [direct],
+            [learned],
+            "notes",
+            @"C:\Root");
+
+        CollectionAssert.AreEqual(
+            new[] { @"C:\Root\notes.txt", @"C:\Root\archive.bin" },
+            result.Select(item => item.FullPath).ToArray());
     }
 }

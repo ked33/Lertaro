@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Lertaro.Core.Settings.Migration;
 
 namespace Lertaro.Core;
 
@@ -22,7 +23,6 @@ internal static class UserSettingsPersistence
     private static readonly JsonSerializerOptions WriteOptions = new() { WriteIndented = true };
 
     private static UserSettings? _cachedSettings;
-    private static string? _lastJsonOnDisk;
     private static readonly object CacheLock = new();
 
     public static UserSettings Load()
@@ -43,46 +43,35 @@ internal static class UserSettingsPersistence
 
     private static UserSettings LoadFromDisk()
     {
-        var json = TryReadMainJson();
-        var settings = json != null ? TryParse(json) : null;
-        if (settings != null)
-        {
-            lock (CacheLock) _lastJsonOnDisk = json;
-            return settings;
-        }
-        if (json != null)
-        {
-            settings = UserSettingsBackupStore.TryLoadNewest(SettingsPath, BackupCount, backupJson =>
-            {
-                var restored = TryParse(backupJson);
-                if (restored != null)
-                {
-                    lock (CacheLock) _lastJsonOnDisk = backupJson;
-                }
-                return restored;
-            });
-        }
-        return settings ?? new UserSettings();
+        var settings = LoadFromPath(SettingsPath, out _);
+        IndexRuleMigration.Ensure(settings);
+        LegacyPluginSettingsMigration.Upgrade(SettingsPath, settings);
+        if (settings.PluginSettingsStorageVersion != 1) throw new InvalidDataException("Unsupported plugin settings storage version.");
+        settings.PluginSettings = PluginSettingsStore.Load(SettingsPath);
+        return settings;
     }
 
-    private static string? TryReadMainJson()
+    internal static UserSettings LoadFromPath(string path, out string? persistedJson)
     {
-        if (!File.Exists(SettingsPath)) return null;
-        var retries = 5;
-        while (true)
+        var json = SettingsFileReader.ReadIfPresent(path);
+        var settings = json == null ? null : TryParse(json);
+        var hasPersistedData = json != null;
+        persistedJson = json;
+        if (settings != null)
+            return settings;
+        for (var index = 1; index <= BackupCount; index++)
         {
-            try
-            {
-                using var stream = new FileStream(SettingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                using var reader = new StreamReader(stream);
-                return reader.ReadToEnd();
-            }
-            catch (IOException)
-            {
-                if (--retries <= 0) throw;
-                Thread.Sleep(50);
-            }
+            var backup = SettingsFileReader.ReadIfPresent($"{path}.bak.{index}");
+            if (backup == null) continue;
+            hasPersistedData = true;
+            settings = TryParse(backup);
+            if (settings == null) continue;
+            // The primary still needs restoring, even when the next save changes no preferences.
+            persistedJson = null;
+            return settings;
         }
+        return !hasPersistedData ? new UserSettings()
+            : throw new InvalidDataException($"No valid user settings remain at '{path}'. Restore a backup before saving.");
     }
 
     /// <summary>Parses settings JSON with hotkey normalization; null when it cannot be parsed.</summary>
@@ -90,8 +79,11 @@ internal static class UserSettingsPersistence
     {
         try
         {
-            var settings = JsonSerializer.Deserialize<UserSettings>(json) ?? new UserSettings();
+            var settings = JsonSerializer.Deserialize<UserSettings>(json);
+            if (settings?.DisabledPluginAssemblies is null) return null;
+            LegacyPluginSettingsMigration.ReadLegacy(json, settings);
             NormalizeHotkeys(settings);
+            IndexRuleMigration.Ensure(settings);
             return settings;
         }
         catch (Exception ex)
@@ -115,17 +107,36 @@ internal static class UserSettingsPersistence
     public static bool Save(UserSettings settings)
     {
         NormalizeHotkeys(settings);
-        Directory.CreateDirectory(Logger.UserDataDir);
         lock (CacheLock)
         {
+            if (!SavePluginSettings(settings)) return false;
+            settings.PluginSettingsStorageVersion = 1;
+            IndexRuleMigration.MirrorLegacy(settings);
             var json = JsonSerializer.Serialize(settings, WriteOptions);
-            if (json == _lastJsonOnDisk) { _cachedSettings = settings; return true; }
-            if (!TryPersist(json, SettingsPath)) return false;
+            // Persist even an unchanged object: another process may have removed/replaced the file.
+            if (!TryPersist(json, SettingsPath))
+            {
+                _cachedSettings = null;
+                return false;
+            }
             _cachedSettings = settings;
-            _lastJsonOnDisk = json;
         }
         ExclusionRuleSet.InvalidateCache();
         return true;
+    }
+
+    internal static bool SavePluginSettings(UserSettings settings)
+    {
+        lock (CacheLock)
+        {
+            try { PluginSettingsStore.Save(SettingsPath, settings.PluginSettings); return true; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _cachedSettings = null;
+                Logger.Log($"[PluginSettings] Save failed: {ex.Message}", LogLevel.Error);
+                return false;
+            }
+        }
     }
 
     internal static bool TryPersist(string json, string settingsPath)
@@ -151,7 +162,6 @@ internal static class UserSettingsPersistence
         {
             var restored = WriteRestored(sourcePath, SettingsPath, BackupCount, out var json);
             _cachedSettings = restored;
-            _lastJsonOnDisk = json;
         }
         ExclusionRuleSet.InvalidateCache();
     }
@@ -161,6 +171,8 @@ internal static class UserSettingsPersistence
         json = File.ReadAllText(sourcePath);
         var restored = TryParse(json)
             ?? throw new InvalidDataException($"The file is not a valid user settings file: {sourcePath}");
+        json = LegacyPluginSettingsMigration.Prepare(settingsPath, restored, json) ?? json;
+        restored.PluginSettings = PluginSettingsStore.Load(settingsPath);
         RotateBackups(settingsPath, backupCount);
         AtomicFileStore.Write(settingsPath, json);
         return restored;

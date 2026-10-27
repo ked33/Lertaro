@@ -32,17 +32,23 @@ internal static class SearchMatcher
         public readonly List<UniqueMatch> Hits = new();
         public char[] Scratch = new char[256];
         public char[] AliasScratch = new char[256];
+        public char[] NormalizedScratch = new char[256];
     }
 
     internal sealed class QueryContext
     {
         public required FzfPattern Pattern;
-        public required FzfBytePattern BytePattern;
         public required ulong RequiredMask;   // union of single-term sets' masks: candidate must contain all
         public required ulong[][] OrSetMasks; // per multi-term set: candidate must cover at least one term
         public required bool CanFilter;
         public required int QueryLen;
         public required MixedTerm? MixedTerm; // non-null only for a bare single term mixing an alias provider's own two alphabets
+
+        public FzfBytePattern BytePattern => Pattern.ByteView;
+
+        // The alias-side byte view of the same query (see FzfPatternAliasReading): both views are cached on
+        // the pattern itself, so only the tiers that actually reach an alias pay for the encode.
+        public FzfBytePattern AliasBytePattern => Pattern.AliasReading.ByteView;
     }
 
     private static readonly ConcurrentBag<Worker> WorkerPool = new();
@@ -70,7 +76,6 @@ internal static class SearchMatcher
             return new QueryContext
             {
                 Pattern = pattern,
-                BytePattern = FzfBytePattern.From(pattern),
                 RequiredMask = 0,
                 OrSetMasks = Array.Empty<ulong[]>(),
                 CanFilter = false,
@@ -106,7 +111,6 @@ internal static class SearchMatcher
         return new QueryContext
         {
             Pattern = pattern,
-            BytePattern = FzfBytePattern.From(pattern),
             RequiredMask = requiredMask,
             OrSetMasks = orSets?.ToArray() ?? Array.Empty<ulong[]>(),
             CanFilter = requiredMask != 0 || orSets != null,
@@ -244,16 +248,49 @@ internal static class SearchMatcher
             worker.Scratch = new char[Math.Max(utf8.Length, worker.Scratch.Length * 2)];
         var written = Encoding.UTF8.GetChars(utf8, worker.Scratch);
         var name = worker.Scratch.AsSpan(0, written);
+        var normalizedBuffer = worker.NormalizedScratch;
+        var normalizedLength = SearchTextNormalizer.NormalizeInto(name, ref normalizedBuffer, out _);
+        if (normalizedBuffer != null)
+            worker.NormalizedScratch = normalizedBuffer;
+        if (normalizedLength > 0 && normalizedBuffer is { } normalized)
+            name = normalized.AsSpan(0, normalizedLength);
 
-        if (ctx.Pattern.TryMatch(name, out var match, FzfScoringScheme.Default, worker.Slab))
+        // The live tier first: a registered live provider decides the query from the name's own
+        // readings -- each term literally, then against the reading NFA, with the reference's
+        // additive score (see PinyinNameEvaluator). Without one, or when the pattern has no eligible
+        // word, the long-standing whole-pattern match runs exactly as before, so a pinyin-free
+        // install is unchanged.
+        var live = PinyinNameEvaluator.ForPattern(ctx.Pattern);
+        if (live.HasProviders)
+        {
+            if (live.TryScore(name, worker.Slab, out var liveMatch))
+            {
+                worker.Hits.Add(new UniqueMatch(uid, liveMatch, FzfResultRank.ForDefaultScheme(uid, name, liveMatch).SortKey));
+                return;
+            }
+        }
+        else if (ctx.Pattern.TryMatch(name, out var match, FzfScoringScheme.Default, worker.Slab))
         {
             worker.Hits.Add(new UniqueMatch(uid, match, FzfResultRank.ForDefaultScheme(uid, name, match).SortKey));
+            return;
         }
-        else if (snapshot.HasAliases(uid) && TryMatchAliases(snapshot, ctx, uid, worker, out var best))
+
+        // An alias can never contain the text a `!term` excluded, so the tiers below have to be vetoed on
+        // the name themselves -- otherwise the candidate TryMatch just rejected is revived through its
+        // pinyin (see FzfPatternExclusionExtensions.ExclusionsPass).
+        if (ctx.Pattern.HasExclusions && !ctx.Pattern.ExclusionsPass(name))
+            return;
+
+        if (snapshot.HasAliases(uid) && TryMatchAliases(snapshot, ctx, uid, worker, out var best))
         {
             worker.Hits.Add(new UniqueMatch(uid, best, FzfResultRank.ForDefaultScheme(uid, name, best).SortKey));
         }
-        else if (ctx.MixedTerm != null && snapshot.HasAliases(uid) && SearchMatcherAliasExtensions.TryMatchMixed(snapshot, ctx, uid, name, out var mixedBest))
+        // The mixed lane needs no baked entry when the provider spells its readings out on demand: a live
+        // provider bakes nothing for a name that needs no Simplified spelling, so HasAliases alone would
+        // switch this tier off for exactly the CJK names it exists for.
+        else if (ctx.MixedTerm != null
+            && (snapshot.HasAliases(uid) || ctx.MixedTerm.Provider is PluginSdk.Abstractions.Plugins.IAliasLiveMatcherProvider)
+            && SearchMatcherAliasExtensions.TryMatchMixed(snapshot, ctx, uid, name, out var mixedBest))
         {
             worker.Hits.Add(new UniqueMatch(uid, mixedBest, FzfResultRank.ForDefaultScheme(uid, name, mixedBest).SortKey));
         }

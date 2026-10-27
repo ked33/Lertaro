@@ -57,11 +57,25 @@ public static class IconBitmapCache
 
             // Render the new handles first, then delete the old ones, so a failed render never leaves
             // the menu pointing at deleted GDI objects.
-            var newFavorites = CreateStarHBitmap();
-            var newHistory = CreateClockHBitmap();
-            var newOpened = CreateOpenedFoldersHBitmap();
-            var newCategory = CreateCategoryHBitmap();
-            var newAdd = CreateAddHBitmap();
+            IntPtr newFavorites = IntPtr.Zero, newHistory = IntPtr.Zero, newOpened = IntPtr.Zero,
+                newCategory = IntPtr.Zero, newAdd = IntPtr.Zero;
+            try
+            {
+                newFavorites = CreateStarHBitmap();
+                newHistory = CreateClockHBitmap();
+                newOpened = CreateOpenedFoldersHBitmap();
+                newCategory = CreateCategoryHBitmap();
+                newAdd = CreateAddHBitmap();
+            }
+            catch
+            {
+                if (newFavorites != IntPtr.Zero) DeleteObject(newFavorites);
+                if (newHistory != IntPtr.Zero) DeleteObject(newHistory);
+                if (newOpened != IntPtr.Zero) DeleteObject(newOpened);
+                if (newCategory != IntPtr.Zero) DeleteObject(newCategory);
+                if (newAdd != IntPtr.Zero) DeleteObject(newAdd);
+                throw;
+            }
 
             var oldFavorites = FavoritesHBitmap;
             var oldHistory = HistoryHBitmap;
@@ -87,6 +101,10 @@ public static class IconBitmapCache
     // scale defaults to 4.0 (a 64px bitmap over the star/clock paths' own ~16-unit viewBox); the
     // category hamburger path below is authored in a 24-unit viewBox (matching QuickNavIcon's own
     // copy of it) and needs a correspondingly smaller scale, or it renders oversized/clipped.
+    //
+    // No marshalling here on purpose: EnsureIcons already put this on the rendering thread, and a second hop
+    // would split the Freezable graph again -- the geometry, the brush and the Pen it was given are all used
+    // through a DrawingContext, which is itself affine to the thread that renders.
     private static IntPtr CreateHBitmapFromWpfPath(string pathData, System.Windows.Media.Brush? fill, System.Windows.Media.Pen? stroke, double scale = 4.0)
     {
         var geometry = System.Windows.Media.Geometry.Parse(pathData);

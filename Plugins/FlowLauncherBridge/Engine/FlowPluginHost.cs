@@ -71,8 +71,8 @@ public class FlowPluginHost : IAsyncDisposable
     {
         var pair = FindPluginPair(pluginNameOrId);
         if (pair == null) return;
-        pair.Metadata.Disabled = !enabled;
         FlowPluginStateStore.SetPluginDisabled(pair.Metadata.Name, !enabled);
+        pair.Metadata.Disabled = !enabled;
         if (enabled) _keywordManager.RegisterPluginKeywords(pair);
         else _keywordManager.UnregisterPluginKeywords(pair);
     }
@@ -263,25 +263,32 @@ public class FlowPluginHost : IAsyncDisposable
 
     public void SaveAll()
     {
-        _storage.SaveAll();
         foreach (var pair in _loadedPlugins.Values)
-            if (pair.Plugin is ISavable savable) try { savable.Save(); } catch { }
+            if (pair.Plugin is ISavable savable) savable.Save();
+        _storage.SaveAll();
     }
 
     public void RollbackAll() => _storage.ReloadAll();
 
     public void UpdateCulture(string cultureName) => FlowPluginLanguageHelper.UpdatePluginsCulture(_loadedPlugins.Values, cultureName);
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync() => StopAsync(requireSave: false);
+
+    public ValueTask PrepareForSettingsTransferAsync() => StopAsync(requireSave: true);
+
+    private async ValueTask StopAsync(bool requireSave)
     {
-        SaveAll();
+        try { SaveAll(); }
+        catch (Exception ex) when (!requireSave) { PluginSdk.Logger.Log($"[FlowLauncherBridge] Could not save before shutdown: {ex.Message}", PluginSdk.LogLevel.Error); }
         foreach (var pair in _loadedPlugins.Values)
         {
             if (pair.Plugin is IAsyncDisposable asyncDisposable)
-                try { await asyncDisposable.DisposeAsync().ConfigureAwait(false); } catch { }
+                try { await asyncDisposable.DisposeAsync().ConfigureAwait(false); } catch when (!requireSave) { }
             else if (pair.Plugin is IDisposable disposable)
-                try { disposable.Dispose(); } catch { }
+                try { disposable.Dispose(); } catch when (!requireSave) { }
         }
+
+        if (requireSave) _storage.SaveAll();
 
         foreach (var loader in _loaders.Values) try { loader.Unload(); } catch { }
 

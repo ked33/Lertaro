@@ -12,29 +12,29 @@ The `CoreExtensions` plugin is Lertaro's core functionality bundle, implementing
 - **Native Shell Menu Integration (`IDynamicActionProvider`)**: Interacts with Windows Shell COM interfaces via `ShellMenuActionProvider`, rendering full Windows context menus (with cascading submenus like "Send to", 7-Zip, VS Code) directly inside Lertaro's `Ctrl+O` action menu.
 - **Schema-Driven Configuration Forms (`IConfigurable`)**: Demonstrates defining configuration schemas with nested groups (`Group`), string lists (`StringList`), and hotkey recorders (`Hotkey`), rendering native UI forms in Settings without custom XAML.
 - **Diverse Quick Panel Tabs (`IQuickPanelTabProvider`)**:
-  - `FavoritesTabProvider` / `HistoryTabProvider`: Returns in-memory collections with zero disk I/O overhead.
+  - `FavoritesTabProvider` / `HistoryTabProvider`: serve the host's already-loaded favorites and history rather than re-reading them from disk; the history query is dispatched off the UI thread (`Task.Run`), so summoning the panel never waits on it.
   - `WindowsRecentTabProvider`: Crawls the Windows `Recent` folder on a background thread, resolves COM shortcut targets, truncates results, and populates `Metadata.Modified` for accurate sorting.
   - `LastDirectoryTabProvider` / `RecentFilesTabProvider`: Directly queries the host's [`ExplorerPathService`](./sdk/services) and `RecentFilesService`.
 
 ## 2. PinyinAlias —— Non-ASCII Transliteration Engine
 
-The `PinyinAlias` plugin provides full pinyin and initialism alias search support for Chinese filenames, implementing both `IAliasProvider` and `ITranslationProvider`.
+The `PinyinAlias` plugin provides full pinyin and initialism alias search support for Chinese filenames, implementing `IAliasLiveMatcherProvider` (an `IAliasProvider`) and `ITranslationProvider`.
 
 ### Key Implementation Highlights
 
-- **Alphabet Boundaries (`InputRanges` / `OutputRanges`)**: Declares CJK Ideograph blocks as the input range and lowercase `a`–`z` as the output range. The host uses these boundaries to partition mixed queries (e.g. `大cj` matching `大长今`) into literal and alias segments.
+- **Alphabet Boundaries (`InputRanges` / `OutputRanges`)**: Declares one CJK Ideograph range (U+3007–U+9FFD) as the input boundary and lowercase `a`–`z` as the output range. The host uses these boundaries to partition mixed queries (e.g. `大cj` matching `大长今`) into literal and alias segments.
 - **Pre-flight Fast Checks (`CanHandle(text)`)**: Scans for Chinese characters before generating aliases, returning `false` immediately for pure English strings to avoid allocation overhead.
-- **Polyphonic Combinations (`GetAliases(text)`)**: Constructs a syllable map and generates all common pronunciation combinations connected with `|` (capped at 32 combinations to prevent combinatorial explosions), allowing parallel matching across all permutations.
+- **Live Reading Match (`IAliasLiveMatcherProvider`)**: the readings are never written into the index. The plugin builds one immutable bit-parallel matcher per query term (2–63 ASCII letters/digits) and the host runs it over the candidate's own characters: every character consumes a non-empty prefix of one of its readings, so a hit is always one contiguous run and a polyphonic name costs nothing extra. `GetAliases(text)` now emits only the Simplified spelling of a Traditional name.
 - **Embedded Localization & Thread-Safe Caching**: Provides localized plugin display names via `ITranslationProvider`, caching parsed JSON tables inside a `lock`-guarded dictionary to avoid repeated disk reads.
 
 ## 3. FlowLauncherBridge —— Cross-Ecosystem Compatibility & Isolated Runtimes
 
-The `FlowLauncherBridge` plugin demonstrates building a large-scale bridge system to integrate external community ecosystems seamlessly.
+The `FlowLauncherBridge` plugin demonstrates building a large-scale bridge system to integrate external community ecosystems into Lertaro.
 
 ### Key Implementation Highlights
 
 - **Multi-Language IPC Bridge**: Runs Flow Launcher plugins written in C# (.NET), Python 3.12, Node.js v20 LTS, and standalone executables (`.exe`).
-- **Isolated Self-Contained Runtimes**: Deploys isolated Python and Node.js runtimes within Lertaro's user data directory, communicating via named pipes using JSON-RPC without polluting the system PATH.
+- **Isolated Self-Contained Runtimes**: Deploys isolated Python and Node.js runtimes under Lertaro's **shared data directory** (`SharedDataDirectory\FlowData\PythonEmbeded-{arch}`), not the per-user data folder. Each plugin talks to its interpreter over **redirected standard input/output** carrying JSON-RPC — there is no named pipe, and the system PATH is never touched.
 - **Dynamic Configuration & WebView2 Previews**: Dynamically maps external `SettingsTemplate.yaml`/`.json` forms to `PluginConfigSchema`, and renders rich interactive HTML/WebView2 previews (e.g. MDict definitions, weather cards) inside QuickLook.
 
 ## 4. FileUnlocker —— File occupation release action

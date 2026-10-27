@@ -27,7 +27,7 @@ public class OpenPowerShellAction : ISearchResultAction
 
     public bool CanExecute(IReadOnlyList<ISearchResult> results) => results.Count == 1 && !string.IsNullOrWhiteSpace(results[0].ContextDirectory) && Directory.Exists(results[0].ContextDirectory);
 
-    public void Execute(IReadOnlyList<ISearchResult> results, IPluginSearchWindow view) => Process.Start(TerminalLauncher.CreateStartInfo(results[0].FullPath, results[0].ContextDirectory, runAsAdmin: false));
+    public void Execute(IReadOnlyList<ISearchResult> results, IPluginSearchWindow view) => TerminalLauncher.Launch(results[0].FullPath, results[0].ContextDirectory, false);
 }
 
 public class OpenAdminPowerShellAction : ISearchResultAction
@@ -50,11 +50,26 @@ public class OpenAdminPowerShellAction : ISearchResultAction
 
     public bool CanExecute(IReadOnlyList<ISearchResult> results) => results.Count == 1 && !string.IsNullOrWhiteSpace(results[0].ContextDirectory) && Directory.Exists(results[0].ContextDirectory);
 
-    public void Execute(IReadOnlyList<ISearchResult> results, IPluginSearchWindow view) => Process.Start(TerminalLauncher.CreateStartInfo(results[0].FullPath, results[0].ContextDirectory, runAsAdmin: true));
+    public void Execute(IReadOnlyList<ISearchResult> results, IPluginSearchWindow view) => TerminalLauncher.Launch(results[0].FullPath, results[0].ContextDirectory, true);
 }
 
 internal static class TerminalLauncher
 {
+    internal static void Launch(string pathText, string contextDirectory, bool runAsAdmin)
+    {
+        try
+        {
+            var directory = CreateStartInfo(pathText, contextDirectory, runAsAdmin).WorkingDirectory;
+            ShellCommandLauncher.Launch("pwsh", runAsAdmin: runAsAdmin, workingDirectory: directory);
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223) { }
+        catch (Exception ex)
+        {
+            PluginSdk.Logger.Log($"[PowerShell] {ex.Message}", PluginSdk.LogLevel.Error);
+            PluginNotificationService.Show(TranslationService.Get("Action_OpenPowerShell"), ex.Message);
+        }
+    }
+
     internal static ProcessStartInfo CreateStartInfo(string pathText, string contextDirectory, bool runAsAdmin)
     {
         // Resolve relative paths against the inline directory, never the application's working directory.

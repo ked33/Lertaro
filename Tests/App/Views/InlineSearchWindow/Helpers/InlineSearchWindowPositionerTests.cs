@@ -21,13 +21,12 @@ public sealed class InlineSearchWindowPositionerTests
             customWidth, automaticWidth, availableWidth));
 
     [TestMethod]
-    public void CalculateDockedWidth_UsesTwoThirdsOfTargetWindow() => Assert.AreEqual(800, InlineSearchWindowPositioner.CalculateDockedWidth(1200));
-
-    [TestMethod]
-    public void CalculateDockedWidth_DoesNotApplyMinimumWidth() => Assert.AreEqual(200, InlineSearchWindowPositioner.CalculateDockedWidth(300));
-
-    [TestMethod]
     public void CalculateDesktopWidth_UsesTwentyPercentOfWorkingArea() => Assert.AreEqual(384, InlineSearchWindowPositioner.CalculateDesktopWidth(1920));
+
+    // The docked card's width is no longer a fixed share of the window it docks to -- it is the user's percent
+    // bounded by that window and its screen, and that arithmetic lives with the rest of the card's geometry in
+    // InlineCardMetrics.ResolveDockedWidth, where InlineCardMetricsTests tests it. What is tested here is only
+    // where a card of a GIVEN width is put, so every width below is an input, never a derived number.
 
     // The numbers below are a real WPS file dialog, measured off a live one: dialog 480..1440, file-name
     // box 783..1405, card 640 wide. Centering it put the card's left edge 143px left of the box.
@@ -57,7 +56,9 @@ public sealed class InlineSearchWindowPositionerTests
     //                        list SHELLDLL_DefView at 352,438..1047,788.
     //   WPS's 上传到云     -- 187,310..1147,958, file list KcfdContentWidget at 396,394..1147,818.
     //
-    // Card width is the existing 2/3 of the dock rect: 571 for the Firefox dialog (857 wide), 640 for WPS.
+    // Card widths below are the ones those dialogs were measured with -- 571 for the Firefox dialog (857
+    // wide), 640 for WPS -- and the placement does not care where a width came from, so they stay valid
+    // inputs now that the width itself is the user's percent rather than a fixed share.
     private static Core.Hook.ExplorerTracker.RECT Box(int left, int top, int right, int bottom) =>
         new() { Left = left, Top = top, Right = right, Bottom = bottom };
 
@@ -118,10 +119,34 @@ public sealed class InlineSearchWindowPositionerTests
         Assert.AreEqual(-12, InlineSearchWindowPositioner.CalculatePhysTop(false, dock, null, 12));
     }
 
+    // AutoCAD's 图形另存为, measured off a live one with the same probe at 96 DPI: dialog 148,51..974,528,
+    // its shell file list (SysListView32 "FolderView") 285,115..695,433, and the 文件名 edit row
+    // 365,466..851,480. Its adapter now answers the list, which is the whole difference between a card that
+    // hangs inside the dialog below its caption and one that starts at the dialog's top edge -- the corner
+    // where it sat across 关闭, the report this came from.
+    [TestMethod]
+    public void ACardOverTheAutoCADDialogStartsBelowItsCaption()
+    {
+        var dock = Box(148, 51, 974, 528);
+        var fileList = Box(285, 115, 695, 433);
+        var nameRow = Box(365, 466, 851, 480);
+
+        var left = InlineSearchWindowPositioner.CalculatePhysLeft(false, dock, fileList, nameRow, 413, 12);
+        var top = InlineSearchWindowPositioner.CalculatePhysTop(false, dock, fileList, 12);
+
+        // 115 - 12: the visible top edge on the list's own top, 64px of caption left untouched.
+        Assert.AreEqual(103, top);
+        // 695 - 413 + 12: the visible right corner on the list's right, not on the dialog's.
+        Assert.AreEqual(294, left);
+
+        // Without the list, the field rung still keeps the card off the caption's right corner.
+        Assert.AreEqual(450, InlineSearchWindowPositioner.CalculatePhysLeft(false, dock, null, nameRow, 413, 12));
+    }
+
     [TestMethod]
     public void AnUnansweredDialogLosesNothingThatAPlainWindowHas()
     {
-        // A dialog whose adapter cannot see a file list -- AutoCAD, Bandizip, WinRAR -- or whose answer has
+        // A dialog whose adapter cannot see a file list -- Bandizip, WinRAR -- or whose answer has
         // not landed yet now takes the same edge a file manager's window does, so the state is one rule away
         // from correct rather than in a different corner. 1440 - 640 + 12, with the card's visible right edge
         // on the dialog's own.
@@ -134,4 +159,41 @@ public sealed class InlineSearchWindowPositionerTests
         Assert.AreEqual(908, InlineSearchWindowPositioner.CalculatePhysTop(true, dock, null, 12));
         Assert.AreEqual(260, InlineSearchWindowPositioner.CalculatePhysTop(false, dock, null, 12));
     }
+
+    // Directory Opus's lister, measured off a live one at 96 DPI: DWM frame 635,213,1721,1101, its client
+    // area starting at 244 (the system title bar is the band between), its two toolbar rows 244..283 and
+    // 283..315, and its file display 348. Its adapter reports the whole frame and no file list, so before the
+    // caption floor the card's top-right corner landed on 213,1721 -- across the lister's close button, the
+    // report this rule came from.
+    private static Core.Hook.ExplorerTracker.RECT OpusLister() => Box(635, 213, 1721, 1101);
+
+    [TestMethod]
+    public void ACardOverAWindowThatOnlyNamedItsFrameStartsAtTheClientArea()
+    {
+        Assert.AreEqual(213, InlineSearchWindowPositioner.CalculatePhysTop(false, OpusLister(), null, 0),
+            "with no client area to ask about, the card hangs from the window's own top edge as it always did");
+        Assert.AreEqual(244, InlineSearchWindowPositioner.CalculatePhysTop(false, OpusLister(), null, 0, 244),
+            "with one, the title bar band is off limits");
+        // The margin is the window's transparent border, paid back the same way at either edge: it is the
+        // card's VISIBLE top that has to meet the client area, not its window position.
+        Assert.AreEqual(232, InlineSearchWindowPositioner.CalculatePhysTop(false, OpusLister(), null, 12, 244));
+    }
+
+    [TestMethod]
+    public void TheCaptionFloorNeverMovesAnAnchorThatIsAlreadyBelowIt()
+    {
+        // A dialog's file list, or a file manager's pane, is inside the client area by definition, so the
+        // floor has nothing to say about it: the measured Opus file display starts at 348, its container 315.
+        Assert.AreEqual(348, InlineSearchWindowPositioner.CalculatePhysTop(
+            false, OpusLister(), Box(995, 348, 1353, 1044), 0, 244));
+        Assert.AreEqual(315, InlineSearchWindowPositioner.CalculatePhysTop(
+            false, OpusLister(), Box(994, 315, 1357, 1073), 0, 244));
+    }
+
+    [TestMethod]
+    public void TheCaptionFloorDoesNotReachACardThatHangsBelowTheWindow() =>
+        // Below the window there is no title bar to cover, and the floor is only about the band above the
+        // client area of the window being covered. Reaching it here would lift the card off the edge it hangs
+        // from -- and 1101 is the lister's own bottom edge, measured with nothing below it to change.
+        Assert.AreEqual(1101, InlineSearchWindowPositioner.CalculatePhysTop(true, OpusLister(), null, 0, 244));
 }

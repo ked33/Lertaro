@@ -1,6 +1,6 @@
 # Respuestas instantáneas y funciones con palabras clave
 
-Más allá de la búsqueda de archivos locales, Lertaro incluye un potente conjunto de herramientas de cálculo instantáneo, utilidades del sistema y extensiones de plugins mediante palabras clave. Las respuestas aparecen de inmediato sin esperar a los resultados de búsqueda de archivos.
+Más allá de la búsqueda de archivos locales, Lertaro incluye un conjunto de herramientas de cálculo instantáneo, utilidades del sistema y extensiones de plugins mediante palabras clave. Las respuestas aparecen de inmediato sin esperar a los resultados de búsqueda de archivos.
 
 ## 1. Respuestas instantáneas siempre activas
 
@@ -32,16 +32,22 @@ Admite conversiones de base numérica habituales:
 
 Ejecuta comandos directamente sin abrir una terminal previamente:
 
-- `#<comando>`: Abre el símbolo del sistema y ejecuta el comando **con privilegios de administrador** (p. ej. `#sfc /scannow` o `#net start Lertaro.Service`).
+- `#<comando>`: Abre el símbolo del sistema y ejecuta el comando **con privilegios de administrador** (p. ej. `#sfc /scannow` o `#net start LertaroService`).
 - `$<comando>`: Abre el símbolo del sistema y ejecuta el comando con **permisos de usuario estándar** (p. ej. `$ping 1.1.1.1` o `$ipconfig /all`).
+
+En **Ajustes → Plugins → Core Extensions → Configurar → Ejecutor de comandos**, elige CMD (predeterminado), Windows PowerShell o PowerShell (pwsh). **Ejecutar en el directorio actual** usa el directorio de la búsqueda integrada o el último directorio visitado para la búsqueda rápida. Si no se ha obtenido un directorio (por ejemplo, al usar la búsqueda rápida por primera vez), se usa la carpeta de perfil del usuario. Si el directorio elegido no está disponible, se detiene la ejecución.
+
+Activa **Mostrar en Navegación Rápida** para ejecutar comandos desde el directorio de origen del menú; el menú contextual de una subcarpeta usa esa subcarpeta. El diálogo permite elegir intérprete y permisos. Dejarlo vacío abre el intérprete; `#`/`$` prevalece sobre la casilla de administrador. Los nombres exactos `cmd`, `powershell` y `pwsh` tras el prefijo abren directamente el programa, ignorando mayúsculas y espacios exteriores. Solo si no existe se ejecuta el texto original en CMD. Un intérprete configurado que falte para un comando normal produce un error.
+
+CMD expande `%CD%` antes de cambiar de directorio. Si la elevación o una ruta UNC cambia el directorio inicial, la variable puede señalar el anterior. Para leer el directorio en el comando inicial, puedes usar PowerShell y `$PWD`.
 
 ### Apertura directa de URLs
 
-Escribe o pega cualquier dirección que comience por `http://` o `https://` y pulsa `Enter` para abrirla de inmediato en tu navegador predeterminado. Al introducir una dirección web válida sin protocolo, como `example.com`, la ventana de búsqueda rápida genera dos resultados instantáneos: `https://...` y `http://...`. Cada resultado usa la presentación de dos líneas con la indicación para abrirlo en el navegador; el texto de búsqueda no se modifica y una dirección que ya incluye un protocolo produce un solo resultado.
+Escribe o pega cualquier dirección que comience por `http://` o `https://` y pulsa `Enter` para abrirla de inmediato en tu navegador predeterminado. Al introducir una dirección web válida sin protocolo, como `example.com`, la ventana de búsqueda rápida genera dos resultados instantáneos del navegador: `https://...` y `http://...`. La detección sin protocolo solo se aplica a una lista blanca fija en el código de dominios de nivel superior habituales (más de cien sufijos como `.com`, `.cn` y `.io`, además de los dominios internacionalizados `xn--`) y no es configurable; los sufijos que coinciden con extensiones de archivo habituales quedan fuera a propósito, y cualquier otro texto sigue siendo una búsqueda de archivos, así que `abc.txt` no genera una fila del navegador. Escribe tú mismo el protocolo para abrir una dirección que la lista no cubre. Las filas del navegador usan la presentación de dos líneas con la indicación para abrirlo; el texto de búsqueda no se modifica y una dirección que ya incluye un protocolo produce una sola fila del navegador. Después se añade una fila `ping <host>`: al pulsar `Enter` o hacer clic se ejecuta el comando en una ventana del intérprete de comandos, con el intérprete elegido en el ejecutor de comandos del sistema. El host se toma de la dirección sin protocolo, credenciales, puerto ni ruta, y funcionan IPv4, IPv6 y los dominios internacionalizados (convertidos a punycode).
 
 ### Importar texto del portapapeles en la ventana de búsqueda rápida
 
-Al mostrar la ventana de búsqueda rápida sin texto prellenado, importa y selecciona automáticamente el texto no vacío del portapapeles si es distinto del último valor importado por esa ventana. El mismo valor no se importa repetidamente y nunca se sobrescriben las consultas prellenadas desde una URI o al volver desde la ventana de búsqueda completa.
+Cuando está activada la opción **Configuración → General → Ventana de búsqueda rápida → Rellenar automáticamente el texto del portapapeles** (desactivada de forma predeterminada), al mostrar la ventana de búsqueda rápida sin texto prellenado se importa y selecciona automáticamente el texto no vacío del portapapeles si es distinto del último valor importado por esa ventana. El mismo valor no se importa repetidamente y nunca se sobrescriben las consultas prellenadas desde una URI o al volver desde la ventana de búsqueda completa.
 
 ## 2. Extensiones activadas por palabra clave (Plugins integrados)
 
@@ -58,6 +64,11 @@ Como separador vale un espacio simple, un espacio de ancho completo o una tabula
 | `set` | **Búsqueda en Configuración** | Búsqueda difusa en las opciones de Lertaro. Al seleccionar una, salta a la página correspondiente y la resalta. | `set atajo` o `set difuso` |
 | `flow` | **Puente Flow Launcher** | Muestra los plugins cargados de Flow.Launcher y sus palabras clave, aprovechando su ecosistema. | `flow` |
 | `cs` | **Búsqueda de contenido** | Busca en el texto de documentos locales indexados y muestra archivos coincidentes con fragmentos. | `cs plan del proyecto` |
+
+Selecciona un resultado de `win` y abre su menú de acciones (`Ctrl+O`) para acceder a estos controles. Ambos usan el área de trabajo del monitor donde está la ventana, sin la barra de tareas, y restauran las ventanas minimizadas o maximizadas antes de colocarlas.
+
+- Ajustar a la pantalla y centrar (`s`): Comprueba el ancho y el alto por separado. Solo si una dimensión supera la del área de trabajo, la reduce al tamaño disponible menos 12 píxeles; después centra la ventana. Las dimensiones que caben, incluidas las que coinciden exactamente, no cambian.
+- Centrar ventana (`e`): Mueve la ventana restaurada al centro del área de trabajo sin cambiar su tamaño.
 
 ## 3. Motores de búsqueda web
 
@@ -95,7 +106,9 @@ En **Configuración → Plugins → Filtros de archivos → Configurar**, puedes
 
 ## 6. Comandos personalizados
 
+Cada comando puede activar **Ejecutar en el directorio actual** para sustituir el directorio fijo por el origen del menú, el directorio de la búsqueda integrada o el último visitado en la búsqueda rápida. Si no está disponible, se detiene la ejecución. La opción está desactivada por defecto.
+
 En **Configuración → Plugins → Comandos personalizados → Configurar**, convierte scripts complejos, herramientas de consola o aplicaciones en comandos concisos:
 
-- **Marcadores de posición de parámetros**: Admite marcadores posicionales `%s1`, `%s2`... y captura completa de consulta `%s`.
-- **Integración con Navegación rápida**: Marca "Mostrar en Navegación rápida" para fijar el comando en el menú de [**Navegación rápida**](./hotkeys#3-navegacion-rapida-activadores-de-raton), con rutas de submenú usando `/` (p. ej. `HerramientasDev/ReiniciarServicio`).
+- **Marcadores de posición de parámetros**: Admite marcadores posicionales `%s1`, `%s2`..., captura completa de consulta `%s` y texto del portapapeles `%c` (o `{c}`).
+- **Integración con Navegación rápida**: Marca "Mostrar en Navegación rápida" para fijar el comando en el menú de [**Navegación rápida**](./hotkeys#_3-navegacion-rapida-activadores-de-raton), con rutas de submenú usando `/` (p. ej. `HerramientasDev/ReiniciarServicio`).

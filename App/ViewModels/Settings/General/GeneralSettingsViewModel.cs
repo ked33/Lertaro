@@ -4,6 +4,9 @@ using Lertaro.App.Services;
 using Lertaro.Core;
 namespace Lertaro.App.ViewModels.Settings.General;
 
+// Root of the General settings page. Canonical staging rule for the page and every sub-ViewModel it
+// owns: edits change local fields only and commit to _userSettings/UiMetrics when Save() runs, and
+// Save() only runs from Apply() below (the Settings window's Apply/OK). Each sub-VM header names its key.
 public class GeneralSettingsViewModel : ViewModelBase
 {
     private readonly System.ComponentModel.PropertyChangedEventHandler _translationHandler;
@@ -13,8 +16,8 @@ public class GeneralSettingsViewModel : ViewModelBase
     private IReadOnlyList<LogLevelOption>? _logLevelOptions;
     private IReadOnlyList<LanguageOption>? _languageOptions;
 
-    // Staged edits -- everything below except SelectedTheme/PreferredLanguage (which apply live for
-    // instant preview) only commits to _userSettings when Apply() runs (Settings window's Apply/OK).
+    // Staged per the class-level rule, except PreferredLanguage further down, which writes straight
+    // through to _userSettings so the UI retranslates live.
     private bool _startWithWindows;
     private bool _autoCheckUpdates;
     private bool _autoSilentUpdate;
@@ -22,13 +25,19 @@ public class GeneralSettingsViewModel : ViewModelBase
     private bool _enableFuzzyMatch;
     private bool _orFirstPrecedence;
     private bool _enableQuickSearchClipboardAutoFill;
+    private bool _keepSearchText;
     private bool _enableEverythingIpc;
+    private bool _enableRankingDetailsExport;
     private bool _showOpenedFoldersInInlineSearch;
+    private int _inlineSearchWindowWidthPercent;
+    private int _inlineSearchWindowMaxRows;
+    private int _inlineSearchDialogMaxRows;
     private bool _hideTrayIcon;
     private bool _openFoldersInNewExplorerTabs;
     private string _globalTokenPrefix;
 
-    // Tab navigation for the System/Layout/Preview Window split of this page.
+    // Tab navigation across this page's six tabs (System/Layout/SearchWindow/PreviewWindow/
+    // QuickNavigation/PreviewProviders).
     private string _selectedTab = "System";
     public string SelectedTab
     {
@@ -61,8 +70,13 @@ public class GeneralSettingsViewModel : ViewModelBase
         _enableFuzzyMatch = userSettings.EnableFuzzyMatch;
         _orFirstPrecedence = userSettings.OrFirstPrecedence;
         _enableQuickSearchClipboardAutoFill = userSettings.EnableQuickSearchClipboardAutoFill;
+        _keepSearchText = userSettings.SearchWindow.KeepSearchText;
         _enableEverythingIpc = userSettings.EnableEverythingIpc;
+        _enableRankingDetailsExport = userSettings.EnableRankingDetailsExport;
         _showOpenedFoldersInInlineSearch = userSettings.ShowOpenedFoldersInInlineSearch;
+        _inlineSearchWindowWidthPercent = userSettings.InlineSearchWindowWidthPercent ?? UiMetrics.DefaultInlineCardWidthPercent;
+        _inlineSearchWindowMaxRows = userSettings.InlineSearchWindowMaxRows;
+        _inlineSearchDialogMaxRows = userSettings.InlineSearchDialogMaxRows;
         _hideTrayIcon = userSettings.HideTrayIcon;
         _openFoldersInNewExplorerTabs = userSettings.DefaultFileManager.OpenFoldersInNewExplorerTabs;
         _globalTokenPrefix = userSettings.GlobalTokenPrefix;
@@ -92,8 +106,8 @@ public class GeneralSettingsViewModel : ViewModelBase
         TranslationManager.Instance.PropertyChanged += _translationHandler;
     }
 
-    // Persistence and the side effects (Logger.MinimumLevel, hook-process notification) are staged
-    // until Apply() -- see the class-level comment.
+    // Its side effects (Logger.MinimumLevel, hook-process notification) are staged too -- see the
+    // class-level rule.
     public LogLevelOption? SelectedLogLevel
     {
         get => _selectedLogLevel;
@@ -186,10 +200,80 @@ public class GeneralSettingsViewModel : ViewModelBase
         set => SetProperty(ref _enableEverythingIpc, value);
     }
 
+    public bool EnableRankingDetailsExport
+    {
+        get => _enableRankingDetailsExport;
+        set => SetProperty(ref _enableRankingDetailsExport, value);
+    }
+
     public bool ShowOpenedFoldersInInlineSearch
     {
         get => _showOpenedFoldersInInlineSearch;
         set => SetProperty(ref _showOpenedFoldersInInlineSearch, value);
+    }
+
+    /// <summary>How wide the inline card may get, as a percent of the window it docks to.</summary>
+    /// <remarks>
+    /// The box takes 20-100, but the number is a request rather than a size: the placement bounds the result
+    /// by the anchored window and its screen, so the same percent over a maximized window and over a 400px
+    /// dialog come out different widths. Saving the default -- 60 -- back stores null rather than the number,
+    /// because null is the floor an untouched card has always had on a small window.
+    /// </remarks>
+    public int InlineSearchWindowWidthPercent
+    {
+        get => _inlineSearchWindowWidthPercent;
+        set
+        {
+            if (value < UiMetrics.MinInlineCardWidthPercent || value > UiMetrics.MaxInlineCardWidthPercent)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(value),
+                    $"Width must be between {UiMetrics.MinInlineCardWidthPercent} and {UiMetrics.MaxInlineCardWidthPercent} percent.");
+            }
+            SetProperty(ref _inlineSearchWindowWidthPercent, value);
+        }
+    }
+
+    /// <summary>How many results the inline card shows over an ordinary window.</summary>
+    /// <remarks>
+    /// The ceiling is 10 because that is as far as the Ctrl jump shortcuts reach (1..9, then 0). Section titles
+    /// are not counted: the card shows this many results plus whatever headers group them. A screen too short
+    /// for the chosen count gives fewer rows and scrolls. The file dialog has its own box below, because the
+    /// card over a dialog covers somebody else's controls.
+    /// </remarks>
+    public int InlineSearchWindowMaxRows
+    {
+        get => _inlineSearchWindowMaxRows;
+        set
+        {
+            if (value < UiMetrics.MinInlineCardRows || value > UiMetrics.MaxInlineCardRows)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(value),
+                    $"Row count must be between {UiMetrics.MinInlineCardRows} and {UiMetrics.MaxInlineCardRows}.");
+            }
+            SetProperty(ref _inlineSearchWindowMaxRows, value);
+        }
+    }
+
+    /// <summary>How many results the inline card shows over a file dialog.</summary>
+    /// <remarks>
+    /// Same box range, its own default: a dialog is mostly other people's controls, so the card that covers one
+    /// starts shorter than the one over a file manager's own list, and the two are adjusted apart on purpose.
+    /// </remarks>
+    public int InlineSearchDialogMaxRows
+    {
+        get => _inlineSearchDialogMaxRows;
+        set
+        {
+            if (value < UiMetrics.MinInlineCardRows || value > UiMetrics.MaxInlineCardRows)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(value),
+                    $"Row count must be between {UiMetrics.MinInlineCardRows} and {UiMetrics.MaxInlineCardRows}.");
+            }
+            SetProperty(ref _inlineSearchDialogMaxRows, value);
+        }
     }
 
     public bool HideTrayIcon
@@ -237,6 +321,15 @@ public class GeneralSettingsViewModel : ViewModelBase
         }
     }
 
+    // Governs both windows: the quick one keeps its box on hide, the full one stops emptying it on Escape.
+    // Stored under SearchWindow settings; the row lives on the System tab because it is not a per-window
+    // layout option any more.
+    public bool KeepSearchText
+    {
+        get => _keepSearchText;
+        set => SetProperty(ref _keepSearchText, value);
+    }
+
     public void Apply() => GeneralSettingsApplier.Apply(
         this,
         _userSettings,
@@ -247,8 +340,13 @@ public class GeneralSettingsViewModel : ViewModelBase
         _enableFuzzyMatch,
         _orFirstPrecedence,
         _enableQuickSearchClipboardAutoFill,
+        _keepSearchText,
         _enableEverythingIpc,
+        _enableRankingDetailsExport,
         _showOpenedFoldersInInlineSearch,
+        _inlineSearchWindowWidthPercent,
+        _inlineSearchWindowMaxRows,
+        _inlineSearchDialogMaxRows,
         _hideTrayIcon,
         _openFoldersInNewExplorerTabs,
         _globalTokenPrefix,

@@ -11,21 +11,30 @@ internal static class LiveSpaceQuery
     private const string RootCacheKey = "\0";
     private static readonly ConditionalWeakTable<LiveIndex, SpaceQueryCache> Caches = new();
 
-    public static SpaceQueryResult GetEntries(LiveIndex live, string? directory)
+    public static SpaceQueryResult GetEntries(LiveIndex live, string? directory, Func<string, bool>? isVisible = null,
+        SpaceEntryFilters filters = SpaceEntryFilters.None)
     {
         var revision = live.Revision;
         var key = string.IsNullOrWhiteSpace(directory) ? RootCacheKey : NormalizePath(directory);
+        // Totals describe the index, including descendants hidden from this caller. Check only the
+        // requested directory and returned rows: checking every descendant turned opening the home
+        // view into minutes of filesystem I/O. ACL results are never cached or evaluated under Read.
+        if (key != RootCacheKey && isVisible?.Invoke(key) == false)
+            return SpaceQueryResult.NotFound;
+        // A cached row set is only reusable by a caller that asked for the same subset.
+        var cacheKey = filters == SpaceEntryFilters.None ? key : $"{(byte)filters}|{key}";
         var cache = Caches.GetValue(live, static _ => new SpaceQueryCache());
-        if (cache.TryGet(revision, key, out var cached))
-            return cached;
-
-        var result = live.Read((snapshot, delta) => Query(snapshot, delta, key));
-        if (live.Revision == revision)
-            cache.Store(revision, key, result);
-        return result;
+        if (!cache.TryGet(revision, cacheKey, out var result))
+        {
+            result = live.Read((snapshot, delta) => Query(snapshot, delta, key, filters));
+            if (live.Revision == revision)
+                cache.Store(revision, cacheKey, result);
+        }
+        return isVisible == null ? result
+            : new SpaceQueryResult(result.Found, result.Entries.Where(entry => isVisible(entry.Path)).ToArray());
     }
 
-    private static SpaceQueryResult Query(Snapshot snapshot, DeltaOverlay delta, string key)
+    private static SpaceQueryResult Query(Snapshot snapshot, DeltaOverlay delta, string key, SpaceEntryFilters filters)
     {
         var root = snapshot.FirstRowForId(snapshot.RootId);
         if (root < 0)
@@ -35,7 +44,8 @@ internal static class LiveSpaceQuery
         var affected = BuildAffectedEntries(snapshot, delta, out var canonicalAddedLinks);
         if (key == RootCacheKey)
         {
-            var rootEntry = CreateEntry(snapshot, delta, lookup, affected, canonicalAddedLinks, root, snapshot.SourceRoot);
+            var rootEntry = CreateEntry(snapshot, delta, lookup, affected, canonicalAddedLinks, root, snapshot.SourceRoot,
+                IsDirectory(snapshot, delta, root));
             return new SpaceQueryResult(true, [rootEntry]);
         }
         if (!TryResolve(snapshot, delta, lookup, root, key, out var directory))
@@ -44,19 +54,24 @@ internal static class LiveSpaceQuery
         var entries = new List<SpaceIndexEntry>(children.Count);
         foreach (var child in children)
         {
-            if (IsSystem(snapshot, delta, child))
+            var isDirectory = IsDirectory(snapshot, delta, child);
+            if ((filters & SpaceEntryFilters.DirectoriesOnly) != 0 && !isDirectory)
                 continue;
-            entries.Add(CreateEntry(snapshot, delta, lookup, affected, canonicalAddedLinks, child, GetName(snapshot, delta, child)));
+            if ((filters & SpaceEntryFilters.FilesOnly) != 0 && isDirectory)
+                continue;
+            if ((filters & SpaceEntryFilters.IncludeSystemItems) == 0 && IsSystem(snapshot, delta, child))
+                continue;
+            entries.Add(CreateEntry(snapshot, delta, lookup, affected, canonicalAddedLinks, child,
+                GetName(snapshot, delta, child), isDirectory));
         }
         entries.Sort(CompareEntries);
         return new SpaceQueryResult(true, entries);
     }
 
     private static SpaceIndexEntry CreateEntry(Snapshot snapshot, DeltaOverlay delta, DeltaChildLookup? lookup,
-        HashSet<int> affected, Dictionary<UInt128, int> canonicalAddedLinks, int entry, string name)
+        HashSet<int> affected, Dictionary<UInt128, int> canonicalAddedLinks, int entry, string name, bool isDirectory)
     {
         var size = GetRecursiveSize(snapshot, delta, lookup, affected, canonicalAddedLinks, entry);
-        var isDirectory = IsDirectory(snapshot, delta, entry);
         var rawSize = isDirectory ? 0 : GetRawSize(snapshot, delta, entry);
         return new SpaceIndexEntry(
             GetPath(snapshot, delta, entry),

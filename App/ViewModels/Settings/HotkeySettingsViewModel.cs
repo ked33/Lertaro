@@ -1,8 +1,10 @@
 using System.Windows.Input;
 using Lertaro.App.Helpers;
 using Lertaro.App.Services;
+using Lertaro.App.Services.Favorites;
+using Lertaro.App.Services.Notifications;
 using Lertaro.Core;
-using Lertaro.Core.Wire;
+using Lertaro.PluginSdk.Abstractions;
 namespace Lertaro.App.ViewModels.Settings;
 
 public class HotkeySettingsViewModel : ViewModelBase
@@ -10,11 +12,13 @@ public class HotkeySettingsViewModel : ViewModelBase
     private readonly System.ComponentModel.PropertyChangedEventHandler _translationHandler;
 
     private readonly UserSettings _userSettings;
+    private readonly Func<uint, uint, bool> _combinationTaken;
 
-    public HotkeySettingsViewModel(UserSettings userSettings, BlacklistSettingsViewModel blacklist)
+    public HotkeySettingsViewModel(UserSettings userSettings, BlacklistSettingsViewModel blacklist, Func<uint, uint, bool>? combinationTaken = null)
     {
         _userSettings = userSettings;
         Blacklist = blacklist;
+        _combinationTaken = combinationTaken ?? HotkeyConflictProbe.IsTaken;
         var hotkeys = _userSettings.Hotkeys;
 
         // Initialize local bindings from user settings
@@ -283,11 +287,61 @@ public class HotkeySettingsViewModel : ViewModelBase
 
     public void Apply()
     {
+        var taken = ProbeGlobalCombinations();
         CopyTo(_userSettings.Hotkeys);
-        _userSettings.Save();
 
-        // Notify hook service process via IPC to reload settings!
-        App.HookClient?.SendMessage(new IpcMessage { Id = IpcMessageId.ReloadSettings });
+        if (taken.Count > 0)
+        {
+            // Shown after the save, so the card reports what was done rather than what is about to be.
+            NotificationService.Show(new NotificationRequest
+            {
+                Id = "settings-global-hotkey-taken",
+                Title = TranslationManager.Instance["Settings_HotkeyTakenTitle"],
+                Message = string.Format(
+                    TranslationManager.Instance["Settings_HotkeyTakenBody"],
+                    string.Join(", ", taken)),
+                Level = NotificationLevel.Error,
+            }, typeof(HotkeySettingsViewModel).Assembly);
+        }
+    }
+
+    /// <summary>
+    /// Probes the four hook-processed global hotkeys, resetting each one the OS refuses to its default
+    /// -- on these very properties, which the assignments in <see cref="Apply"/> then save -- and
+    /// returning the display text of the refused combinations.
+    /// </summary>
+    /// <remarks>
+    /// A bare modifier (the double-tap form) registers nothing with the OS, so it cannot be taken; an
+    /// unparsable value is left alone, for the same reason the recorder would not have produced one.
+    /// </remarks>
+    internal List<string> ProbeGlobalCombinations()
+    {
+        var defaults = new HotkeyPageSettings();
+        var taken = new List<string>();
+
+        ToggleHotkeyValue = ProbeGlobalCombination(ToggleHotkeyValue, defaults.ToggleWindowHotkey, taken);
+        QuickSwitchComboHotkey = ProbeGlobalCombination(QuickSwitchComboHotkey, defaults.QuickSwitchHotkey, taken);
+        QuickPanelHotkey = ProbeGlobalCombination(QuickPanelHotkey, defaults.QuickPanelHotkey, taken);
+        QuickNavigationHotkey = ProbeGlobalCombination(QuickNavigationHotkey, defaults.QuickNavigationHotkey, taken);
+        return taken;
+    }
+
+    private string ProbeGlobalCombination(string value, string defaultValue, List<string> taken)
+    {
+        if (string.IsNullOrWhiteSpace(value) || HotkeyStringFormat.IsBareModifier(value, out _))
+            return value;
+
+        // The favorites' own builder: the recorder's flat format is shared with them, and this one
+        // refuses -- rather than mis-maps -- anything a registration could not fire on (F12, a name
+        // with no virtual key behind it).
+        if (!FavoriteHotkeyFormat.TryBuild(value, out var virtualKey, out var modifiers))
+            return value;
+
+        if (!_combinationTaken(modifiers, virtualKey))
+            return value;
+
+        taken.Add(HotkeyStringFormat.ToDisplayText(value));
+        return defaultValue;
     }
 
     public void Cleanup() => TranslationManager.Instance.PropertyChanged -= _translationHandler;

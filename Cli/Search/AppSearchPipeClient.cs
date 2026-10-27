@@ -4,7 +4,7 @@ using Lertaro.Core.IndexV2.Space;
 using Lertaro.Core.Wire;
 namespace Lertaro.Cli.Search;
 
-// The wire-level half of talking to AppSearchPipeService (App\Services\AppSearchPipeService.cs): connects
+// The wire-level half of talking to AppSearchPipeService (App\Services\Pipe\AppSearchPipeService.cs): connects
 // to the App's own search pipe and reads back streamed (SearchResult, highlight-ranges) pairs.
 // SearchSession owns the query-debouncing/ranking/session-state side of things; this class only knows how
 // to ask the pipe a question and hand back what it says.
@@ -12,8 +12,13 @@ public static class AppSearchPipeClient
 {
     public const int ConnectTimeoutMs = 1500;
 
-    // Response buffer for the streaming read below. Large enough that one read covers several hundred
-    // results, small enough to stay off the large object heap.
+    // The whole request, not just the connect. `--space-entries` is also called from inside Directory Opus's
+    // own script engine (LertaroSize.js), where the host process waits on this one synchronously: with only a
+    // connect bound, an App that accepts the pipe and never answers parked Opus's main thread for as long as
+    // it liked. Timing out here costs that one folder's size column, which is the cheaper thing to lose.
+    public const int SpaceEntriesTimeoutMs = 5000;
+
+    // Same size and reasoning as Core's SearchPipeClient.ResponseReadBufferSize -- see that field's comment.
     private const int ResponseReadBufferSize = 64 * 1024;
 
     // Must match AppSearchPipeService's own naming exactly (per-user-session suffix + ACL) -- see that file's
@@ -40,7 +45,7 @@ public static class AppSearchPipeClient
         // of Administrators -- so `lff` run from an admin terminal was throwing UnauthorizedAccessException
         // ("was not owned by the current user") against a perfectly reachable, correctly-ACL'd pipe. The
         // actual security boundary is the server's ACL (see PipeSecurityFactory.CreateCurrentUserOnly's
-        // own comment, App\Services\AppSearchPipeService.cs), which checks the real user SID and doesn't
+        // own comment, App\Services\Pipe\AppSearchPipeService.cs), which checks the real user SID and doesn't
         // have this problem -- a client from a genuinely different Windows account still gets rejected by
         // the OS itself, just via the ACL rather than this redundant extra check.
         using var probePipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
@@ -50,16 +55,18 @@ public static class AppSearchPipeClient
 
     public static async Task<IReadOnlyList<SpaceIndexEntry>> GetSpaceEntriesAsync(string pipeName, string directory, CancellationToken token = default)
     {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeout.CancelAfter(SpaceEntriesTimeoutMs);
         using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-        await pipe.ConnectAsync(ConnectTimeoutMs, token);
+        await pipe.ConnectAsync(ConnectTimeoutMs, timeout.Token);
 
         await SearchRequestBinarySerializer.WriteSearchRequestAsync(pipe, new SearchRequestMessage
         {
             Id = SearchRequestId.GetSpaceEntries,
             Drive = directory
-        }, token);
+        }, timeout.Token);
 
-        var response = await PipeResponseBinarySerializer.ReadAsync(pipe, token);
+        var response = await PipeResponseBinarySerializer.ReadAsync(pipe, timeout.Token);
         if (response.Kind == PipeResponseKind.SpaceEntries)
             return response.SpaceEntries ?? Array.Empty<SpaceIndexEntry>();
 

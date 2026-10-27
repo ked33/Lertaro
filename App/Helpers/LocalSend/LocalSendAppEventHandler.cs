@@ -1,4 +1,5 @@
 using Lertaro.App.Views.LocalSend;
+using Lertaro.App.Helpers.Visuals;
 using Lertaro.App.ViewModels.LocalSend;
 using Lertaro.Core;
 using Lertaro.Core.Services.LocalSend;
@@ -106,6 +107,7 @@ public static class LocalSendAppEventHandler
             _isSendWindowOpen = false;
             DeviceValidationTimer.Stop();
         };
+        WindowParking.ParkUntilPainted(_activeSendWindow, WindowCentering.CenterOnCursorScreen);
         _activeSendWindow.Show();
         _activeSendWindow.Activate();
         DeviceValidationTimer.Start();
@@ -130,6 +132,11 @@ public static class LocalSendAppEventHandler
         _activeReceiveWindow = new LocalSendReceiveWindow(e);
         _isReceiveWindowOpen = true;
         _activeReceiveWindow.Closed += (_, _) => { _activeReceiveWindow = null; _isReceiveWindowOpen = false; };
+        // Both LocalSend windows arrive unasked, on an event from the network, and both are built fresh for
+        // it -- the worst combination for the first frame, since the user is looking at something else and
+        // gets an opaque black rectangle to notice (see WindowParking). This one is modal, so ShowDialog owns the
+        // show and the placement has to come from inside the park.
+        WindowParking.ParkUntilPainted(_activeReceiveWindow, WindowCentering.CenterOnCursorScreen);
         _activeReceiveWindow.ShowDialog();
     }));
 }

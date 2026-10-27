@@ -3,6 +3,7 @@ using System.Windows.Input;
 using Lertaro.App.Services;
 using Lertaro.App.ViewModels.Search;
 using Lertaro.Core;
+using Lertaro.Core.SearchIndex;
 using ListBoxItem = System.Windows.Controls.ListBoxItem;
 
 using Lertaro.App.Services.Plugin;
@@ -45,7 +46,11 @@ public class QuickSearchWindowResultExecutor
         _window.RecordKeywordHistory();
         if (!result.IsPluginSearchAction && !result.IsInstantResult)
         {
-            SearchHistoryStore.Record(SearchResultHelper.HistoryKeywordOf(result, _window.TxtSearch.Text), result.FullPath, SearchResultHelper.HistoryKindOf(result));
+            SearchHistoryStore.Record(
+                SearchResultHelper.HistoryKeywordOf(result, _window.TxtSearch.Text),
+                result.FullPath,
+                SearchResultHelper.HistoryKindOf(result),
+                SearchResultHelper.IsLearnedRecall(result));
         }
 
         if (result.IsPluginSearchAction)

@@ -12,19 +12,19 @@ namespace Lertaro.Plugins.CustomCommands;
 
 // Icons for the quick-navigation menu manifestation of custom commands, which only carries an HBITMAP
 // handle (DynamicMenuItem), not a live WPF element -- same "vector Geometry rasterized to HBITMAP"
-// technique Plugins/TotalCommander/DirMenu/DirMenuIcon.cs and Plugins/FolderCascader/Navigation/Helper.cs
+// technique Plugins/TotalCommander/DirMenu/DirMenuIcon.cs and Plugins/FolderCascader/Navigation/IconBitmapCache.cs
 // already use for their own synthetic (non-filesystem) entries. Custom command icons use the same
 // configured SVG path data as the search result surface, with the default terminal glyph as fallback.
 //
-// Unlike DirMenuIcon's own "delete the previous handle, render a fresh one" pattern -- which is safe
-// there because each of its icons (the root entry, a static ini group) only needs ONE live consumer at a
-// time -- this icon is requested once per command/category row, and every row in a menu is built in the
-// same pass before any of them are actually rendered/materialized into a WPF Image. Deleting the
-// previous handle on every call was invalidating an earlier row's HBITMAP before WPF ever got around to
+// Caching rather than rendering a fresh handle per row matters here: this icon is requested once per
+// command/category row, and every row in a menu is built in the same pass before any of them are
+// actually rendered/materialized into a WPF Image. Deleting the previous handle on every call was
+// invalidating an earlier row's HBITMAP before WPF ever got around to
 // converting it, so only the last row built ended up with a surviving icon. Caching and reusing the same
 // handle for as long as the handle stays valid -- only re-rendering once per quick-nav session
 // (Invalidate, called from ClearSession) to still pick up a theme/accent-color change between popup
-// opens -- fixes that without needing every row to independently own a handle.
+// opens -- fixes that without needing every row to independently own a handle. DirMenuIcon arrived at
+// the same rule for the same reason.
 internal static class QuickNavIcon
 {
     // Same default "Command Terminal" glyph CustomCommandsInstantProvider falls back to when a command
@@ -49,21 +49,31 @@ internal static class QuickNavIcon
         lock (Sync)
         {
             if (CommandCache.TryGetValue(normalized, out var cached)) return cached;
+        }
 
-            IntPtr rendered;
-            try
+        // Rendered OUTSIDE the lock, deliberately. RenderOnUiThread marshals onto the UI thread, and a caller
+        // holding Sync while waiting for the UI thread deadlocks against the UI thread taking Sync -- which is
+        // reachable because this is called both from the quick-navigation submenu loader's Task.Run and from
+        // the UI thread's own action-menu build. The same shape was fixed in FolderCascader's IconBitmapCache.
+        IntPtr rendered;
+        try
+        {
+            rendered = RenderOnUiThread(normalized);
+        }
+        catch
+        {
+            rendered = RenderOnUiThread(CommandPath);
+            normalized = CommandPath;
+        }
+
+        lock (Sync)
+        {
+            // Another thread may have rendered the same glyph (or the fallback did just now) while this one
+            // was rendering: the cache's rule is one handle per glyph, so the earlier winner is kept.
+            if (CommandCache.TryGetValue(normalized, out var existing))
             {
-                rendered = RenderOnUiThread(normalized);
-            }
-            catch
-            {
-                rendered = RenderOnUiThread(CommandPath);
-                normalized = CommandPath;
-                if (CommandCache.TryGetValue(normalized, out cached))
-                {
-                    DeleteObject(rendered);
-                    return cached;
-                }
+                DeleteObject(rendered);
+                return existing;
             }
 
             CommandCache[normalized] = rendered;
@@ -73,8 +83,25 @@ internal static class QuickNavIcon
 
     public static IntPtr GetCategoryHBitmap()
     {
-        if (_categoryCached == IntPtr.Zero) _categoryCached = RenderOnUiThread(CategoryPath);
-        return _categoryCached;
+        lock (Sync)
+        {
+            if (_categoryCached != IntPtr.Zero) return _categoryCached;
+        }
+
+        // Same shape as GetCommandHBitmap above, and for the same reason: the render marshals onto the UI
+        // thread, so it happens outside the lock, and two threads racing on a cold cache each used to make a
+        // bitmap and then overwrite the other's -- leaving the loser's GDI handle with nothing pointing at it.
+        var rendered = RenderOnUiThread(CategoryPath);
+        lock (Sync)
+        {
+            if (_categoryCached != IntPtr.Zero)
+            {
+                DeleteObject(rendered);
+                return _categoryCached;
+            }
+
+            return _categoryCached = rendered;
+        }
     }
 
     // Called once per quick-nav popup session (CustomCommandsQuickNavProvider.ClearSession), a point at

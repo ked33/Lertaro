@@ -42,12 +42,16 @@
                 <!-- Plugin icon -->
                 <Border Grid.Column="0" Width="36" Height="36" CornerRadius="8" VerticalAlignment="Top"
                         Background="{DynamicResource HoverBackground}" Margin="0,0,12,0">
-                    <TextBlock Text="&#xEA86;" FontFamily="Segoe MDL2 Assets" FontSize="16"
+                    <TextBlock Text="&#xEA86;" FontFamily="{DynamicResource AppIconFontFamily}" FontSize="16"
                                Foreground="{DynamicResource AccentBlue}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
                 <!-- Name + meta -->
                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                     <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}"/>
+                    <CheckBox IsChecked="{Binding IsPluginEnabled}" Margin="0,8,0,0"
+                              Content="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[Plugins_EnableAssembly]}"/>
+                    <TextBlock Text="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[Plugins_AssemblyRestartHint]}"
+                               TextWrapping="Wrap" FontSize="12" FontWeight="Bold" Margin="0,4,0,0" Foreground="{DynamicResource TextSecondary2}"/>
                     <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource TextSecondary2}" FontSize="12">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
@@ -66,7 +70,7 @@
                             <ControlTemplate TargetType="Button">
                                 <StackPanel Orientation="Horizontal" Background="Transparent">
                                     <TextBlock x:Name="Txt" Text="{Binding DisplayWebsiteLabel}" FontSize="12" Foreground="{DynamicResource AccentBlue}"/>
-                                    <TextBlock Text="&#xE8A7;" FontFamily="Segoe MDL2 Assets" FontSize="11" Foreground="{DynamicResource AccentBlue}" Margin="4,1,0,0" VerticalAlignment="Center"/>
+                                    <TextBlock Text="&#xE8A7;" FontFamily="{DynamicResource AppIconFontFamily}" FontSize="11" Foreground="{DynamicResource AccentBlue}" Margin="4,1,0,0" VerticalAlignment="Center"/>
                                 </StackPanel>
                                 <ControlTemplate.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
@@ -204,10 +208,26 @@
                              VirtualizingPanel.VirtualizationMode="Recycling">
                         <!-- Stretch each row's content: ListBoxItem's default left alignment would
                              collapse the "*" column and pull the checkbox against the text. -->
+                        <!-- The app's row styles (ResultItemStyle and friends in ListBox.xaml) are all
+                             keyed, so a bare style like this one falls through to the theme's own
+                             ListBoxItem template: hovering a row painted its blue mouse-over fill and
+                             clicking left that blue selection fill behind, for rows that are a read-only
+                             breakdown of the plugin and act on nothing. The template below keeps the
+                             content and drops the paint. Not IsHitTestVisible or IsEnabled: the rows'
+                             own checkboxes and "select all" links have to stay clickable. -->
                         <ListBox.ItemContainerStyle>
                             <Style TargetType="ListBoxItem">
                                 <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                                 <Setter Property="Padding" Value="0"/>
+                                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                              VerticalAlignment="Center"/>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
                             </Style>
                         </ListBox.ItemContainerStyle>
                         <ListBox.Resources>
@@ -283,7 +303,7 @@
                                                   Visibility="{Binding IsToggleable, Converter={StaticResource BoolToVis}}"/>
 
                                         <!-- Lock icon shown for read-only components (e.g. TranslationProvider) -->
-                                        <TextBlock Grid.Column="2" Text="&#xE72E;" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                                        <TextBlock Grid.Column="2" Text="&#xE72E;" FontFamily="{DynamicResource AppIconFontFamily}" FontSize="13"
                                                    Foreground="{DynamicResource SeparatorBrush}"
                                                    ToolTip="{Binding Source={x:Static services:TranslationManager.Instance}, Path=[Plugins_ReadOnlyTooltip]}"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center"

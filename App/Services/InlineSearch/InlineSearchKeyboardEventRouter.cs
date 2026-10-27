@@ -128,23 +128,10 @@ internal sealed class InlineSearchKeyboardEventRouter
             }));
 
         _keyboardHook.OnCtrlNumberPressed += num => Application.Current.Dispatcher.BeginInvoke(new Action(() => _getWindow()?.LaunchByShortcutIndex(num)));
-
-        // Ctrl+F, pressed in the file dialog our panel is docked over: hand the keyboard to the search box.
-        // ActivateAndFocusSearchBox is the same entry point a summon uses -- it crosses the foreground lock
-        // (the dialog is the real foreground window) and puts the caret in the box, which is why this can be
-        // the whole handler. Guarded on visibility because that entry point would otherwise activate a window
-        // that has already been closed, and the hook's own flag can lag a close by a message.
-        _keyboardHook.OnFocusInlineSearchRequested += () => Application.Current.Dispatcher.BeginInvoke(new Action(() =>
-            {
-                var window = _getWindow();
-                if (window is { IsVisible: true })
-                    window.ActivateAndFocusSearchBox();
-            }));
     }
 
-    // Wraps like the actions list's NavigateActionsList (ShellMenuPresenter.cs) -- past the last item
-    // goes back to the first, and vice versa -- matching InlineSearchWindowInputHandler.MoveResultSelection,
-    // used when the window doesn't have WPF focus and this global hook drives it instead.
+    // Global-hook twin of InlineSearchWindowInputHandler.MoveResultSelection, used when the window has no
+    // WPF focus; the wrap itself is ListSelectionNavigator.NextSelectable's rule.
     private static void MoveResultSelection(InlineSearchWindow window, int direction)
     {
         var count = window.LstResults.Items.Count;

@@ -29,7 +29,7 @@ public static class ExplorerSearchHelper
         CancellationToken token,
         Action? onMatchesChanged = null,
         DirectChildrenListingCache? listingCache = null,
-        bool folderScope = false) => Task.Run(async () =>
+        bool folderScope = false, string? fileTypeRule = null) => Task.Run(async () =>
     {
         try
         {
@@ -49,7 +49,7 @@ public static class ExplorerSearchHelper
                     localMatches.Add(SearchResultMapper.CreateUiResult(result, query, localMatches.Count, isApplication: false, contextDirectory));
                 }
                 onMatchesChanged?.Invoke();
-            }, token);
+            }, token, fileTypeRule, folderScope);
         }
         catch (OperationCanceledException)
         {
@@ -71,33 +71,22 @@ public static class ExplorerSearchHelper
         IReadOnlyList<SearchResultMapper.RankedCandidate> learned,
         string query,
         string contextDirectory,
-        int limit = 50)
+        int limit = 50,
+        RankContext? rankContext = null)
     {
         var normalizedDirectory = DirectoryProximity.Normalize(contextDirectory);
-        var ordinary = RankMatches(
+        var fuzzy = FuzzyQuery.Parse(query);
+        var orderedCandidates = RankMatches(
             matches.Where(match => !string.Equals(DirectoryProximity.Normalize(match.FullPath), normalizedDirectory, StringComparison.OrdinalIgnoreCase)),
-            FuzzyQuery.Parse(query));
+            learned,
+            fuzzy,
+            rankContext);
 
-        // Learned rows are those the history merge contributed rather than the ordinary set; tracked by
-        // normalized path, which is also the merge's own identity for a row.
-        var learnedPaths = new HashSet<string>(
-            learned.Select(c => SearchResultHelper.NormalizePath(c.Result.FullPath)),
-            StringComparer.OrdinalIgnoreCase);
-
-        var rankByPath = new Dictionary<string, MatchRank>(StringComparer.OrdinalIgnoreCase);
-        foreach (var candidate in ordinary)
-            rankByPath[candidate.NormalizedPath] = candidate.Match;
-        foreach (var candidate in learned)
-            rankByPath.TryAdd(candidate.NormalizedPath, candidate.Match);
-
-        // int.MaxValue on purpose: the cap belongs after the proximity sort below, not before it.
-        var merged = HistorySearchCandidateMapper.MergeRows(learned, ordinary.Select(c => c.Result).ToList(), int.MaxValue);
-        var ranked = merged
-            .Select(result =>
-            {
-                var path = SearchResultHelper.NormalizePath(result.FullPath);
-                return new RankedRow(result, rankByPath.TryGetValue(path, out var rank) ? rank : TopTier);
-            })
+        var ranked = orderedCandidates
+            .Select(candidate => new RankedRow(
+                candidate.Result,
+                candidate.IsHistoryOnly ? MatchRank.NoMatch : candidate.Match,
+                candidate.IsHistoryOnly))
             .ToList();
 
         var snapshot = OrderByDirectoryTier(ranked, normalizedDirectory).Take(limit).ToList();
@@ -108,23 +97,19 @@ public static class ExplorerSearchHelper
 
     // Rank given to a row no match produced (a curated history entry): top tier, so it sorts as the
     // "best match" its leading position already means.
-    private static readonly MatchRank TopTier = new(MatchRank.TierName, 0, 1.0);
+    private static readonly MatchRank TopTier = new(MatchRank.TierName, 0, 1.0, 1.0);
 
     // Rows ordered by proximity to the window's folder, then by the rule that suits their level:
     //
-    //   * DIRECT children (tier 0) -- folders first, then files (Explorer's own convention, and the user
-    //     asked for the two groups NOT to interleave), each group in match START, then match TIER, then
-    //     Explorer's own file-name order.
-    //
-    //     The coverage WEIGHT is deliberately not used here, unlike the global ladder: its coverage term is
-    //     matched-chars / name-length, which is bound to name length, so for the query "l" it ranked
-    //     Lertaro (1/7), then lx-music (1/8), then LRC maker (1/9) -- "the shorter name first", the reported
-    //     symptom. Explorer's own name order replaces it, which is also what the user is comparing against
-    //     in the one view that shows a single real folder. Tier still sits last of the match keys, as it
-    //     does everywhere else.
-    //   * Descendants and anything outside the folder -- the MatchRank order RankAndDedupe already
-    //     established (start, weight, tier), merely grouped by proximity depth. These are rows the user
-    //     did not just see in the folder listing, so relevance is the useful order.
+    //   * DIRECT children (tier 0) -- how far left in its name the match STARTS, whatever the row is.
+    //     Folders lead files at equal position (the grouping the user asked for), then match TIER, then
+    //     Explorer's own file-name order. Coverage is deliberately not used here, unlike the global
+    //     ladder: its coverage term is bound to name length, so for the query "l" it ranked Lertaro (1/7),
+    //     then lx-music (1/8), then LRC maker (1/9) -- "the shorter name first", the reported symptom.
+    //     Explorer's own name order replaces it in the one view that shows a single real folder.
+    //   * Descendants and anything outside the folder -- the order RankCandidates already established
+    //     (RankPolicy sections and score, then quality, then folder and name), merely grouped by
+    //     proximity depth.
     internal static List<AppSearchResult> OrderByDirectoryTier(IEnumerable<RankedRow> rankedMatches, string contextDirectory)
     {
         var direct = new List<RankedRow>();
@@ -142,10 +127,14 @@ public static class ExplorerSearchHelper
             .OrderBy(row => DirectoryProximity.Tier(row.Result.FullPath, contextDirectory))
             .Select(row => row.Result);
 
-        // Direct children first, folders before files, then start -> tier -> Explorer name order.
+        // Direct children keep Explorer's own order: leftmost hit, then folders before files, then
+        // match tier, then Explorer's file-name order. The inline window is a folder listing, not the
+        // global result list; its proximity grouping and name order are deliberate. The global ladder
+        // still orders descendants and outside matches.
         var orderedDirect = direct
-            .OrderBy(row => row.Result.IsDir ? 0 : 1)
+            .OrderBy(row => row.IsHistoryOnly ? 1 : 0)
             .ThenBy(row => row.Match.Start)
+            .ThenBy(row => row.Result.IsDir ? 0 : 1)
             .ThenBy(row => row.Match.Tier)
             .ThenBy(row => row.Result.Name, NaturalNameComparer.Instance)
             .Select(row => row.Result);
@@ -155,11 +144,15 @@ public static class ExplorerSearchHelper
 
     // A result paired with the match rank that placed it, so the ordering above can consult the rank even
     // though RankAndDedupe has already consumed it into an ordered list.
-    internal readonly record struct RankedRow(AppSearchResult Result, MatchRank Match);
+    internal readonly record struct RankedRow(AppSearchResult Result, MatchRank Match, bool IsHistoryOnly = false);
 
-    private static List<SearchResultMapper.RankedCandidate> RankMatches(IEnumerable<AppSearchResult> matches, FuzzyQuery fuzzy)
+    private static List<SearchResultMapper.RankedCandidate> RankMatches(
+        IEnumerable<AppSearchResult> matches,
+        IReadOnlyList<SearchResultMapper.RankedCandidate> learned,
+        FuzzyQuery fuzzy,
+        RankContext? rankContext)
     {
-        var historySnapshot = SearchHistoryStore.Snapshot();
+        var historyUsage = SearchHistoryStore.UsageCounts();
         var favoritePaths = new HashSet<string>(
             UserSettings.Load().Favorites.Select(f => SearchResultHelper.NormalizePath(
                 f.Path.Length > 3 && f.Path[^1] == '\\' ? f.Path.TrimEnd('\\') : f.Path)),
@@ -170,18 +163,22 @@ public static class ExplorerSearchHelper
         {
             var lookupPath = match.FullPath.Length > 3 && match.FullPath[^1] == '\\' ? match.FullPath.TrimEnd('\\') : match.FullPath;
             var normalizedPath = SearchResultHelper.NormalizePath(match.FullPath);
-            var hasHistory = historySnapshot.TryGetValue(lookupPath, out var priority);
+            var usage = historyUsage.TryGetValue(lookupPath, out var uc) ? uc : 0;
+            var matched = fuzzy.RankWithEvidence(match.Name, MatchEvidenceField.FileName, isDirectory: match.IsDir);
             candidates.Add(new SearchResultMapper.RankedCandidate(
                 match,
-                IsCurated: hasHistory || favoritePaths.Contains(normalizedPath),
-                hasHistory ? priority : int.MaxValue,
+                IsFavorite: favoritePaths.Contains(normalizedPath),
+                HistoryCount: usage,
                 TypeRank: int.MaxValue,
-                fuzzy.Rank(match.Name),
-                normalizedPath));
+                matched.Rank,
+                normalizedPath,
+                Source: RankingCandidateSource.FileIndex,
+                Evidence: matched.Evidence));
         }
 
-        // Ordered by the same ladder the merged list uses, but returned as candidates so the caller still
-        // has each row's MatchRank to order by afterwards.
-        return SearchResultMapper.RankCandidates(candidates);
+        if (learned.Count > 0)
+            candidates.AddRange(learned);
+
+        return SearchResultMapper.RankCandidates(candidates, rankContext);
     }
 }

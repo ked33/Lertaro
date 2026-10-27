@@ -2,10 +2,10 @@ using Lertaro.App.Helpers.Visuals;
 using Lertaro.PluginSdk.Services;
 using System.Windows;
 using System.Windows.Interop;
-using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Lertaro.App.Services;
 using Lertaro.App.Services.ShellIcons;
+using Lertaro.App.Helpers.Visuals;
 using Lertaro.Core;
 using Lertaro.App.ViewModels.Search;
 namespace Lertaro.App.Views.QuickSearchWindow.Helpers;
@@ -18,9 +18,6 @@ public class QuickSearchWindowController
     private readonly QuickSearchWindowPositioner _positioner;
     private readonly QuickSearchWindowForegroundWatcher _foregroundWatcher;
     private readonly QuickSearchWindowFocusHelper _focusHelper;
-
-    // Where the window is sent when it hides; see the assignment in FinishHide for why.
-    private const double ParkedOffScreen = -32000;
 
     internal Lertaro.App.QuickSearchWindow Window => _window;
     internal QuickSearchWindowForegroundWatcher ForegroundWatcher => _foregroundWatcher;
@@ -43,7 +40,8 @@ public class QuickSearchWindowController
     // regardless of which trigger got there.
     private bool _suppressNextRestore;
     public void SuppressNextRestore() => _suppressNextRestore = true;
-    // useAltTapBypass is used by callers backed by recent input on the Hook thread.
+    // Callers whose request rests on input the Hook thread just saw pass useAltTapBypass: false (see
+    // QuickNavigationMenu); the default is for every other caller.
     public static void ForceForeground(IntPtr hwnd, bool useAltTapBypass = true) => QuickSearchWindowNative.ForceForeground(hwnd, useAltTapBypass);
 
     public QuickSearchWindowController(Lertaro.App.QuickSearchWindow window)
@@ -55,7 +53,7 @@ public class QuickSearchWindowController
         _showSupport = new QuickSearchWindowShowSupport(this);
     }
 
-    public void PositionWindow() => _positioner.PositionWindow();
+    public void PositionWindow(bool keepCurrentMonitor = false) => _positioner.PositionWindow(keepCurrentMonitor);
     public void SaveWindowPosition() => _positioner.SaveWindowPosition();
 
     // Wired to the search box's status icon right-click -- clears the saved position and immediately
@@ -99,6 +97,24 @@ public class QuickSearchWindowController
 
         return reopenAsFullWindowSetting ? ToggleAction.ReopenAsFullWindow : ToggleAction.Hide;
     }
+
+    /// <summary>
+    /// Whether a hide should hand the foreground back to whatever was active before the summon.
+    /// </summary>
+    /// <remarks>
+    /// Pulled out of FinishHide so the rule can be unit tested without a live window, like
+    /// DetermineToggleAction above. The foreground check is what was missing: an action run from a key
+    /// press takes the foreground on its own thread, while this window's hide lands a fade-out later, so
+    /// the restore used to fire *after* the window that action had just brought forward. "Open containing
+    /// folder" is the clearest case -- reusing an Explorer window that already shows the folder is fast
+    /// enough to beat the fade, so the folder flashed up and the foreground snapped back to the pre-summon
+    /// window, while a cold Explorer window arrived too late to be undone and looked normal.
+    /// Anything else holding the foreground at that moment got there on purpose: a located window, the one
+    /// the user Alt-tabbed to, another of ours. Restoring over it fights what the user is looking at --
+    /// and if this window never reached the foreground, there is nothing here to hand back.
+    /// </remarks>
+    internal static bool ShouldRestoreForeground(bool restoreFocus, bool suppressed, IntPtr lastActiveHwnd, IntPtr foregroundAtHide, IntPtr ownHwnd) =>
+        restoreFocus && !suppressed && lastActiveHwnd != IntPtr.Zero && foregroundAtHide == ownHwnd;
 
     // Opens the full SearchWindow carrying over the quick window's current query -- the same
     // "__SHOW_MORE__" path as the quick window's own Ctrl+F/"Open More" expand action -- then hides
@@ -187,7 +203,7 @@ public class QuickSearchWindowController
     /// </remarks>
     public void HideOnFocusLoss(bool restoreFocus = true)
     {
-        if (_stayOpen)
+        if (_stayOpen || _window.IsModalActionActive)
             return;
         HideWindow(restoreFocus);
     }
@@ -236,27 +252,33 @@ public class QuickSearchWindowController
                 StayOpenChanged?.Invoke(false);
             }
 
+            // KeepSearchText: leave the query (and its results) alone so the next summon resumes where the
+            // user left off. ShowSupport re-selects that text when the window comes back, so typing still
+            // replaces it instead of appending to it.
             _window.ViewModel.FilterSession.Set(null, refresh: false);
-            _window.ViewModel.SearchQuery = string.Empty;
             _window.ViewModel.Search.CancelPendingSearch();
+            if (!UserSettings.Load().SearchWindow.KeepSearchText) _window.ViewModel.SearchQuery = string.Empty;
+
+            // Read before the hide, while this window is still on screen: Hide() makes the OS move the
+            // foreground itself, so what the restore below needs to know is who held it during the fade-out.
+            var ownHwnd = new WindowInteropHelper(_window).Handle;
+            var foregroundAtHide = QuickSearchWindowNative.GetForegroundWindow();
 
             _window.UpdateLayout();
             _window.Hide();
             // Hiding really does take the window off screen (WS_VISIBLE is cleared, and hit-testing can no
             // longer reach it), but Win32 still answers GetWindowRect with the rectangle it last occupied --
-            // which is a live-looking, on-screen, captioned window to any enumerator that leaves out the
-            // IsWindowVisible check. PixPin's element picker is one of them: it drew its selection box
-            // exactly where the previous summon had been. -32000 is where Windows itself parks windows it
-            // has disabled, and the value such enumerators recognise as "not a candidate". ShowWindow runs
-            // PositionWindow twice around the Show, so nothing has to undo this.
-            _window.Left = ParkedOffScreen;
-            _window.Top = ParkedOffScreen;
+            // which is a live-looking, on-screen window to any enumerator that leaves out the IsWindowVisible
+            // check. PixPin's element picker is one of them: it drew its selection box exactly where the
+            // previous summon had been. ShowWindow positions twice around the Show, so nothing has to undo
+            // this.
+            WindowParking.Park(_window);
             PowerThrottlingHelper.WindowHidden("quick");
 
             InlineSearchManager.Instance.KeyboardHook.IsQuickSearchWindowVisible = false;
             InlineSearchManager.Instance.KeyboardHook.Start();
 
-            if (restoreFocus && !_suppressNextRestore && _lastActiveHwnd != IntPtr.Zero) QuickSearchWindowNative.SetForegroundWindow(_lastActiveHwnd);
+            if (ShouldRestoreForeground(restoreFocus, _suppressNextRestore, _lastActiveHwnd, foregroundAtHide, ownHwnd)) QuickSearchWindowNative.SetForegroundWindow(_lastActiveHwnd);
             _suppressNextRestore = false;
             _lastActiveHwnd = IntPtr.Zero;
 
@@ -275,16 +297,10 @@ public class QuickSearchWindowController
             IdleWorkingSetTrimmer.WindowHidden();
         }
 
-        if (_window.Content is UIElement fadeContent)
-        {
-            MotionTransition.Start(fadeContent, UIElement.OpacityProperty, 0,
-                (Duration)System.Windows.Application.Current.FindResource("DurationFast"),
-                System.Windows.Application.Current.TryFindResource("EaseOutCubic") as IEasingFunction,
-                FinishHide);
-        }
-        else
-        {
-            FinishHide();
-        }
+        // No fade-out: the window is opaque, and fading the content to zero opacity is exactly "nothing
+        // painted" for the length of the animation, which an opaque window shows as a black rectangle (see
+        // NotificationWindowManager's note on the same symptom). It hides instantly, the way a notification
+        // does.
+        FinishHide();
     }
 }

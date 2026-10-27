@@ -38,10 +38,10 @@ public static class PinyinEngine
     private static readonly int MultiTableOffset;
     private static readonly int CharTableOffset;
 
-    // Pre-built one-element result arrays per syllable id: the (dominant) single-pronunciation
-    // lookup used to allocate a fresh string[1] on EVERY call, which at snapshot-bake volume is
-    // millions of allocations per rebuild for identical contents. A few hundred tiny arrays built
-    // once cover it. Callers must treat returned arrays as read-only (they are shared).
+    // Pre-built one-element result arrays per syllable id: the single-pronunciation lookup used to
+    // allocate a fresh string[1] on EVERY call, which at snapshot-bake volume is millions of allocations
+    // per rebuild for identical contents. A few hundred tiny arrays built once cover it. Callers must
+    // treat returned arrays as read-only (they are shared).
     private static readonly string[][] SingleSyllableArrays;
     // Same idea for polyphonic entries, keyed by the multi-table offset, built lazily on first
     // lookup. Concurrent first lookups may build the same array twice; the reference store is
@@ -194,13 +194,6 @@ public static class PinyinEngine
 
     /// <summary>The (pure-ASCII) UTF-8 bytes of syllable <paramref name="id"/>. Shared; read-only.</summary>
     public static byte[] GetSyllableUtf8(int id) => SyllableUtf8[id];
-
-    /// <summary>
-    /// Every syllable this table can produce. Read-only; shared. Lets the query side recognise which
-    /// letter runs are whole syllables, which is what makes a typed query expressible in the same
-    /// syllable-delimited shape the generated aliases use.
-    /// </summary>
-    public static IReadOnlyList<string> AllSyllables => Syllables;
 
     /// <summary>
     /// Vectorized pre-gate: the char table covers exactly [12295, 12295+28647), so a string with no

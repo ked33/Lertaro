@@ -31,6 +31,7 @@ public class CoreExtensionsPlugin : IPlugin, IActionProvider, IConfigurable
             new OpenAdminCommandPromptAction(),
             new OpenPowerShellAction(),
             new OpenAdminPowerShellAction(),
+            new RunCommandHereAction(),
             new TouchAction(),
             new MkdirAction()
         };
@@ -44,6 +45,7 @@ public class CoreExtensionsPlugin : IPlugin, IActionProvider, IConfigurable
     {
         Fields = new List<PluginConfigField>
         {
+            Providers.InstantAnswers.CommandSettings.Config(),
             new PluginConfigField
             {
                 Key = "ThumbnailGroup",

@@ -1,6 +1,6 @@
 # Sintaxis de búsqueda
 
-La barra de búsqueda de Lertaro admite mucho más que una simple búsqueda de texto plano. Equipada con un algoritmo de coincidencia ultrarrápido, admite coincidencia difusa con salto de caracteres, operadores lógicos, modificadores de límite de palabra, delimitación por unidad y ruta, fichas de consulta (Query Tokens) para filtrado secundario y alias multilingües inteligentes. Todas las sintaxis se pueden combinar libremente en la misma consulta.
+La barra de búsqueda de Lertaro admite coincidencia difusa con salto de caracteres, operadores lógicos, modificadores de límite de palabra, delimitación por unidad y ruta, fichas de consulta (Query Tokens) para filtrado secundario y alias multilingües inteligentes. Todas las sintaxis se pueden combinar libremente en la misma consulta.
 
 ## 1. Modos de coincidencia básica y distinción entre mayúsculas y minúsculas
 
@@ -14,7 +14,29 @@ Lertaro activa la coincidencia difusa (Fuzzy Matching) de forma predeterminada. 
 | `vsc` | `Visual Studio Code.lnk` | Coincide con las iniciales de cada palabra (**V**isual **S**tudio **C**ode) |
 | `rt-fin` | `Q3-report-final.docx` | Coincide con la subcadena continua (Q3-repo**rt-fin**al.docx) |
 
-Desactiva esta opción en **Configuración → General → Sistema → Habilitar coincidencia difusa** y los términos de búsqueda simples (sin operadores) requerirán una subcadena continua — `abc` solo coincidirá con nombres que contengan `abc` continuo, ya no con `a-b-c`. Esta opción solo afecta a los términos simples; todos los operadores descritos a continuación mantienen su comportamiento exacto.
+Desactiva esta opción en **Configuración → General → Sistema → Habilitar coincidencia difusa** y los términos de búsqueda simples (sin operadores) requerirán una subcadena continua; `abc` solo coincidirá con nombres que contengan `abc` continuo, ya no con `a-b-c`. Esta opción solo afecta a los términos simples; todos los operadores descritos a continuación mantienen su comportamiento exacto.
+
+### Cómo se ordenan los resultados
+
+Los resultados se ordenan primero por **cómo** aparece el texto en el nombre y solo después por dónde empieza:
+
+1. **Palabra completa**: `atlas` encuentra `atlas`, `code-atlas`, `atlas.png` y `CodeAtlas`. Una palabra empieza al principio del nombre, después de un espacio, `-`, `_`, `.` o un separador de ruta, en un paso de minúscula a mayúscula y donde se juntan letras y dígitos.
+2. **Inicio de palabra**: `atlasing`.
+3. **Dentro de una palabra**: `metatlas.txt`.
+4. **Letras dispersas**: las coincidencias difusas como `AutofillStates` (**A**u**t**ofil**l**St**a**te**s**) siempre van al final.
+
+Dentro de cada grupo:
+
+- Primero va lo creado o modificado **recientemente**, por tramos: hoy, la última semana, el último mes y lo anterior. Cuenta la más reciente de las fechas de creación y modificación, así que un archivo que acabas de copiar o descargar cuenta como nuevo.
+- Después, la **ruta menos profunda**: `D:\dev\code-atlas` va antes que la misma palabra diez carpetas más abajo dentro de la carpeta de un juego o de un paquete.
+- Después, la coincidencia que empieza más a la izquierda y, por último, la más compacta y completa.
+
+Si todo lo demás es igual, un archivo aparece antes que una carpeta (la lista de la carpeta actual en la ventana incrustada mantiene las carpetas primero, como el Explorador). Con varios términos, el término más débil decide el grupo.
+
+En todas las ventanas, los anclajes explícitos y los grados monotónicos mantienen un orden predecible:
+
+1. **Anclajes explícitos primero**: las reglas **Alto + Siempre arriba** y las coincidencias limpias de **Favoritos** se fijan arriba, mientras que las rutas de nivel **Bajo** permanecen por debajo de los resultados normales.
+2. **Coincidencias directas antes que alias e historial**: las coincidencias directas exactas y limpias van siempre delante de las difusas aproximadas, los alias secundarios limpios (destino de acceso directo o metadatos, mostrados en el subtítulo) y las **Asociaciones de consulta** confirmadas.
 
 ### Sin distinción entre mayúsculas y minúsculas (Case Insensitive)
 
@@ -26,9 +48,11 @@ No existe un modo sensible a mayúsculas: escribir una mayúscula ya no restring
 
 Los nombres en chino se pueden buscar por pinyin, en dos formas: las **iniciales** (una letra por carácter; `ex` para 恶性) y la **lectura completa** (cada sílaba deletreada; `zhengshu` para 证书).
 
-**Orden: posición de la coincidencia > cobertura > inglés > iniciales > pinyin completo.** Primero gana la coincidencia que empieza más a la izquierda; después, la que es más compacta y completa. Inglés, iniciales y pinyin completo solo separan resultados que ya coinciden en ambos criterios, así que una coincidencia en inglés ya no supera automáticamente a una por pinyin: solo lo hace cuando están igual de bien situadas y de ajustadas. La última sílaba puede coincidir a medias, así que `zhengsh` sigue encontrando 证书 mientras terminas de escribir.
+**Orden:** una coincidencia por pinyin cuenta como *inicio de palabra* (consulta «Cómo se ordenan los resultados» más arriba), así que queda por debajo de una palabra completa en inglés y por encima de una coincidencia en inglés dentro de una palabra. Dentro del mismo grupo, el orden es antigüedad > profundidad de la ruta > posición de la coincidencia > cobertura > inglés > iniciales > pinyin completo, así que inglés, iniciales y pinyin completo solo separan resultados que ya coinciden en todo lo demás. La última sílaba puede coincidir a medias, así que `zhengsh` sigue encontrando 证书 mientras terminas de escribir.
 
 **Con la coincidencia difusa desactivada**, las coincidencias por pinyin deben alinearse con el inicio de una sílaba. `ex` encuentra 恶性 (las iniciales de dos caracteres) pero no 学习 (que exigiría empalmar el final de `xue` con el principio de `xi`). Con la coincidencia difusa activada, esa lectura laxa es justo lo que pediste y sigue disponible.
+
+En la sección Carpeta actual de la búsqueda integrada, los elementos directos preceden a los descendientes más profundos. Los elementos directos se ordenan por la posición de coincidencia más a la izquierda; a igual posición, primero las carpetas, después el tipo de coincidencia y el orden de nombres del Explorador. La longitud del nombre no decide su orden.
 
 ## 2. Varios términos y operadores lógicos
 
@@ -90,7 +114,7 @@ Una frase entre comillas simples `'...'` nunca cruza una barra vertical: la barr
 
 ### Espacios en términos y frases entre comillas
 
-Para buscar una frase que contenga espacios dentro de un solo término, escapa el espacio con una barra invertida `\ `, o encierra la frase entre comillas simples `'...'` o dobles `"..."`:
+Para buscar una frase que contenga espacios dentro de un solo término, escapa el espacio con una barra invertida `\ `, o encierra la frase entre comillas simples `'...'`:
 
 ```text
 final\ report
@@ -184,17 +208,17 @@ Incluso si `dcj` nunca aparece en el propio nombre del archivo, Lertaro encuentr
 
 Lertaro permite añadir **fichas de consulta (Query Tokens)** encabezadas por dos puntos `:` (personalizable en **Configuración → General → Sistema → Carácter de prefijo global de token de consulta**) al final de la búsqueda para realizar filtrados y ordenaciones secundarias en cadena.
 
-Puedes combinar varias fichas tras un solo prefijo `:` separándolas por comas `,`, como en `report :@doc,M-,:-F`.
+Puedes combinar varias fichas tras un solo prefijo `:` separándolas por comas `,`, como en `report :@doc,M-`.
 
 ### Filtros de categoría de archivo (`:@<categoría>`)
 
 Aplica rápidamente reglas preestablecidas de extensión de archivo, admitiendo combinaciones con `|`:
 
-- `:@doc`: Documentos (`*.doc; *.docx; *.pdf; *.txt; *.ppt; *.pptx; *.xls; *.xlsx; *.csv; *.rtf; *.md; *.wps`)
-- `:@img`: Imágenes (`*.jpg; *.jpeg; *.png; *.gif; *.bmp; *.webp; *.ico; *.svg; *.tif; *.tiff; *.psd; *.ai`)
+- `:@doc`: Documentos (`*.doc; *.docx; *.pdf; *.txt; *.ppt; *.pptx; *.xls; *.xlsx; *.csv; *.rtf; *.md; *.wps; *.et; *.dps; *.odf; *.odt; *.ods; *.odg; *.odb; *.eqp; *.mmx; *.tex`)
+- `:@img`: Imágenes (`*.jpg; *.jpeg; *.png; *.gif; *.bmp; *.webp; *.ico; *.svg; *.tif; *.tiff; *.psd; *.ai; *.jxl; *.avif`)
 - `:@video`: Vídeos (`*.mp4; *.mkv; *.avi; *.mov; *.wmv; *.flv; *.m4v; *.webm; *.3gp; *.rmvb; *.ts`)
 - `:@audio`: Audio (`*.mp3; *.wav; *.flac; *.aac; *.ogg; *.m4a; *.wma; *.ape`)
-- `:@zip`: Archivos comprimidos (`*.zip; *.rar; *.7z; *.tar; *.gz; *.bz2; *.xz; *.iso`)
+- `:@zip`: Archivos comprimidos (`*.zip; *.rar; *.7z; *.tar; *.gz; *.bz2; *.xz; *.iso; *.wim; *.esd`)
 
 **Ejemplos**:
 
@@ -230,7 +254,7 @@ La letra sin signo indica **orden ascendente** (menor tamaño / más antiguo pri
 | `:F` | **Solo carpetas** (excluye archivos normales) | `config :F` (buscar solo directorios llamados config) |
 | `:-F` o `:F-` | **Solo archivos** (excluye carpetas/directorios) | `config :-F` (buscar solo archivos llamados config) |
 
-### Filtros secundarios con comodines (`:?<expresión>` o `?<expresión>`)
+### Filtros secundarios con comodines (`:?<expresión>`)
 
 Usa comodines estándar de Windows (`?` para un carácter, `*` para cero o más caracteres) para una coincidencia precisa, admitiendo `|` o `;` para varias condiciones OR:
 
@@ -249,14 +273,14 @@ Requiere que los nombres de las carpetas superiores o el propio archivo coincida
 Las fichas se pueden combinar juntas tras un único prefijo `:`:
 
 - `informe :@doc,M-`: Busca "informe", filtra por documentos y ordena por fecha de modificación descendente (más recientes primero).
-- `backup :.zip,S-,:-F`: Busca "backup", filtra por archivos `.zip`, ordena por tamaño de mayor a menor y muestra solo archivos.
+- `backup :.zip,S-,F-`: Busca "backup", filtra por archivos `.zip`, ordena por tamaño de mayor a menor y muestra solo archivos.
 - `icon ::assets,?*128*`: Busca "icon", ubicado bajo rutas `assets` y con indicador de tamaño `128` en el nombre.
 
 ## 6. Funciones especiales de búsqueda
 
 ### Omitir reglas de exclusión en una sola búsqueda
 
-Escribe `*` al principio de la consulta para ignorar temporalmente las rutas excluidas, globs y expresiones regulares configuradas en [**Reglas de exclusión**](./settings/index-drives#reglas-de-exclusion) para esa búsqueda puntual, sin modificar la configuración:
+Escribe `*` al principio de la consulta para ignorar temporalmente las rutas excluidas, globs y expresiones regulares configuradas en [**Reglas de exclusión**](./settings/index-drives#_5-reglas-de-exclusion) para esa búsqueda puntual, sin modificar la configuración:
 
 ```text
 *node_modules
@@ -274,7 +298,7 @@ Escribir el activador como el primer carácter en la ventana de búsqueda rápid
 ;vs
 ```
 
-Si `;` está asignado a "Aplicaciones", la consulta anterior buscará Visual Studio exclusivamente entre aplicaciones. En las ventanas rápida e incrustada, el Historial y los Favoritos permanecen fijados en la parte superior independientemente de los activadores.
+Si `;` está asignado a "Aplicaciones", la consulta anterior buscará Visual Studio exclusivamente entre aplicaciones. En la ventana de búsqueda rápida, escribir un activador oculta temporalmente las candidatas del historial, mientras que los Favoritos permanecen fijados en la parte superior independientemente de los activadores.
 
 ## 7. Alias multilingües
 
@@ -290,7 +314,7 @@ Puedes verificar que `PinyinAlias` esté activo en **Configuración → Plugins*
 
 ### Nombres de archivo en español: alias de acentos
 
-Con el plugin integrado `SpanishAlias`, los nombres de archivo que contienen caracteres con acento o tilde en español (`á`, `é`, `í`, `ó`, `ú`, `ü`, `ñ`) se pueden buscar directamente usando letras ASCII normales sin acentos:
+Con el plugin integrado `SpanishAlias`, los nombres de archivo que contienen caracteres con acento o tilde en español (`á`, `é`, `í`, `ó`, `ú`, `ü`, `ñ`) se pueden buscar usando letras ASCII normales sin acentos:
 
 - Escribir `cancion` coincide con `Canción.mp3`.
 - Escribir `nino` coincide con `Niño.txt`.
@@ -305,6 +329,6 @@ Los caracteres coincidentes (incluidas las vocales acentuadas en el nombre origi
 Lertaro no dispone de un sistema genérico de "alias/macros de búsqueda personalizados". Las soluciones nativas más cercanas:
 
 - [**Favoritos**](./settings/favorites): fija cualquier archivo, carpeta o URL con un nombre de visualización personalizado y podrás buscarlo directamente por ese título (marcado con un icono ★ en los resultados).
-- **Filtros de archivos** (consulta [**Respuestas instantáneas**](./instant-answers#filtros-de-archivos)): vincula una palabra clave a carpetas concretas y, al escribir `palabraclave término` en la ventana de búsqueda rápida, la búsqueda normal del índice quedará limitada a esas carpetas.
+- **Filtros de archivos** (consulta [**Respuestas instantáneas**](./instant-answers#_5-filtros-de-archivos)): vincula una palabra clave a carpetas concretas y, al escribir `palabraclave término` en la ventana de búsqueda rápida, la búsqueda normal del índice quedará limitada a esas carpetas.
 
-Si deseas ejecutar programas o scripts mediante palabras clave personalizadas, consulta [**Comandos personalizados**](./instant-answers#comandos-personalizados).
+Si deseas ejecutar programas o scripts mediante palabras clave personalizadas, consulta [**Comandos personalizados**](./instant-answers#_6-comandos-personalizados).

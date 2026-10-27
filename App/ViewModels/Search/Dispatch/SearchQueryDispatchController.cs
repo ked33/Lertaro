@@ -3,6 +3,7 @@ using Lertaro.Core;
 using Lertaro.App.Services.Plugin;
 using Lertaro.App.ViewModels.Service;
 
+using Lertaro.Core.SearchIndex;
 using Lertaro.Core.SearchIndex.Query;
 using Lertaro.App.ViewModels.Search.Mapping;
 using Lertaro.PluginSdk.Abstractions.Plugins;
@@ -15,6 +16,26 @@ namespace Lertaro.App.ViewModels.Search.Dispatch;
 // under the repo's per-file line limit.
 internal sealed class SearchQueryDispatchController
 {
+    // The full window has no favorite-only rows, but an indexed favorite must still get the same
+    // favorite band the quick window gives it. Paths are normalized the way the ladder compares them.
+    private static IReadOnlySet<string> FavoritePaths()
+    {
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var favorite in UserSettings.Load().Favorites)
+        {
+            try
+            {
+                paths.Add(SearchResultHelper.NormalizePath(
+                    Helpers.FavoritePathResolver.Resolve(favorite.Path)));
+            }
+            catch
+            {
+                // A malformed favorite is skipped here; the quick window's own favorite mapper reports it.
+            }
+        }
+        return paths;
+    }
+
     private readonly SearchExecutionEngine _searchEngine;
     private readonly SearchServiceStatusViewModel _serviceStatus;
     private readonly Func<List<AppSearchResult>> _getAllResults;
@@ -93,13 +114,29 @@ internal sealed class SearchQueryDispatchController
         var strippedTrailing = SearchQuerySortParser.Strip(query, out var tokens, globalPrefixChar);
         _queryTokens = _filterSession.WithTokens(tokens);
         var cleanQuery = SearchQuerySortParser.StripExclusionBypass(strippedTrailing, out var bypassExclusions);
+        // The quick window's per-type trigger CHARACTER comes off here too, before the scope keyword is
+        // resolved: this window re-runs text typed into it or carried over from that window, and searching
+        // the character as literal text is why one visible query answered differently in the two windows
+        // (see ResultTypeTriggerHandler.Match, which documents the full window's side of this). Only the
+        // character -- the type it names is this window's sidebar's job -- and its precedence over a
+        // file-filter scope keyword is the quick window's, so the scope below is skipped when one fired.
+        var (triggerStripped, triggeredTypeId) = ResultTypeTriggerHandler.Match(
+            query,
+            cleanQuery,
+            isInlineSearchContext: false,
+            UserSettings.Load().ResultTypeTriggers ?? new Dictionary<string, string>(),
+            word => PluginTriggerQuery.ClaimsLeadingWord(word, SearchWindowType.Main));
+        cleanQuery = triggerStripped;
         // A file-filter scope keyword ("tf report" -> search "report" only inside the tf filter's folders)
-        // resolves first, in the same order SearchDispatchController applies it: the scope is the more
-        // specific prefix and its own resolver owns stripping its word, so the trigger-word strip below is
-        // skipped when it claimed the leading token. Without this, "Show more"/Ctrl+F carrying a scoped
-        // quick-window query landed here as literal text and this window searched for "tf report".
+        // resolves next, in the same order SearchDispatchController applies it: the scope owns stripping its
+        // own word, so the trigger-word strip below is skipped when it claimed the leading token. Without
+        // this, "Show more"/Ctrl+F carrying a scoped quick-window query landed here as literal text and this
+        // window searched for "tf report". A per-type trigger outranks the scope keyword, exactly as it does
+        // in the quick window -- the scope is skipped for it above.
         var scopedQuery = cleanQuery;
-        var scopeDirective = FileFilterScopeResolver.Resolve(cleanQuery, out scopedQuery);
+        var scopeDirective = triggeredTypeId == null
+            ? FileFilterScopeResolver.Resolve(cleanQuery, out scopedQuery)
+            : null;
         // Same rule as the quick/inline windows: a leading trigger word ("cs report" ->
         // search "report") must not be fuzzy-matched against file names or highlighted. Overwritten in
         // place so the streaming accumulator below ranks by the very term being searched. This window is
@@ -127,7 +164,9 @@ internal sealed class SearchQueryDispatchController
         // order already established, so the total cost of painting twenty times is the cost of painting
         // once. Built here rather than on the first mapper call because the content append has to reach it
         // even when the file search never answers. See StreamingResultAccumulator.
-        var accumulator = new StreamingResultAccumulator(cleanQuery, new Dictionary<string, int>());
+        var rankRules = ExclusionRuleSet.From(UserSettings.Load());
+        var accumulator = new StreamingResultAccumulator(cleanQuery);
+        var rankContextApplied = false;
         _accumulator = accumulator;
         _searchSettled = false;
 
@@ -152,7 +191,10 @@ internal sealed class SearchQueryDispatchController
         void StartContentRowAppend()
         {
             if (wantsContentRows)
-                Task.Run(() => StreamFullSearchFileRows(query, queryGeneration));
+                Task.Run(() => StreamFullSearchFileRows(query,
+                    PluginManager.Instance.FullSearchFileResultProviders,
+                    () => queryGeneration == Volatile.Read(ref _contentAppendGeneration),
+                    rows => AppendContentRows(rows, queryGeneration)));
         }
 
         _searchEngine.QueueSearch(
@@ -171,8 +213,23 @@ internal sealed class SearchQueryDispatchController
             {
                 if (fileResults == null)
                     return new List<AppSearchResult>();
-                // The full window is a file-browser-style view: only rank actual index matches here.
-                // Quick and inline search retain their separate history/favorite learning behavior.
+                // Only index matches are shown here, but they rank like the quick window's: four sections
+                // (pinned, boosted, low, history tail) scored by match strength and priority bucket, with
+                // favorites and decayed history lifting a row inside the boosted section. Rank-only --
+                // nothing the index did not return is added. Worked out here, on the render callback's
+                // thread, before the first batch is ranked.
+                if (!rankContextApplied)
+                {
+                    // Read once per query, on this background callback: the decay snapshot must not move
+                    // between paints of the same search, or rows already on screen would re-rank under the
+                    // user.
+                    accumulator.UseRankContext(new RankContext(
+                        rankRules.GetPriorityVerdict,
+                        SearchHistoryStore.ScoreSnapshot(DateTimeOffset.UtcNow),
+                        FavoritePaths(),
+                        query: cleanQuery));
+                    rankContextApplied = true;
+                }
                 return accumulator.AbsorbBatch(fileResults);
             },
             searching => _setIsSearching(searching),
@@ -255,8 +312,10 @@ internal sealed class SearchQueryDispatchController
             // A resolved file-filter scope: the engine runs one query per configured folder and keeps only
             // file names matching the filter's pattern, exactly as the quick window's scoped search does.
             scopeDirective: scopeDirective,
-            // The untouched box text: this window's providers still have to recognise a trigger word that
-            // cleanQuery above has already had stripped.
+            // The instant-result text described on SearchExecutionEngine's own parameter: the untouched
+            // box text, since cleanQuery above has already had the trigger word stripped. Inert on this
+            // call -- emitInstantResults is false, so the engine never reaches the provider pass that
+            // would read it.
             instantQuery: query,
             onReceivedCountUpdated: count =>
             {
@@ -276,7 +335,10 @@ internal sealed class SearchQueryDispatchController
     /// <param name="query">The RAW box text, not the stripped query: a content provider recognises its own
     /// trigger word, and the host has already taken that word out of what the file index searches. Handing
     /// it the stripped text would ask it to match a prefix that is no longer there.</param>
-    private void StreamFullSearchFileRows(string query, int generation)
+    internal static void StreamFullSearchFileRows(string query,
+        IEnumerable<IFullSearchFileResultProvider> providers,
+        Func<bool> isCurrent,
+        Action<List<AppSearchResult>> appendRows)
     {
         var pending = new List<InstantResultItem>();
         IPluginComponent? pendingProvider = null;
@@ -284,35 +346,44 @@ internal sealed class SearchQueryDispatchController
 
         void Flush()
         {
-            if (pending.Count == 0)
+            if (pending.Count == 0 || !isCurrent())
                 return;
 
             var rows = new List<AppSearchResult>(pending.Count);
             PluginSearchResultMapper.AddInstantResultItems(rows, pending, query, pendingProvider!);
             pending.Clear();
-            AppendContentRows(rows, generation);
+            if (isCurrent())
+                appendRows(rows);
         }
 
-        foreach (var provider in PluginManager.Instance.FullSearchFileResultProviders)
+        foreach (var provider in providers)
         {
             // A newer query owns the list, so stop walking instead of mapping rows nobody will paint.
             // Breaking out of the provider's enumeration is what closes its database connection early.
-            if (generation != Volatile.Read(ref _contentAppendGeneration))
+            if (!isCurrent())
                 return;
 
             // Items accumulate under one provider only, because the mapping marks each row with the
             // component it came from -- so a provider switch has to land what is in hand first.
             if (pendingProvider != null && !ReferenceEquals(pendingProvider, provider))
                 Flush();
+            if (!isCurrent())
+                return;
 
             try
             {
                 pendingProvider = provider;
                 PluginPerformanceMonitor.Measure(provider, () =>
                 {
-                    foreach (var item in provider.GetFileResultsStreamed(query, FullSearchFileRowLimit))
+                    using var items = provider.GetFileResultsStreamed(query, FullSearchFileRowLimit).GetEnumerator();
+                    // Check before MoveNext too: the next database read can be expensive. The SDK's
+                    // synchronous iterator cannot interrupt a read already in flight, but disposing it
+                    // here stops further reads and releases its connection as soon as that read returns.
+                    while (isCurrent() && items.MoveNext())
                     {
-                        pending.Add(item);
+                        if (!isCurrent())
+                            return;
+                        pending.Add(items.Current);
                         if (pending.Count < nextFlush)
                             continue;
                         // Growing, because a batch landing in front of the list moves every row already on
@@ -370,10 +441,10 @@ internal sealed class SearchQueryDispatchController
 
             // The file search is done, so nothing else will take the prefix up: absorb an empty batch,
             // which is how the accumulator applies a queued prefix and hands the same list back.
-            _setAllResults(accumulator.AbsorbBatch(Array.Empty<Core.SearchResult>()), true);
+            _setAllResults(accumulator.AbsorbBatch(Array.Empty<SearchResult>()), true);
             // Prepending moves every row that was already there, so no scroll anchor survives this one.
             _applyFiltersAndRender(false, accumulator.FirstChangedIndex);
-        });
+        }, System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private async Task RefreshAfterTokenDispatchAsync(List<AppSearchResult> resultsSnapshot, IReadOnlyList<string> tokensSnapshot, bool extendsContent)

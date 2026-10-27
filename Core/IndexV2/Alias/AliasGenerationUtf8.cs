@@ -1,7 +1,8 @@
+using Lertaro.Core.IndexV2.Persistence;
+using Lertaro.Core.SearchIndex;
 using Lertaro.Core.SearchIndex.Fzf;
 using Lertaro.PluginSdk.Abstractions.Plugins;
 
-using Lertaro.Core.SearchIndex;
 namespace Lertaro.Core.IndexV2.Alias;
 
 // Byte-native twin of AliasGeneration for the snapshot bulk path: aliases arrive as UTF-8 segments
@@ -11,6 +12,11 @@ namespace Lertaro.Core.IndexV2.Alias;
 // Same GetAllProviders/CanHandle/per-provider-try semantics as AliasGeneration.Generate; results
 // are materialized into plain arrays so a parallel generation pass can hand them across threads
 // to the strictly-serial snapshot blob writer.
+//
+// Every entry a provider contributes is an alias string. A provider whose readings are decided live
+// (IAliasLiveMatcherProvider) bakes none of them, so the only thing left for it here is whatever else
+// it emits -- the pinyin provider's Simplified form -- plus the reading letters its prefilter mask
+// needs, which are taken from GetReadingSets and never stored.
 internal static class AliasGenerationUtf8
 {
     internal readonly struct Result
@@ -47,10 +53,7 @@ internal static class AliasGenerationUtf8
                 if (!provider.CanHandle(name))
                     continue;
                 var providerId = AliasProviderRegistry.GetProviderId(provider);
-                var before = sink.SegmentCount;
-                provider.GetAliasesUtf8(name, sink);
-                for (var s = before; s < sink.SegmentCount; s++)
-                    (providerIds ??= new List<byte>()).Add(providerId);
+                AppendProvider(name, provider, providerId, sink, providerIds ??= new List<byte>(), ref mask);
             }
             catch (Exception ex)
             {
@@ -58,7 +61,7 @@ internal static class AliasGenerationUtf8
             }
         }
 
-        if (providerIds == null || sink.SegmentCount == 0)
+        if (providerIds == null || providerIds.Count == 0 || sink.SegmentCount == 0)
             return null;
 
         var segmentLengths = new int[sink.SegmentCount];
@@ -76,9 +79,52 @@ internal static class AliasGenerationUtf8
             var segment = sink.Segment(s);
             segment.CopyTo(bytes.AsSpan(offset));
             offset += segment.Length;
-            mask |= FzfAlgorithm.GetCharMaskUtf8(segment);
         }
 
         return new Result(bytes, segmentLengths, providerIds.ToArray());
+    }
+
+    // Appends one provider's aliases as string entries, plus -- for a provider that bakes no readings --
+    // the letters of those readings, which the mask has to admit even though nothing stores them.
+    private static void AppendProvider(
+        string name,
+        IAliasProvider provider,
+        byte providerId,
+        AliasByteSink dest,
+        List<byte> providerIds,
+        ref ulong mask)
+    {
+        // Without this the scan's char-mask gate would reject every CJK candidate for a pinyin query the
+        // live matcher would have answered (a name's own chars carry none of the query's Latin letters).
+        if (provider is IAliasLiveMatcherProvider liveProvider)
+        {
+            var sets = liveProvider.GetReadingSets(name);
+            for (var i = 0; i < name.Length && i < sets.Length; i++)
+            {
+                var readings = sets[i];
+                if (readings == null)
+                    continue;
+                foreach (var reading in readings)
+                    mask |= FzfAlgorithm.GetCharMask(reading);
+            }
+        }
+
+        var before = dest.SegmentCount;
+        provider.GetAliasesUtf8(name, dest);
+        RecordSegments(dest, before, providerId, providerIds, ref mask);
+    }
+
+    private static void RecordSegments(
+        AliasByteSink dest,
+        int from,
+        byte providerId,
+        List<byte> providerIds,
+        ref ulong mask)
+    {
+        for (var s = from; s < dest.SegmentCount; s++)
+        {
+            providerIds.Add(providerId);
+            mask |= FzfAlgorithm.GetCharMaskUtf8(dest.Segment(s));
+        }
     }
 }

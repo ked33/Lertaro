@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using Lertaro.PluginSdk.Abstractions;
 using Lertaro.PluginSdk.Abstractions.Plugins;
 using Lertaro.PluginSdk.Services;
@@ -8,9 +9,6 @@ namespace Lertaro.Plugins.CustomActions;
 public class DynamicActionProvider : IDynamicActionProvider
 {
     public string GroupName => TranslationService.Get("CustomActions_GroupName");
-
-    private const string DefaultIcon =
-        "M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z";
 
     public class ActionItem
     {
@@ -84,6 +82,7 @@ public class DynamicActionProvider : IDynamicActionProvider
             {
                 Text = cmd.Title,
                 CommandId = 0,
+                IconPathData = cmd.Icon,
                 ShortcutHint = cmd.Hotkey,
                 OnExecute = () => RunMulti(capturedCmd, t)
             };
@@ -117,16 +116,43 @@ public class DynamicActionProvider : IDynamicActionProvider
         return true;
     }
 
+    /// <summary>
+    /// %s and {} expand to every selected path, each quoted so it stays one argument, joined by spaces --
+    /// a single invocation receives all files (e.g. tool "a" "b" "c"). For a single selection this is just
+    /// the one path. Users must NOT wrap the placeholder in quotes. %c and {c} expand to the clipboard's
+    /// text as one quoted argument, and vanish when it holds none. Every placeholder is replaced in a
+    /// single pass, so text brought in by one of them is never expanded a second time by another.
+    /// A percent form is only a placeholder when no letter or digit follows it, which is what keeps a
+    /// template carrying another program's own token (%cd for git, %systemroot% for a shell variable)
+    /// intact. The brace forms need no such guard: the closing brace already ends them.
+    /// </summary>
+    internal static string BuildArguments(string? parameter, IReadOnlyList<string> paths)
+    {
+        var allPaths = string.Join(" ", paths.Select(ArgQuoting.Quote));
+        if (string.IsNullOrWhiteSpace(parameter)) return allPaths;
+
+        // The clipboard is a cross-process read, so it is taken from the host only for a template that
+        // names the placeholder -- and only once, however many times that template repeats it.
+        string? clipboard = null;
+        var clipboardRead = false;
+
+        return Regex.Replace(parameter, @"%c(?![0-9A-Za-z])|\{c\}|%s(?![0-9A-Za-z])|\{\}", m =>
+        {
+            if (m.Value is not ("%c" or "{c}")) return allPaths;
+            if (!clipboardRead)
+            {
+                clipboard = ClipboardService.GetText();
+                clipboardRead = true;
+            }
+            return string.IsNullOrEmpty(clipboard) ? string.Empty : ArgQuoting.Quote(clipboard);
+        });
+    }
+
     private static void RunMulti(ActionItem cmd, IReadOnlyList<ISearchResult> results)
     {
         if (results.Count == 0) return;
 
-        // %s and {} expand to every selected path, each quoted so it stays one argument, joined
-        // by spaces — a single invocation receives all files (e.g. tool "a" "b" "c"). For a single
-        // selection this is just the one path. Users must NOT wrap the placeholder in quotes.
-        var allPaths = string.Join(" ", results.Select(r => ArgQuoting.Quote(r.FullPath)));
-        var param = string.IsNullOrWhiteSpace(cmd.Parameter) ? allPaths
-            : cmd.Parameter.Replace("%s", allPaths).Replace("{}", allPaths);
+        var param = BuildArguments(cmd.Parameter, results.Select(r => r.FullPath).ToList());
 
         var first = results[0];
         var workDir = cmd.WorkingDir;

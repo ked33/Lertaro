@@ -198,6 +198,46 @@ public sealed class FileDialogNavigationTrackerTests
         Assert.AreEqual(@"C:\Previous", tracker.LastActiveExplorerPath);
     }
 
+    [TestMethod]
+    public async Task FavoriteRestoresOwnedForegroundBeforeNavigatingInTheSameQueue()
+    {
+        var current = false;
+        var events = new List<string>();
+        var adapter = new Adapter
+        {
+            Focus = () => { events.Add("focus"); current = true; return true; },
+            Navigate = (path, _) => { events.Add(path); return true; }
+        };
+        var tracker = new FileDialogNavigationTracker(_ => 1, (_, _) => current,
+            _ => adapter, _ => throw new AssertFailedException("explicit favorite must not read a source"),
+            retryMs: 1, canRestoreFocus: _ => true);
+        tracker.RequestNavigation(Dialog, @"C:\Favorite\", restoreFocus: true);
+        await tracker.Completion.WaitAsync(TimeSpan.FromSeconds(10));
+        CollectionAssert.AreEqual(new[] { "focus", @"C:\Favorite\" }, events);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task FavoriteDoesNotRestoreFocusAfterOwnershipOrProcessChanges(bool processChanged)
+    {
+        var pid = 1u;
+        var owned = true;
+        var calls = 0;
+        var adapter = new Adapter
+        {
+            Focus = () => { calls++; return true; },
+            Navigate = (_, _) => { calls++; return true; }
+        };
+        var tracker = new FileDialogNavigationTracker(_ => pid, (_, _) => false,
+            _ => { if (processChanged) pid = 2; else owned = false; return adapter; }, _ => null,
+            retryMs: 1, canRestoreFocus: _ => owned);
+        tracker.RequestNavigation(Dialog, @"C:\Favorite\", restoreFocus: true);
+        await tracker.Completion.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.AreEqual(0, calls);
+        Assert.IsTrue(processChanged ? pid == 2 : !owned);
+    }
+
     private sealed class Adapter : IFileDialogAdapter
     {
         public Func<string, CancellationToken, bool> Navigate { get; set; } = (_, _) => true;
@@ -207,6 +247,7 @@ public sealed class FileDialogNavigationTrackerTests
         public bool NavigateTo(IntPtr hwnd, string path) => Navigate(path, CancellationToken.None);
         public bool NavigateTo(IntPtr hwnd, string path, CancellationToken token) => Navigate(path, token);
         public bool GetDockBounds(IntPtr hwnd, out AdapterRect rect) { rect = default; return false; }
-        public bool RestoreFocus(IntPtr hwnd) => false;
+        public Func<bool> Focus { get; set; } = () => false;
+        public bool RestoreFocus(IntPtr hwnd) => Focus();
     }
 }

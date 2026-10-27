@@ -43,9 +43,11 @@ public sealed class PluginConfigFieldLoadSupportTests
     {
         var vm = Vm(Group(TextField("child", "")));
 
-        // Two evaluations: comparing the property to itself is an assertion the analyzer can prove.
+        // Two reads, not one expression twice: the point is that a second access hands back the instance
+        // the bindings are already holding instead of rebuilding the collection.
         var first = vm.Children;
         var second = vm.Children;
+
         Assert.AreSame(first, second,
             "bindings hold the collection instance, so it must not be replaced");
     }

@@ -2,6 +2,7 @@ using System.Windows;
 using Lertaro.Core;
 using Lertaro.App.Services;
 using Lertaro.PluginSdk.Services;
+using Lertaro.Core.SearchIndex;
 using Lertaro.Core.SearchIndex.Query;
 using Lertaro.App.ViewModels.Search.Mapping;
 
@@ -129,8 +130,7 @@ internal sealed class SearchDispatchController
     // DispatchSearch (debounced) and PerformSearch (blocking) both resolve to the same set of
     // search parameters -- only which SearchExecutionEngine method runs them differs.
     //
-    // Its own delegate rather than Action<...>: the two engine methods take seventeen arguments between
-    // them, and Action stops at sixteen.
+    // The engine methods take more arguments than Action<...> supports.
     private delegate void EngineSearchCall(
         string query,
         string? searchScope,
@@ -149,7 +149,7 @@ internal sealed class SearchDispatchController
         string? instantQuery,
         bool emitInstantResults,
         Action? beforeSearch,
-        string? fileTypeRule);
+        Func<string?, List<AppSearchResult>>? collectInstantResults, string? fileTypeRule);
 
     private void RunEngineSearch(
         EngineSearchCall engineCall,
@@ -172,6 +172,13 @@ internal sealed class SearchDispatchController
         // (a folder scope says nothing about applications), so no app budget is needed at all.
         var hasTokens = _queryTokens.Count > 0;
         var hasScope = scopeDirective != null;
+        // A filename-like query (contains a dot, e.g. "plan.md") is a request for a specific file, not a
+        // broad substring sweep. The ordinary 51-row budget is deliberately a cheap prefix for broad
+        // queries; using it here truncates the candidate set BEFORE the (now unified) ranking can see the
+        // other files with that name, which is why the full window found them and the quick one did not.
+        // The dot query gets the token path's wider budget (the same 1000-row ceiling) while the display
+        // cap remains in place. A user who wants the whole set can still use the full window / "more".
+        var filenameLike = LooksLikeFileNameQuery(searchQuery);
         // Folders only, and only for the card over a dialog whose target field takes nothing but a folder --
         // a Browse-For-Folder picker. Over an Open/Save dialog the name box wants a file, so the card has to
         // keep finding files; typed into an Explorer window's own search box this card IS that window's search.
@@ -179,20 +186,49 @@ internal sealed class SearchDispatchController
         // A folder scope drops most of what the engine answers before it reaches the list, so the ordinary
         // 51-row budget would leave about ten folders on a mixed query. Same widening the token and scoped
         // paths above already use, for the same reason: the rows the card may keep have to arrive first.
-        var fileLimit = hasTokens || hasScope || folderScope ? SearchViewModel.TokenQuickSearchFileLimit : 51;
+        var fileLimit = hasTokens || hasScope || folderScope || filenameLike ? SearchViewModel.TokenQuickSearchFileLimit : 51;
         var appLimit = hasScope ? 0 : hasTokens ? SearchViewModel.FullSearchAppLimit : 51;
         // Per search, not per paint: the mapper below is the render callback, and it asks every instant
         // provider and search-action plugin on each call. See SearchResultMapper.InstantPassCache.
         var instantPass = new SearchResultMapper.InstantPassCache();
+        var rankRules = ExclusionRuleSet.From(UserSettings.Load());
+        // Also per search, not per paint: the history score decays at read time, and repainting a streaming
+        // result set must not re-decay the same query's rows into a different order between two paints.
+        // The inline card is far shorter than the quick window, so it only lends 1 row to H5 and 3 to H3;
+        // every other lifted history row keeps ranking by score inside Boosted/HistoryTail. AlwaysTop is a
+        // user checkbox and does not spend a history slot, so pinning still works in the card.
+        var isInlineContext = _getIsInlineSearchContext();
+        // The directory grade cap exists to keep a preferred application/settings row ahead of an unrelated
+        // folder with the same leading word. That only makes sense while some other type outranks Files: when
+        // the user puts the file bucket first, the cap would demote the exact-named folder to DirectStrong and
+        // hand the win to a settings row that merely matched through a keyword, i.e. the exact opposite of the
+        // order they configured. Read once per query, like the type order the mapper resolves later.
+        var demoteDirectoryIdentity = isInlineContext
+            || !SearchResultTypePriority.FilesComesFirst(UserSettings.Load().ResultTypeOrder);
+        // One trace session covers all streaming paints of this quick-window query. The switch only
+        // controls whether the export action is offered; the trace itself never writes anything.
+        var rankingTrace = !isInlineContext && UserSettings.Load().EnableRankingDetailsExport
+            ? new QuickSearchRankingTrace(originalValue, searchQuery)
+            : null;
+        var rankContext = new RankContext(
+            rankRules.GetPriorityVerdict,
+            SearchHistoryStore.ScoreSnapshot(DateTimeOffset.UtcNow),
+            historyFiveMax: isInlineContext ? 1 : RankPolicy.HistoryFiveMax,
+            historyThreeMax: isInlineContext ? 3 : RankPolicy.HistoryThreeMax,
+            demoteDirectoryIdentity: demoteDirectoryIdentity);
+        // The engine truncates before the App can rank, so a high-priority row that matches weakly could
+        // never arrive at all. Only high rules pay for the wider window; the default rule set has none.
+        if (rankRules.HasHighPriorityRules)
+            fileLimit = Math.Max(fileLimit, SearchViewModel.TokenQuickSearchFileLimit);
         engineCall(
             searchQuery,
             hasScope ? null : _getSearchScope(),
             _getIsInlineSearchContext(),
             fileLimit,
             appLimit,
-            (resp, contextDir) => SearchResultMapper.BuildQuickResults(resp, searchQuery, hasScope ? null : _getIsInlineSearchContext() ? null : _getSearchScope(), contextDir, _getIsInlineSearchContext(), originalValue, skipDisplayCap: hasTokens || hasScope, fileFilterScope: scopeDirective, folderScope: folderScope, instantPass: instantPass),
+            (resp, contextDir) => SearchResultMapper.BuildQuickResults(resp, searchQuery, hasScope ? null : _getIsInlineSearchContext() ? null : _getSearchScope(), contextDir, _getIsInlineSearchContext(), originalValue, skipDisplayCap: hasTokens || hasScope || filenameLike, fileFilterScope: scopeDirective, folderScope: folderScope, instantPass: instantPass, rankContext: rankContext, rankingTrace: rankingTrace, fileTypeRule: _mainVm.FilterSession.Active?.Rule),
             state => _setIsSearching(state),
-            (results, status, final) => ApplySearchResults(originalValue, searchQuery, results, status, final),
+            (results, status, final) => ApplySearchResults(originalValue, searchQuery, results, status, final, rankingTrace),
             HandleLocalServiceUnavailable,
             () => _getResultsCount() == 0,
             _bypassExclusions,
@@ -209,6 +245,7 @@ internal sealed class SearchDispatchController
             // Nothing to start alongside a quick-window search: the rows this window can show all come from
             // the one search already, and its instant providers are folded into the mapper above.
             null,
+            contextDir => SearchResultMapper.CollectInstantPass(instantPass, originalValue, searchQuery, _getIsInlineSearchContext(), contextDir),
             _mainVm.FilterSession.Active?.Rule
         );
     }
@@ -266,11 +303,7 @@ internal sealed class SearchDispatchController
             ? FileFilterScopeResolver.Resolve(cleanQuery, out scopedQuery)
             : null;
         var searchQuery = scopeDirective != null ? scopedQuery : cleanQuery;
-        // A trigger word -- an instant provider's configured one ("cs report") or a search action's command
-        // word ("mkdir sub") -- is not part of what the user wants found, so it must not be fuzzy
-        // matched against file names nor highlighted. Skipped when
-        // a file-filter scope already claimed the leading keyword -- two prefixes cannot both win, and the
-        // scope is the more specific feature. Instant providers still receive the raw text (instantQuery).
+        // Same trigger-word stripping and scope precedence as DispatchSearch above -- see its comment.
         if (scopeDirective == null)
             searchQuery = PluginTriggerQuery.Strip(searchQuery, ActionWindowType);
         if (string.IsNullOrWhiteSpace(cleanQuery) && !_mainVm.FilterSession.IsActive)
@@ -293,7 +326,7 @@ internal sealed class SearchDispatchController
     // `query` is the untouched box text (what the staleness check compares against); `searchQuery` is what
     // the rows were actually matched and highlighted against, with a plugin's trigger word taken off. The
     // "N more" row describes the search, so it is built from the second one -- see ComposeAndApplyAsync.
-    private void ApplySearchResults(string query, string searchQuery, List<AppSearchResult> uiResults, string statusText, bool final)
+    private void ApplySearchResults(string query, string searchQuery, List<AppSearchResult> uiResults, string statusText, bool final, QuickSearchRankingTrace? rankingTrace)
     {
         if (_getSearchQuery() != query)
             return;
@@ -304,11 +337,11 @@ internal sealed class SearchDispatchController
             // assembled (e.g. the inline window's "Current Folder"/"Global Search" split, each with its
             // own files right under its own header) -- token mode is the only case that needs to
             // extract/re-filter/re-cap that structure, since it collapses it into a flat file list anyway.
-            ApplyUntokenized(uiResults, statusText);
+            ApplyUntokenized(uiResults, statusText, final, rankingTrace);
             return;
         }
 
-        _ = ComposeAndApplyGuardedAsync(query, searchQuery, uiResults, _queryTokens, statusText, final);
+        _ = ComposeAndApplyGuardedAsync(query, searchQuery, uiResults, _queryTokens, statusText, final, rankingTrace);
     }
 
     /// <summary>
@@ -319,11 +352,11 @@ internal sealed class SearchDispatchController
     /// rather than "one plugin failed". Rendering the untokenized rows is the honest fallback: the search
     /// still answers, just without the token's refinement.
     /// </summary>
-    private async Task ComposeAndApplyGuardedAsync(string query, string searchQuery, List<AppSearchResult> uiResults, IReadOnlyList<string> tokensSnapshot, string statusText, bool final)
+    private async Task ComposeAndApplyGuardedAsync(string query, string searchQuery, List<AppSearchResult> uiResults, IReadOnlyList<string> tokensSnapshot, string statusText, bool final, QuickSearchRankingTrace? rankingTrace)
     {
         try
         {
-            await ComposeAndApplyAsync(query, searchQuery, uiResults, tokensSnapshot, statusText, final).ConfigureAwait(false);
+            await ComposeAndApplyAsync(query, searchQuery, uiResults, tokensSnapshot, statusText, final, rankingTrace).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -331,12 +364,13 @@ internal sealed class SearchDispatchController
             if (_getSearchQuery() != query || !ReferenceEquals(_queryTokens, tokensSnapshot))
                 return; // a newer query already owns the list; falling back would undo it
 
-            ApplyUntokenized(uiResults, statusText);
+            ApplyUntokenized(uiResults, statusText, final, rankingTrace);
         }
     }
 
-    private void ApplyUntokenized(List<AppSearchResult> uiResults, string statusText)
+    private void ApplyUntokenized(List<AppSearchResult> uiResults, string statusText, bool final, QuickSearchRankingTrace? rankingTrace)
     {
+        rankingTrace?.RecordDisplayedPage(uiResults, uiResults, final);
         _replaceResults(uiResults);
 
         var hasResults = uiResults.Count > 0;
@@ -354,7 +388,7 @@ internal sealed class SearchDispatchController
     // file rows] and caps the combined count like an ordinary quick search. QueryTokenDispatcher only
     // transforms a plain list -- deciding what any of this means for the rest of the UI (capping, "no
     // results", visibility) lives here.
-    private async Task ComposeAndApplyAsync(string query, string searchQuery, List<AppSearchResult> uiResults, IReadOnlyList<string> tokensSnapshot, string statusText, bool final)
+    private async Task ComposeAndApplyAsync(string query, string searchQuery, List<AppSearchResult> uiResults, IReadOnlyList<string> tokensSnapshot, string statusText, bool final, QuickSearchRankingTrace? rankingTrace)
     {
         var fileRows = uiResults.Where(IsFileOrDirectory).ToList();
         // ResultKind == "InstantResult" alone isn't enough: ISearchableItemProvider (a static catalog --
@@ -378,6 +412,7 @@ internal sealed class SearchDispatchController
         if (composed.Count == 0 && final)
             composed.Add(SearchResultMapper.CreateNoResultsResult(query));
 
+        rankingTrace?.RecordDisplayedPage(uiResults, composed, final, fileRows, processedFileRows);
         // ReplaceResults reconciles row-by-row and no-ops when nothing changed, so no pre-check needed.
         _replaceResults(composed);
 
@@ -397,5 +432,18 @@ internal sealed class SearchDispatchController
     {
         var prefix = UserSettings.Load().GlobalTokenPrefix;
         return !string.IsNullOrEmpty(prefix) ? prefix[0] : ':';
+    }
+
+    // A query that names a file rather than sweeping a substring. Kept deliberately narrow: a leading
+    // operator/dot is not a name, and a dot anywhere else is the one signal a filename query always has
+    // (the extension). This only chooses the candidate budget; ranking and display are unchanged.
+    internal static bool LooksLikeFileNameQuery(string? query)
+    {
+        var text = query?.Trim();
+        if (string.IsNullOrEmpty(text) || text.Length < 3)
+            return false;
+        if (text[0] is '!' or '^' or '\'' or '-' or ':' or '.')
+            return false;
+        return text.Contains('.');
     }
 }

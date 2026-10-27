@@ -1,8 +1,40 @@
 namespace Lertaro.Plugins.CustomCommands.Tests;
 
+// ClipboardService.GetTextFunc is a shared static delegate and this assembly parallelises at method
+// level, so [DoNotParallelize] plus the reset below keeps these tests from seeing each other's wiring.
 [TestClass]
+[DoNotParallelize]
 public sealed class CommandRunnerTests
 {
+    [TestInitialize]
+    public void Reset() => PluginSdk.Services.ClipboardService.GetTextFunc = null;
+
+    [TestMethod]
+    public void BuildStartInfo_CurrentDirectory_PreservesArgumentsAndLaunchOptions()
+    {
+        var command = new CustomCommandsInstantProvider.CommandItem
+        {
+            Path = "tool.exe",
+            Parameter = "--flag",
+            WorkingDir = @"C:\fixed",
+            UseCurrentDirectory = true,
+            RunAsAdmin = true,
+            RunSilently = true
+        };
+        var info = CommandRunner.BuildStartInfo(command, AppContext.BaseDirectory, (configured, current, context) =>
+        {
+            Assert.AreEqual(@"C:\fixed", configured);
+            Assert.IsTrue(current);
+            Assert.AreEqual(AppContext.BaseDirectory, context);
+            return context;
+        });
+        Assert.AreEqual(AppContext.BaseDirectory, info.WorkingDirectory);
+        Assert.AreEqual("tool.exe", info.FileName);
+        Assert.AreEqual("--flag", info.Arguments);
+        Assert.AreEqual("runas", info.Verb);
+        Assert.AreEqual(System.Diagnostics.ProcessWindowStyle.Hidden, info.WindowStyle);
+    }
+
     private static CustomCommandsInstantProvider.CommandItem MakeCommand(string parameter) =>
         new() { Parameter = parameter };
 
@@ -53,6 +85,24 @@ public sealed class CommandRunnerTests
         var result = CommandRunner.ResolveParameter(MakeCommand("%s"), "hello world");
 
         Assert.AreEqual("\"hello world\"", result);
+    }
+
+    [TestMethod]
+    public void ResolveParameter_ArgumentContainingAPlaceholder_IsSubstitutedExactlyOnce()
+    {
+        // The whole suffix contains "{}"; once it replaces %s it must not be expanded again by {}.
+        var result = CommandRunner.ResolveParameter(MakeCommand("%s"), "a {} b");
+
+        Assert.AreEqual("\"a {} b\"", result);
+    }
+
+    [TestMethod]
+    public void ResolveParameter_PositionalValueContainingAPlaceholder_IsNotRescanned()
+    {
+        // %s1 resolves to the literal argument "%s"; the all-arguments pass must not then replace it.
+        var result = CommandRunner.ResolveParameter(MakeCommand("%s1 {}"), "%s x");
+
+        Assert.AreEqual("%s \"%s x\"", result);
     }
 
     [TestMethod]
@@ -121,4 +171,68 @@ public sealed class CommandRunnerTests
         Assert.ThrowsExactly<DirectoryNotFoundException>(() => CommandRunner.ResolveParameter(command, ""));
     }
 
+    [TestMethod]
+    public void ResolveParameter_ClipboardAndPositional_EachResolvesToItsOwnValue()
+    {
+        PluginSdk.Services.ClipboardService.GetTextFunc = () => "copied text";
+
+        var result = CommandRunner.ResolveParameter(MakeCommand("%s1 %c {c}"), "typed");
+
+        Assert.AreEqual("typed \"copied text\" \"copied text\"", result);
+    }
+
+    [TestMethod]
+    public void ResolveParameter_RepeatedClipboardPlaceholder_ReadsTheClipboardOnce()
+    {
+        var reads = 0;
+        PluginSdk.Services.ClipboardService.GetTextFunc = () => { reads++; return "copied"; };
+
+        CommandRunner.ResolveParameter(MakeCommand("%c %c"), string.Empty);
+
+        Assert.AreEqual(1, reads);
+    }
+
+    [TestMethod]
+    public void ResolveParameter_NoClipboardPlaceholder_NeverReadsTheClipboard()
+    {
+        var reads = 0;
+        PluginSdk.Services.ClipboardService.GetTextFunc = () => { reads++; return "unused"; };
+
+        CommandRunner.ResolveParameter(MakeCommand("%s1 %s"), "a b");
+
+        Assert.AreEqual(0, reads);
+    }
+
+    [TestMethod]
+    public void ResolveParameter_LongerPercentToken_IsLeftAloneAndNeverReadsTheClipboard()
+    {
+        // %cd, %systemroot% and %signore are other programs' own tokens: a letter or digit after %s or %c
+        // means no placeholder, so nothing is substituted and the clipboard stays shut. The positional
+        // %sN form keeps no such guard -- its digits ARE the token.
+        var reads = 0;
+        PluginSdk.Services.ClipboardService.GetTextFunc = () => { reads++; return "unused"; };
+
+        var result = CommandRunner.ResolveParameter(
+            MakeCommand("--pretty=%cd --root=%systemroot% --fmt=%signore"), "a b");
+
+        Assert.AreEqual("--pretty=%cd --root=%systemroot% --fmt=%signore", result);
+        Assert.AreEqual(0, reads);
+    }
+
+    [TestMethod]
+    public void ResolveParameter_ClipboardHoldsNoText_PlaceholderVanishes()
+    {
+        PluginSdk.Services.ClipboardService.GetTextFunc = () => null;
+
+        Assert.AreEqual("[]", CommandRunner.ResolveParameter(MakeCommand("[%c]"), "ignored"));
+    }
+
+    [TestMethod]
+    public void ResolveParameter_ClipboardTextContainingAPlaceholder_IsNotRescanned()
+    {
+        // Clipboard text naming "%s", dropped in for %c, must not then be expanded again.
+        PluginSdk.Services.ClipboardService.GetTextFunc = () => "a %s b";
+
+        Assert.AreEqual("\"a %s b\"", CommandRunner.ResolveParameter(MakeCommand("%c"), "ignored"));
+    }
 }

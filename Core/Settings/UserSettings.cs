@@ -2,6 +2,8 @@ namespace Lertaro.Core;
 
 public class UserSettings
 {
+    [System.Text.Json.Serialization.JsonExtensionData]
+    public Dictionary<string, System.Text.Json.JsonElement>? AdditionalSettings { get; set; }
     public List<NetworkDriveSetting> NetworkDrives { get; set; } = new();
     public List<WslSetting> WslSettings { get; set; } = new();
     public List<FolderIndexSetting> FolderIndexes { get; set; } = new();
@@ -30,9 +32,23 @@ public class UserSettings
         "node_modules"
     };
     public List<string> IgnoredPathRegexes { get; set; } = new();
+
+    /// <summary>
+    /// The unified index rules. Null means "this settings file predates the field" and is the migration
+    /// signal: <see cref="IndexRuleMigration.Ensure"/> derives the list from the three legacy fields
+    /// above exactly once, in memory. An empty list is a deliberate "no rules" and is never remigrated.
+    /// The legacy fields are kept and rewritten on save so an older build still excludes what it can.
+    /// </summary>
+    public List<IndexRuleSetting>? IndexRules { get; set; }
     public List<string> BlacklistedProcesses { get; set; } = new();
     public RecentFoldersSettings RecentFolders { get; set; } = new();
     public bool EnableHistory { get; set; } = true;
+
+    /// <summary>
+    /// Offers the quick-window "export this page's ranking details" action. The trace is kept in memory
+    /// only; enabling this never writes a log file.
+    /// </summary>
+    public bool EnableRankingDetailsExport { get; set; } = true;
     public bool EnableKeywordHistory { get; set; } = true;
     public bool StartWithWindows { get; set; } = true;
     public bool AutoCheckUpdates { get; set; } = true;
@@ -43,7 +59,12 @@ public class UserSettings
     // page's own update button ignores them, because a request that was just clicked is not a retry.
     public string LastFailedUpdateTag { get; set; } = "";
     public long LastFailedUpdateUtcTicks { get; set; }
-    // Applied only to QuickSearchWindow (Window_Loaded), not process-wide -- see GitHub issue #82
+    // The newest silent-update verdict already shown to this user. The updater's own result file sits beside
+    // the installation and cannot be deleted from here (that directory is closed to Users for writing), so
+    // "shown once" has to be remembered somewhere the App owns.
+    public long LastReportedUpdateResultUtcTicks { get; set; }
+    // Applied only to QuickSearchWindow (in SourceInitialized, before the first render pass), not
+    // process-wide -- see GitHub issue #82
     // (NVIDIA Advanced Optimus GPU hot-switch blocked by this window's persistent DirectX composition
     // surface, since it's created once at startup and only ever hidden, never closed). Requires a
     // restart to take effect, since the window's HwndTarget.RenderMode is only set once at load.
@@ -69,6 +90,16 @@ public class UserSettings
     public bool HideTrayIcon { get; set; } = false;
     public bool EnableEverythingIpc { get; set; } = false;
     public bool ShowOpenedFoldersInInlineSearch { get; set; } = true;
+    // The inline card's width as a percent of the window it docks to. Null means the user never chose one,
+    // which keeps the wider default floor that a plain 40% would not reach on a small window -- the rule
+    // itself lives with the rest of the card's geometry in App's InlineCardMetrics.ResolveDockedWidth.
+    public int? InlineSearchWindowWidthPercent { get; set; }
+    // How many result rows the inline card may show, section titles not counted. The two boxes are the two
+    // contexts the card is docked in: an ordinary window, and a file dialog it covers. Both default to the
+    // count the card has always used there, both are clamped by App's InlineCardMetrics.ResolveRowCap because
+    // user-settings.json is hand-editable, and a screen too short for the count gives fewer rows either way.
+    public int InlineSearchWindowMaxRows { get; set; } = 10;
+    public int InlineSearchDialogMaxRows { get; set; } = 4;
     public string GlobalTokenPrefix { get; set; } = ":";
     public string LogLevel { get; set; } = "Info";
     public string PreferredLanguage { get; set; } = GetDefaultSystemLanguage();
@@ -80,8 +111,8 @@ public class UserSettings
 
     public string Theme { get; set; } = "Light";
     public bool ThemeFollowSystem { get; set; } = false;
-    // Empty means "unset" -- themes come entirely from plugins, so there's no safe hardcoded default
-    // here; ThemeManager.ResolveLightDarkThemeId falls back to whatever theme is first available.
+    // Empty means "unset"; ThemeManager.ResolveLightDarkThemeId falls back to the first available theme,
+    // including the host's Light/Dark resources when the theme plugins are disabled.
     public string LightThemeId { get; set; } = string.Empty;
     public string DarkThemeId { get; set; } = string.Empty;
     public HotkeyPageSettings Hotkeys { get; set; } = new();
@@ -111,6 +142,9 @@ public class UserSettings
     /// Format: "{PluginDllFileName}::{ComponentType}::{ComponentName}"
     /// </summary>
     public List<string> DisabledPluginComponents { get; set; } = new();
+
+    /// <summary>Whole plugin DLL filenames excluded before loading. Changes take effect after restart.</summary>
+    public List<string> DisabledPluginAssemblies { get; set; } = new();
 
     /// <summary>
     /// User-chosen display order for IQuickNavigationProvider entries in the quick-navigation menu's
@@ -143,13 +177,15 @@ public class UserSettings
     /// User-chosen priority order for the quick window's search-result "types" -- each
     /// ISearchableItemProvider (Applications, Settings, File Filters, any third-party plugin) plus one
     /// synthetic entry for raw file-index results (SearchResultTypePriority.FilesTypeId), most-preferred
-    /// first. Sits as a hard tier between history/favorite priority and match-quality weight in
-    /// SearchResultMapper.RankAndDedupe -- see RankedCandidate.TypeRank -- so e.g. Applications can be
-    /// made to always outrank Files regardless of which matched the query text better, without any
-    /// small weight bonus getting lost against a much better textual match. An id not listed here yet
-    /// falls back to int.MaxValue, same convention as
-    /// QuickNavigationProviderOrder above. Quick window only, same scope as the feature it replaces --
-    /// the inline window's own ranking (ExplorerSearchHelper) never consults this list.
+    /// first. Applied inside each index-priority band (high/low/normal, see IndexRules), before any
+    /// match-quality key (RankedCandidate.TypeRank in RankedCandidateOrdering), so e.g. Applications
+    /// outrank Files of the same priority whatever matched the query text better; a file in a
+    /// high-priority folder still comes first. Inside one type the engine's own ladder (contiguity,
+    /// whole-word/word-start shape, leftmost, coverage, tier, then favorites/history) decides. An id not
+    /// listed here yet
+    /// falls back to int.MaxValue, same convention as QuickNavigationProviderOrder above. Quick window
+    /// only, same scope as the feature it replaces -- the inline window's own ranking
+    /// (ExplorerSearchHelper) never consults this list.
     /// </summary>
     public List<string> ResultTypeOrder { get; set; } = new();
 
@@ -190,7 +226,12 @@ public class UserSettings
     /// </summary>
     public Dictionary<string, string> ResultTypeTriggers { get; set; } = new();
 
+    public int? PluginSettingsStorageVersion { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
     public Dictionary<string, Dictionary<string, object>> PluginSettings { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public bool SavePluginSettings() => UserSettingsPersistence.SavePluginSettings(this);
 
     public T GetPluginSetting<T>(string pluginId, string key, T defaultValue) =>
         UserSettingsPluginSupport.GetPluginSetting(this, pluginId, key, defaultValue);
@@ -208,5 +249,5 @@ public class UserSettings
     public static void RestoreFrom(string sourcePath) => UserSettingsPersistence.RestoreFrom(sourcePath);
     internal static UserSettings WriteRestored(string sourcePath, string settingsPath, int backupCount, out string json)
         => UserSettingsPersistence.WriteRestored(sourcePath, settingsPath, backupCount, out json);
-}
 
+}

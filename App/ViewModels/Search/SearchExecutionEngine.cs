@@ -5,6 +5,7 @@ using Lertaro.Core.Services.Search;
 using Lertaro.App.ViewModels.Search.Dispatch;
 
 using Lertaro.App.ViewModels.Search.Mapping;
+using System.Windows.Threading;
 
 namespace Lertaro.App.ViewModels.Search;
 
@@ -53,31 +54,47 @@ internal sealed class SearchExecutionEngine : IDisposable
         // Invoked on the UI thread at the moment the search itself is issued -- so after the debounce,
         // once per settled query rather than once per keystroke. For work that must overlap the search
         // but must not be repeated for characters the user typed and then replaced.
-        Action? beforeSearch = null, string? fileTypeRule = null)
+        Action? beforeSearch = null,
+        Func<string?, List<AppSearchResult>>? collectInstantResults = null, string? fileTypeRule = null)
     {
-        _debounceCts?.Cancel();
-        _debounceCts?.Dispose();
-        var cts = new CancellationTokenSource();
-        _debounceCts = cts;
+        // The previous query is obsolete as soon as input changes, including while the new one
+        // debounces. Otherwise its rows keep repainting ahead of the next keystroke.
+        CancelPendingSearch();
 
         var delay = string.IsNullOrEmpty(query) || query.Length <= 1 ? 0 : (fileLimit > 100 ? 150 : 30);
         if (delay == 0)
         {
-            PerformSearch(query, searchScope, isInlineSearchContext, fileLimit, appLimit, resultMapper, onSearchStateChanged, onResultsUpdated, onLocalServiceUnavailable, shouldEmitInstantResults, bypassExclusions, resultMapperConsumesBatches, onReceivedCountUpdated, scopeDirective, instantQuery, emitInstantResults, beforeSearch, fileTypeRule);
+            PerformSearch(query, searchScope, isInlineSearchContext, fileLimit, appLimit, resultMapper, onSearchStateChanged, onResultsUpdated, onLocalServiceUnavailable, shouldEmitInstantResults, bypassExclusions, resultMapperConsumesBatches, onReceivedCountUpdated, scopeDirective, instantQuery, emitInstantResults, beforeSearch, collectInstantResults, fileTypeRule);
             return;
         }
 
-        _ = Task.Delay(delay, cts.Token).ContinueWith(t =>
+        var cts = new CancellationTokenSource();
+        _debounceCts = cts;
+        var token = cts.Token;
+        _ = RunDebouncedSearchAsync(Task.Delay(delay, token), System.Windows.Application.Current.Dispatcher,
+            () => PerformSearch(query, searchScope, isInlineSearchContext, fileLimit, appLimit, resultMapper, onSearchStateChanged, onResultsUpdated, onLocalServiceUnavailable, shouldEmitInstantResults, bypassExclusions, resultMapperConsumesBatches, onReceivedCountUpdated, scopeDirective, instantQuery, emitInstantResults, beforeSearch, collectInstantResults, fileTypeRule), token);
+    }
+
+    internal static async Task RunDebouncedSearchAsync(Task delay, Dispatcher dispatcher, Action search, CancellationToken token)
+    {
+        try
         {
-            if (t.IsCanceled)
-                return;
-            _ = System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
+            await delay.ConfigureAwait(false);
+            // Cancellation must cover the dispatcher queue as well as the delay: input can change
+            // after the delay completes but before this callback gets a turn on the UI thread.
+            await dispatcher.InvokeAsync(() =>
             {
-                // Cancellation can happen after the timer fired but before this queued UI callback runs.
-                if (!cts.IsCancellationRequested)
-                    PerformSearch(query, searchScope, isInlineSearchContext, fileLimit, appLimit, resultMapper, onSearchStateChanged, onResultsUpdated, onLocalServiceUnavailable, shouldEmitInstantResults, bypassExclusions, resultMapperConsumesBatches, onReceivedCountUpdated, scopeDirective, instantQuery, emitInstantResults, beforeSearch, fileTypeRule);
-            }));
-        }, cts.Token);
+                if (!token.IsCancellationRequested)
+                    search();
+            }, DispatcherPriority.Background, token).Task.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"[SearchExecutionEngine] Debounced search failed: {ex}", LogLevel.Error);
+        }
     }
 
     public void PerformSearch(
@@ -95,10 +112,7 @@ internal sealed class SearchExecutionEngine : IDisposable
         bool resultMapperConsumesBatches = false,
         Action<int>? onReceivedCountUpdated = null,
         FileFilterScopeDirective? scopeDirective = null,
-        // The untouched box text, handed to the instant-result providers instead of `query`: the host has
-        // already stripped a plugin's own trigger word out of `query` so it is not fuzzy-matched against
-        // file names, but the provider that owns that word must still recognise it. Null (every other
-        // caller) means "nothing was stripped", which is the same query for both purposes.
+        // See QueueSearch's instantQuery above for what this carries and why it differs from `query`.
         string? instantQuery = null,
         // See QueueSearch: false skips the provider pass entirely instead of running it and
         // discarding what comes back.
@@ -107,7 +121,8 @@ internal sealed class SearchExecutionEngine : IDisposable
         // whether it was issued directly or waited out QueueSearch's keystroke debounce, so a caller with
         // work that should overlap the search -- and must not be repeated for every character typed --
         // hangs it here rather than reimplementing the delay.
-        Action? beforeSearch = null, string? fileTypeRule = null)
+        Action? beforeSearch = null,
+        Func<string?, List<AppSearchResult>>? collectInstantResults = null, string? fileTypeRule = null)
     {
         Logger.Log($"[SearchExecutionEngine] Performing search: '{query}', scope: '{searchScope}'", LogLevel.Debug);
         CancelPendingSearch();
@@ -128,12 +143,20 @@ internal sealed class SearchExecutionEngine : IDisposable
         }
 
         var token = cts.Token;
+        // High-priority whole paths are searched separately too: the engine truncates by name relevance
+        // before this client can apply the priority, so an ordinary name inside a promoted folder would
+        // otherwise never reach the ranking. Resolved once per search; the rule set caches per settings.
+        var priorityRoots = ExclusionRuleSet.From(UserSettings.Load()).HighPriorityRoots;
+        var sourceTracker = InlineSearchManager.Instance.ExplorerTracker;
+        var commandDirectory = isInlineSearchContext
+            ? (!string.IsNullOrWhiteSpace(searchScope) ? searchScope : sourceTracker.ActivePath ?? sourceTracker.LastActiveExplorerPath)
+            : sourceTracker.LastActiveExplorerPath;
         // Providers are invoked with the box text as typed (the owner of a trigger word has to keep
         // recognising it), but their rows are highlighted against `query` -- what the file search beside
         // them was matched with, with that word (and any :token suffix) already taken off. Same split
         // BuildQuickResults makes, so a row painted from either path highlights identically.
         if (emitInstantResults)
-            EmitInstantResults(instantQuery ?? query, query, isInlineSearchContext, searchVersion, token, onResultsUpdated, shouldEmitInstantResults);
+            EmitInstantResults(instantQuery ?? query, query, isInlineSearchContext, searchVersion, token, onResultsUpdated, shouldEmitInstantResults, commandDirectory, collectInstantResults);
         _ = Task.Run(async () =>
         {
             try
@@ -147,21 +170,17 @@ internal sealed class SearchExecutionEngine : IDisposable
                 if (isInlineSearchContext && tracker.ActiveHwnd != IntPtr.Zero
                     && (tracker.IsActiveWindowExplorer || (tracker.IsActiveWindowDialog && dialogAdapter != null)))
                 {
-                    var contextDirectory = !string.IsNullOrWhiteSpace(searchScope)
-                        ? searchScope
-                        : tracker.ActivePath ?? tracker.LastActiveExplorerPath;
+                    var contextDirectory = commandDirectory;
                     if (!string.IsNullOrEmpty(contextDirectory))
                     {
-                        await RenderInlineSearchAsync(query, contextDirectory, fileLimit, appLimit, resultMapper, searchVersion, onResultsUpdated, token, onLocalServiceUnavailable, bypassExclusions, folderScope).ConfigureAwait(false);
+                        await RenderInlineSearchAsync(query, contextDirectory, fileLimit, appLimit, resultMapper, searchVersion, onResultsUpdated, token, onLocalServiceUnavailable, bypassExclusions, folderScope, priorityRoots, fileTypeRule).ConfigureAwait(false);
                         return;
                     }
                 }
 
                 var streamingScope = tracker.IsActiveWindowExplorer ? searchScope : null;
-                var streamingContextDirectory = isInlineSearchContext
-                    ? (!string.IsNullOrWhiteSpace(searchScope) ? searchScope : tracker.ActivePath ?? tracker.LastActiveExplorerPath)
-                    : tracker.LastActiveExplorerPath;
-                await _streamRenderer.RenderAsync(query, streamingScope, streamingContextDirectory, fileLimit, appLimit, resultMapper, searchVersion, onResultsUpdated, token, onLocalServiceUnavailable: onLocalServiceUnavailable, bypassExclusions: bypassExclusions, resultMapperConsumesBatches: resultMapperConsumesBatches, onReceivedCountUpdated: onReceivedCountUpdated, scopeDirective: scopeDirective, foldersOnly: folderScope, fileTypeRule: fileTypeRule).ConfigureAwait(false);
+                var streamingContextDirectory = commandDirectory;
+                await _streamRenderer.RenderAsync(query, streamingScope, streamingContextDirectory, fileLimit, appLimit, resultMapper, searchVersion, onResultsUpdated, token, onLocalServiceUnavailable: onLocalServiceUnavailable, bypassExclusions: bypassExclusions, resultMapperConsumesBatches: resultMapperConsumesBatches, onReceivedCountUpdated: onReceivedCountUpdated, scopeDirective: scopeDirective, foldersOnly: folderScope, priorityRoots: priorityRoots, fileTypeRule: fileTypeRule).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -194,8 +213,23 @@ internal sealed class SearchExecutionEngine : IDisposable
     /// </remarks>
     public void PrewarmDirectoryListing(string? directory) => _directChildrenListing.Prewarm(directory);
 
+    /// <summary>
+    /// Drops the listing cached for <paramref name="directory"/>, so the next search walks it again.
+    /// </summary>
+    /// <remarks>
+    /// The listing is otherwise treated as fixed for the window's life (see DirectChildrenListingCache).
+    /// A folder on screen is not fixed, though: delete a file in Explorer and the row stayed because every
+    /// later keystroke re-filtered the same stale entries. The window's directory watcher invalidates on
+    /// any change and re-runs the query.
+    /// </remarks>
+    public void InvalidateDirectoryListing(string? directory)
+    {
+        _directChildrenListing.Invalidate(directory);
+    }
+
     public void CancelPendingSearch()
-    {        try
+    {
+        try
         {
             _debounceCts?.Cancel();
             _debounceCts?.Dispose();
@@ -230,23 +264,29 @@ internal sealed class SearchExecutionEngine : IDisposable
         CancellationToken token,
         Action? onLocalServiceUnavailable,
         bool bypassExclusions,
-        bool folderScope)
+        bool folderScope,
+        IReadOnlyList<string> priorityRoots, string? fileTypeRule)
     {
         var localMatches = new List<AppSearchResult>();
+        var rankRules = ExclusionRuleSet.From(UserSettings.Load());
+        var rankContext = new RankContext(
+            rankRules.GetPriorityVerdict,
+            SearchHistoryStore.ScoreSnapshot(DateTimeOffset.UtcNow),
+            historyFiveMax: 1,
+            historyThreeMax: 3,
+            query: query);
+
         // The engine-side folder filter never sees these rows: history remembers files too, so the scope has
         // to be applied here as well.
-        var learned = HistorySearchCandidateMapper.Collect(FuzzyQuery.Parse(query), contextDirectory);
-        var learnedLocalMatches = folderScope ? learned.Where(c => c.Result.IsDir).ToList() : learned;
+        var learned = HistorySearchCandidateMapper.CollectLearned(FuzzyQuery.Parse(query), contextDirectory, rankContext);
+        var typeFilter = fileTypeRule == null ? null : new PluginSdk.Helpers.FileTypeFilter(fileTypeRule);
+        var learnedLocalMatches = learned.Where(c => (!folderScope || c.Result.IsDir)
+            && (typeFilter == null || typeFilter.Matches(c.Result.Name, c.Result.IsDir))).ToList();
         var localUpdateVersion = learnedLocalMatches.Count > 0 ? 1 : 0;
         void OnLocalMatchesChanged() => Interlocked.Increment(ref localUpdateVersion);
 
-        // The one thing the inline window does beyond the ordinary global search: list the window folder's
-        // own files, so they are guaranteed present even when the global result budget is spent elsewhere.
-        // Cheap and cached -- see ExplorerSearchHelper.LoadDirectChildrenAsync. There is deliberately no
-        // gate before the global search below: the global search IS the result list now, and holding it
-        // back behind this listing is what made the inline window lag the quick window.
         var localSearchTask = ExplorerSearchHelper.LoadDirectChildrenAsync(
-            query, fileLimit, contextDirectory, localMatches, token, OnLocalMatchesChanged, _directChildrenListing, folderScope);
+            query, fileLimit, contextDirectory, localMatches, token, OnLocalMatchesChanged, _directChildrenListing, folderScope, fileTypeRule);
 
         // Memoized: CreateLocalSnapshot copies the whole history-priority dictionary and re-ranks every
         // local match, and the renderer asks for this snapshot on EVERY paint -- of which one keystroke can
@@ -268,7 +308,7 @@ internal sealed class SearchExecutionEngine : IDisposable
                 snapshot = new List<AppSearchResult>(localMatches);
             }
 
-            var built = ExplorerSearchHelper.CreateLocalSnapshot(snapshot, learnedLocalMatches, query, contextDirectory);
+            var built = ExplorerSearchHelper.CreateLocalSnapshot(snapshot, learnedLocalMatches, query, contextDirectory, rankContext: rankContext);
             cachedLocalSnapshot = built;
             cachedLocalVersion = version;
             return built;
@@ -276,7 +316,7 @@ internal sealed class SearchExecutionEngine : IDisposable
 
         await _streamRenderer.RenderAsync(query, null, contextDirectory, fileLimit, appLimit, resultMapper, searchVersion, onResultsUpdated, token,
             GetLocalSnapshot, () => Volatile.Read(ref localUpdateVersion), localSearchTask, onLocalServiceUnavailable, bypassExclusions,
-            foldersOnly: folderScope).ConfigureAwait(false);
+            foldersOnly: folderScope, priorityRoots: priorityRoots, fileTypeRule: fileTypeRule).ConfigureAwait(false);
     }
 
     private void EmitInstantResults(
@@ -286,10 +326,12 @@ internal sealed class SearchExecutionEngine : IDisposable
         int searchVersion,
         CancellationToken token,
         Action<List<AppSearchResult>, string, bool> onResultsUpdated,
-        Func<bool>? shouldEmitInstantResults) => _ = Task.Run(() =>
+        Func<bool>? shouldEmitInstantResults, string? contextDirectory,
+        Func<string?, List<AppSearchResult>>? collectInstantResults) => _ = Task.Run(() =>
                                                       {
-                                                          var instantResults = new List<AppSearchResult>();
-                                                          PluginSearchResultMapper.AddInstantResults(instantResults, query, highlightQuery, isInlineSearchContext);
+                                                          var instantResults = collectInstantResults?.Invoke(contextDirectory) ?? new List<AppSearchResult>();
+                                                          if (collectInstantResults == null)
+                                                              PluginSearchResultMapper.AddInstantResults(instantResults, query, highlightQuery, isInlineSearchContext, contextDirectory);
                                                           if (instantResults.Count == 0 || token.IsCancellationRequested)
                                                               return;
 
@@ -299,6 +341,6 @@ internal sealed class SearchExecutionEngine : IDisposable
                                                                   return;
                                                               if (shouldEmitInstantResults?.Invoke() ?? true)
                                                                   onResultsUpdated(instantResults, string.Empty, false);
-                                                          }));
+                                                          }), DispatcherPriority.Background);
                                                       }, token);
 }

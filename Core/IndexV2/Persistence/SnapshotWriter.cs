@@ -5,13 +5,14 @@ using Lertaro.Core.IndexV2.Alias;
 
 using Lertaro.Core.Indexer.NetworkDrive.Walk;
 using Lertaro.Core.SearchIndex;
+using Lertaro.PluginSdk.Abstractions.Plugins;
 namespace Lertaro.Core.IndexV2.Persistence;
 
 // Builds a snapshot file straight from a scanner's FileRecordStore -- no RuntimeIndex intermediate.
 // Soft-deleted records are folded away, survivors are re-sorted by id (stable by input order for
 // hard-link ties), names dedupe into a UTF-8 arena with per-unique masks/aliases, and parent links
 // resolve against the sorted id column; unresolved parents keep their true FRN in the orphan section
-// so later updates can heal them, exactly like RuntimeIndex's orphan stash.
+// so later updates can heal them.
 public static class SnapshotWriter
 {
     // Every distinct per-drive cache path gets its own lock object, shared by every caller of Write
@@ -99,19 +100,26 @@ public static class SnapshotWriter
                 totalFiles++;
         }
 
-        // Alias generation is per-name-independent and dominates full-rebuild CPU on CJK-heavy
-        // volumes, so it runs as a parallel pre-pass (byte-native via GetAliasesUtf8, no alias
-        // strings materialized); the blob writes below stay strictly serial in uid order, so the
-        // resulting snapshot bytes are identical to what the old inline serial loop produced.
         var uniqueCount = uniqueNames.Count;
+
+        // Alias generation is per-name-independent and dominates full-rebuild CPU on CJK-heavy
+        // volumes, so it runs as a parallel pass (byte-native via GetAliasesUtf8, no alias strings
+        // materialized); the blob writes below stay strictly serial in uid order, so the resulting
+        // snapshot bytes are identical to what the old inline serial loop produced.
         var uniqueMasks = new ulong[uniqueCount];
         var aliasResults = new AliasGenerationUtf8.Result?[uniqueCount];
         Parallel.For(0, uniqueCount, uid =>
         {
             // Union of name + alias chars: over-admits, never rejects a real match -- the
             // structural equivalent of the old engine bucketing rows under alias chars.
-            var mask = FzfAlgorithm.GetCharMask(uniqueNames[uid]);
-            aliasResults[uid] = AliasGenerationUtf8.Generate(uniqueNames[uid], ref mask);
+            var name = uniqueNames[uid];
+            var mask = FzfAlgorithm.GetCharMask(name);
+            // A half-width query arrives folded, so a full-width name must also admit the folded
+            // letters/digits or the prefilter would reject it before the folded matcher ever runs.
+            var folded = SearchTextNormalizer.Normalize(name);
+            if (!string.Equals(folded, name, StringComparison.Ordinal))
+                mask |= FzfAlgorithm.GetCharMask(folded);
+            aliasResults[uid] = AliasGenerationUtf8.Generate(name, ref mask);
             uniqueMasks[uid] = mask;
         });
 

@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Interop;
+using Lertaro.App.Helpers.Visuals;
 
 using Application = System.Windows.Application;
 
@@ -81,6 +82,11 @@ internal static class OwnedDialog
     /// </remarks>
     public static void ShowModal(Window dialog)
     {
+        // Every custom dialog in the app is built here and shown from here, so this is the one place its first
+        // frame can be kept out of sight: an opaque borderless dialog is the window class's black until the
+        // render thread presents, and a dialog made of a plugin-file list is a heavy first tree.
+        WindowParking.ParkUntilPainted(dialog);
+
         var owner = dialog.Owner;
         if (owner == null)
         {
@@ -122,5 +128,7 @@ internal static class OwnedDialog
     // A window still listed in Application.Current.Windows but with no HWND is one that has already
     // been closed, or was never shown. Owning a dialog to it is owning it to nothing: the dialog is
     // destroyed the moment it is created, which is the same freeze as above with no window to blame.
-    private static bool IsAlive(Window window) => new WindowInteropHelper(window).Handle != IntPtr.Zero;
+    // Internal because the same test is what gates every deferred Show: a window the system destroyed
+    // along with its owner reads as closed here, and Show on it throws.
+    internal static bool IsAlive(Window window) => new WindowInteropHelper(window).Handle != IntPtr.Zero;
 }

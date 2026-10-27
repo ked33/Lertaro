@@ -51,7 +51,9 @@ public static class UiMetrics
     // when both lines show, tilting more toward the name than an even split while keeping the path line
     // (the smaller of the two) comfortably legible.
     public const double BaseResultNameFontSize = 16;
-    public const double BaseResultPathFontSize = 12.8;
+    // 12.8 until section 四's ladder: a fractional size is what Display metrics snap unevenly, and the
+    // difference between 12.8 and 13 is invisible next to that.
+    public const double BaseResultPathFontSize = 13;
     public const double BaseResultIconSize = 42; // fixed size for the main window
 
     // Flow Launcher's own literal result-row metrics (32px icon, 16px title, 13px subtitle, 58px row) --
@@ -87,6 +89,23 @@ public static class UiMetrics
     public const double MaxMainWindowWidth = 2000;
     public const double MinMainWindowHeight = 400;
     public const double MaxMainWindowHeight = 1400;
+
+    // Range for the inline card's user-chosen width, as a percent of the window it docks to. The card's
+    // placement bounds the result further still -- see InlineCardMetrics.ResolveDockedWidth -- so this is
+    // only what the settings box accepts.
+    public const int MinInlineCardWidthPercent = 20;
+    public const int MaxInlineCardWidthPercent = 100;
+    public const int DefaultInlineCardWidthPercent = 60;
+
+    // Range for the inline card's user-chosen result count. Titles do not count: a card set to ten rows shows
+    // ten results plus whatever "Current Folder" and "Global Search" headers that takes. The top is 10 because
+    // that is as far as the Ctrl jump shortcuts reach (1..9, then 0). The same range bounds both boxes -- an
+    // ordinary window and a file dialog, which are separate settings because the card over a dialog is a guest
+    // -- and only their defaults differ: a screen too short for the chosen count gives fewer rows and scrolls.
+    public const int MinInlineCardRows = 4;
+    public const int MaxInlineCardRows = 10;
+    public const int DefaultInlineCardRows = 10;
+    public const int DefaultInlineCardDialogRows = 4;
 
     private static double _scale = 1.0;
     private static double _flowRowScale = 1.0;
@@ -240,7 +259,10 @@ public static class UiMetrics
     // share one formula instead of ActionMenuItem needing its own separate scaling logic.
     public static double IconRelativeFontScale => ScaledResultIconSize / IconFontRatioReferenceSize;
 
-    public static double ScaledResultNameFontSize => Math.Max(MinScaledResultNameFontSize, FlowResultNameFontSize * _flowRowScale);
+    // Rounded onto the font-size ladder (AppTypography.SnapFontSize): the row grows with the search bar, so
+    // these are the computed sizes the app actually renders, and a fractional one shows Display metrics'
+    // whole-pixel glyph snapping as uneven letter spacing.
+    public static double ScaledResultNameFontSize => AppTypography.SnapFontSize(Math.Max(MinScaledResultNameFontSize, FlowResultNameFontSize * _flowRowScale));
     public static double ScaledResultNameFontSizeSingleLine => ScaledResultNameFontSize;
-    public static double ScaledResultPathFontSize => Math.Max(MinScaledResultPathFontSize, FlowResultPathFontSize * _flowRowScale);
+    public static double ScaledResultPathFontSize => AppTypography.SnapFontSize(Math.Max(MinScaledResultPathFontSize, FlowResultPathFontSize * _flowRowScale));
 }

@@ -2,12 +2,12 @@
 
 在使用 Lertaro 的過程中遇到問題？請按照以下步驟逐步排查常見故障原因。
 
-## 1. 全域熱鍵沒有反應
+## 1. 全域快速鍵沒有反應
 
-- **檢查後台服務運行狀態**：進入[**設定 → 運行狀態**](./settings/service-status)，確認 `Lertaro.Service` 處於「運行中」。雖然普通熱鍵由 App 處理，但提權攔截程序依賴後台服務拉起。
-- **系統管理員權限隔離（UIPI）**：若當前前景活動視窗是以系統管理員身分運行的（例如以系統管理員開啟的終端機或工作管理員），Windows 系統的安全機制（UIPI）會阻止低權限程序向高權限視窗傳送熱鍵。Lertaro 會自動嘗試提權熱鍵攔截程序；若仍無回應，請確保後台服務處於正常運行狀態。
-- **檢查程序黑名單**：在[**設定 → 熱鍵**](./settings/hotkeys-page#process-blacklist)中檢查當前前景程式是否被列入了「程序黑名單」。處於黑名單中的程式在前景時，Lertaro 會主動放行按鍵不做攔截。
-- **全螢幕遊戲/獨占應用程式放行**：當偵測到前景有獨占全螢幕應用程式（如 3D 遊戲、全螢幕播放器）時，Lertaro 預設會自動放行熱鍵以防干擾操作。如果你希望在全螢幕下依然能夠呼出搜尋框，請在**設定 → 熱鍵**中勾選**全螢幕應用程式聚焦時仍然回應**。
+- **檢查後台服務運行狀態**：進入[**設定 → 運行狀態**](./settings/service-status)，確認背景索引服務（`LertaroService`）處於「運行中」。雖然普通快速鍵由 App 處理，但提權攔截程序依賴後台服務拉起。
+- **系統管理員權限隔離（UIPI）**：若當前前景活動視窗是以系統管理員身分運行的（例如以系統管理員開啟的終端機或工作管理員），Windows 系統的安全機制（UIPI）會阻止低權限程序向高權限視窗傳送快速鍵。Lertaro 會自動嘗試提權快速鍵攔截程序；若仍無回應，請確保後台服務處於正常運行狀態。
+- **檢查程序黑名單**：在[**設定 → 快速鍵**](./settings/hotkeys-page#_3-程序黑名單-process-blacklist)中檢查當前前景程式是否被列入了「程序黑名單」。處於黑名單中的程式在前景時，Lertaro 會主動放行按鍵不做攔截。
+- **全螢幕遊戲/獨占應用程式放行**：當偵測到前景有獨占全螢幕應用程式（如 3D 遊戲、全螢幕播放器）時，Lertaro 預設會自動放行快速鍵以防干擾操作。如果你希望在全螢幕下依然能夠呼出搜尋框，請在**設定 → 快速鍵**中勾選**全螢幕應用程式聚焦時仍然回應**。
 
 ## 2. 搜尋結果未更新或過時
 
@@ -18,27 +18,66 @@
 ## 3. 網路磁碟機未自動重新整理
 
 - **定時掃描機制**：網路共用（SMB / NAS）沒有本機 NTFS 卷的底層變更記錄檔，因此依賴定時輪詢機制。
-- **檢查重新整理模式**：在[**設定 → 索引 → 網路磁碟機**](./settings/index-drives#network-drives)中檢查該磁碟機的重新整理模式是否被誤設為了「手動」；若設為手動，必須按一下「重建索引」或改為定時重新整理。
+- **檢查重新整理模式**：在[**設定 → 索引 → 網路磁碟機**](./settings/index-drives#_2-網路磁碟機-network-drives)中檢查該磁碟機的重新整理模式是否被誤設為了「手動」；若設為手動，必須按一下「重建索引」或改為定時重新整理。
 - **符號連結環路保護**：對於 NAS 共用中可能存在的遞迴符號連結，Lertaro 內建了環路偵測引擎，會自動略過死循環目錄。
 
 ## 4. 某個檔案或資料夾完全搜尋不到
 
-- **檢查排除規則**：進入[**設定 → 索引 → 排除規則**](./settings/index-drives#exclusion-rules)，確認目標檔案路徑是否被精確路徑、Glob 萬用字元或規則運算式規則意外命中。
+- **檢查排除規則**：進入[**設定 → 索引 → 排除規則**](./settings/index-drives#_5-排除規則-exclusions)，確認目標檔案路徑是否被精確路徑、Glob 萬用字元或規則運算式規則意外命中。
 - **檢查磁碟啟用狀態**：在[**設定 → 索引 → 本機磁碟機**](./settings/index-drives)中確認該檔案所在的實體磁碟機或目錄是否處於開啟狀態。
 
 ## 5. 內嵌視窗中中文輸入法候選字浮窗未彈出
 
-- **無焦點設計原理**：[內嵌視窗](./getting-started#3-三種視窗形態)為了在關閉後無縫將焦點歸還給宿主軟體，特意採用了非侵入式無焦點設計。輸入法候選字浮窗依賴 Windows 真實鍵盤焦點，因此在內聯視窗中可能不顯示候選浮窗。
+- **無焦點設計原理**：[內嵌視窗](./getting-started#_3-三種視窗形態)為了在關閉後把焦點歸還給宿主軟體，特意採用了無焦點設計。輸入法候選字浮窗依賴 Windows 真實鍵盤焦點，因此在內嵌視窗中可能不顯示候選浮窗。
 - **推薦解決方案**：
-  1. **直接打拼音**：Lertaro 內建了強大的拼音別名引擎，直接輸入拼音字母即可跳躍命中中文檔案名稱（詳見[**搜尋語法**](./search-syntax#8-多語言與拼音別名)），無需調用輸入法候選字浮窗。
+  1. **直接打拼音**：Lertaro 內建了拼音別名引擎，直接輸入拼音字母即可跳躍命中中文檔案名稱（詳見[**搜尋語法**](./search-syntax#_7-多語言智能別名)），無需調用輸入法候選字浮窗。
   2. **切換為快速視窗**：按下雙擊 `Ctrl` 喚出擁有完整焦點的快速視窗，即可正常使用任何輸入法。
 
-## 6. 記錄檢視與提交 Issue
+## 6. 資料目錄、權限與更新失敗
+
+- **資料目錄搬遷**：把安裝版的 `%LocalAppData%\Lertaro` 或可攜版的 `Data\Users` 用符號連結或 Junction 搬到其他分割區是受支援的，但連結目標必須是**本機固定磁碟區**。若連結指向網絡位置或可移除磁碟區，程式會在啟動時拒絕並說明原因（詳見[**設定 → 關於**](./settings/about)）。
+- **啟動被拒絕：資料目錄屬於另一個身分**：若使用者資料目錄的 owner 不是你的帳戶，Lertaro 會拒絕啟動，並先嘗試以提權方式修復。提示中會同時給出**實際 owner 與期望 SID**，這就是完整的診斷資訊。該修復的每一步（包括超時被終止時仍停留在的那一步）都會寫進 `%TEMP%\Lertaro\repair.log`，回報問題時請附上該檔案。
+
+若該目錄的 owner 是 `BUILTIN\Administrators`，而權限其實已經授予**你** FullControl，只需把 owner 改回自己即可。下面指令碼只修改 `%LOCALAPPDATA%\Lertaro` 範圍內的所有者，不改權限、也不改任何檔案內容：
+
+```powershell
+$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+$root = Join-Path $env:LOCALAPPDATA 'Lertaro'
+Get-Item -LiteralPath $root | ForEach-Object {
+    $acl = $_.GetAccessControl('Owner')
+    $acl.SetOwner($sid)
+    $_.SetAccessControl($acl)
+}
+Get-ChildItem -LiteralPath $root -Recurse -Force | ForEach-Object {
+    $acl = $_.GetAccessControl('Owner')
+    $acl.SetOwner($sid)
+    $_.SetAccessControl($acl)
+}
+```
+
+- **上次無訊息更新失敗**：更新程式會把結論（狀態、失敗原因與回滾目錄）寫到安裝目錄旁的 `update-result.json`。Lertaro 會在下次啟動時把這個原因提示一次，同一份結論不會重複提示；若提示反覆出現，可以刪除該檔案，或手動覆蓋安裝新版本。
+- **資料目錄以下的連結一律拒絕**：只有資料目錄自身這條鏈路允許是連結，它內部的子目錄不允許（詳見[**設定 → 關於**](./settings/about)）。
+
+## 7. 啟動後即時結束
+
+- **安裝完成卻從未出現視窗**：在 Windows 10 22H2（內部版本 19045）及更早的系統中，如果 CPU 支援硬件 CET（Intel 12 代及更新、AMD Zen 3 及更新），而該系統尚未完整支援用戶模式 CET，.NET 會在 Lertaro 自身代碼運行之前中止啟動。事件檢視器會記錄一條 **.NET Runtime** 錯誤：*"Your Windows doesn't fully support CET. Please install all available Windows updates"*，而 Lertaro 自己的記錄一筆都不會寫入，因為程序在記錄系統啟動前就已經結束。
+- **安裝包會自行處理**：安裝精靈會讀取系統內部版本，並在 Windows 10 22H2 及更早的系統中清除該安裝目錄下三個程序的用戶模式陰影堆疊策略。它只作用於這三個檔案，不影響電腦上的其他程序；重新執行安裝精靈即可再次寫入。
+- **便攜版**：安裝精靈無法涵蓋便攜版資料夾，請以系統管理員身分開啟 PowerShell，將範例路徑替換為您自己的目錄後執行以下三條指令。
+
+```powershell
+Set-ProcessMitigation -Name 'D:\Lertaro\Lertaro.App.exe' -Disable UserShadowStack
+Set-ProcessMitigation -Name 'D:\Lertaro\Lertaro.Service.exe' -Disable UserShadowStack
+Set-ProcessMitigation -Name 'D:\Lertaro\lff.exe' -Disable UserShadowStack
+```
+
+- **安裝全部可用的 Windows 更新**是上述 .NET 錯誤自己提出的建議，同樣有機會解決問題。若仍然無法啟動，請依下一節收集記錄並提交 Issue。
+
+## 8. 記錄檢視與提交 Issue
 
 若上述步驟均未能解決你的問題，請進入[**設定 → 運行狀態**](./settings/service-status)檢視詳細的運行記錄：
 
 - **Service 記錄**：記錄後台索引服務、USN 記錄檔讀取、網路磁碟掃描與 IPC 通訊狀態。
-- **App 記錄**：記錄前台 UI 渲染、外掛模組載入、快捷鍵回應與設定變動。
+- **App 記錄**：記錄前台 UI 渲染、外掛模組載入、快速鍵回應與設定變動。
 - **Hook 記錄**：記錄全域鍵盤鉤子與滑鼠導覽手勢的事件串流。
 
 你可以在記錄面板中使用搜尋框過濾關鍵字，或按記錄等級（Info / Warn / Error）快速定位異常堆疊，並在 GitHub 提交 Issue 時附上相關記錄以便快速定位。

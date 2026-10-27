@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using System.Windows;
 using Lertaro.Core;
 using Lertaro.App.Services.AppWindow;
@@ -254,11 +255,13 @@ public static class FileExecutor
     // the same ArgQuoting.Quote) as CustomActions.DynamicActionProvider.RunMulti already uses, so this
     // setting works exactly the way that one already does. The user must NOT wrap the placeholder in
     // their own quotes, since that would double up. An empty template just passes the quoted path as the
-    // sole argument.
+    // sole argument. One pass over both placeholders, so a folder named with "{}" or "%s" is not expanded
+    // again once it has been substituted in. "%s" only counts when no letter or digit follows it, keeping
+    // a shell variable like %systemroot% intact -- same guard as that CustomActions template.
     internal static string BuildDefaultFileManagerArguments(string folderPath, string? parameterTemplate)
     {
         var quotedPath = ArgQuoting.Quote(folderPath);
-        return string.IsNullOrWhiteSpace(parameterTemplate) ? quotedPath : parameterTemplate.Replace("%s", quotedPath).Replace("{}", quotedPath);
+        return string.IsNullOrWhiteSpace(parameterTemplate) ? quotedPath : Regex.Replace(parameterTemplate, @"%s(?![0-9A-Za-z])|\{\}", _ => quotedPath);
     }
 
     public static void LocateInExplorer(string path) => ExplorerLocateHelper.LocateInExplorer(path);

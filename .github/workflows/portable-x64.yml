@@ -31,52 +31,21 @@ jobs:
           path: ${{ github.workspace }}/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/*.slnx') }}
 
-      - name: Test recent folders, quick navigation and Explorer integration
+      - name: Test merged application and plugins
         shell: pwsh
         env:
           NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
         run: |
-          $projects = @(
-            "Tests/Core/Core.csproj",
-            "Tests/App/App.csproj",
-            "Tests/Plugins/FolderCascader/FolderCascader.csproj",
-            "Tests/Plugins/CoreExtensions/CoreExtensions.csproj"
-          )
+          $projects = Get-ChildItem Tests -Recurse -Filter *.csproj
           foreach ($project in $projects) {
-            dotnet test $project -c Release --filter "FullyQualifiedName~RecentFolder|FullyQualifiedName~ExplorerInlineSearchAdapter|FullyQualifiedName~ExplorerHostReadFloor|FullyQualifiedName~QuickNavigation|FullyQualifiedName~ExplorerTabLocator|FullyQualifiedName~BuildStartInfo" --logger trx --results-directory TestResults
+            $relative = [IO.Path]::GetRelativePath($PWD.Path, $project.FullName)
+            $name = ($relative -replace '[\/]', '_') + '.trx'
+            dotnet test $project.FullName -c Release --logger "trx;LogFileName=$name" --results-directory TestResults
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
-
-      - name: Test incremental indexing, service shutdown and search input handoff
-        shell: pwsh
-        env:
-          NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
-        run: |
-          dotnet test Tests/Core/Core.csproj -c Release --filter "FullyQualifiedName~IndexV2|FullyQualifiedName~Indexer.Usn|FullyQualifiedName~IdleTrimGate|FullyQualifiedName~MonitorLoopJoin|FullyQualifiedName~UsnServicePipeServerTests|FullyQualifiedName~Lertaro.Core.Tests.Hook|FullyQualifiedName~SearchPipeClientTests|FullyQualifiedName~ServicePipeReadinessTests|FullyQualifiedName~PipeRequestBinarySerializerTests" --logger trx --results-directory TestResults
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Test animation controls, settings search and window focus
-        shell: pwsh
-        env:
-          NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
-        run: |
-          dotnet test Tests/App/App.csproj -c Release --filter "FullyQualifiedName~AnimationControlTests|FullyQualifiedName~SmoothWheelScrollBehaviorTests|FullyQualifiedName~MarqueeBehaviorTests|FullyQualifiedName~SettingsSearchIndexTests|FullyQualifiedName~ServiceConnectionHandlerTests|FullyQualifiedName~ServiceInstallOutcomeHelperTests|FullyQualifiedName~Lertaro.App.Tests.Views.QuickSearchWindow|FullyQualifiedName~AppWindowManagerTests" --logger trx --results-directory TestResults
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Test custom filter shortcuts
-        shell: pwsh
-        env:
-          NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
-        run: |
-          $checks = @{
-            "Tests/Core/Core.csproj" = "FullyQualifiedName~FileTypeFilterSearchTests|FullyQualifiedName~SearchRequestBinarySerializerTests|FullyQualifiedName~HotkeyStringFormatTests|FullyQualifiedName~FzfTopNTests"
-            "Tests/App/App.csproj" = "FullyQualifiedName~SearchFilterShortcutTests|FullyQualifiedName~WpfUiHelperTests|FullyQualifiedName~PluginConfig|FullyQualifiedName~QueryTokenResultComposerTests"
-            "Tests/PluginSdk/PluginSdk.csproj" = "FullyQualifiedName~FileTypeFilterTests|FullyQualifiedName~ExplorerFolderPathReaderTests"
-            "Tests/Plugins/CoreExtensions/CoreExtensions.csproj" = "FullyQualifiedName~CustomFilterQueryTokenProviderTests"
-          }
-          foreach ($check in $checks.GetEnumerator()) {
-            dotnet test $check.Key -c Release --filter $check.Value --logger trx --results-directory TestResults
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            [xml]$report = Get-Content (Join-Path TestResults $name) -Raw
+            if ([int]$report.TestRun.ResultSummary.Counters.total -eq 0) {
+              throw "No tests ran for $relative"
+            }
           }
 
       - name: Publish
@@ -92,7 +61,7 @@ jobs:
           dotnet publish Lertaro.Plugins.slnx -c Release -o "$out/Plugins" -v minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          Copy-Item portable-updater.bat, install-dotnet-runtime.bat, portable-cleanup.bat -Destination $out
+          Copy-Item portable-updater.bat, portable-updater.ps1, install-dotnet-runtime.bat, portable-cleanup.bat -Destination $out
           Get-ChildItem $out -Recurse -Filter *.pdb | Remove-Item -Force
 
       # upload-artifact zips its path. Uploading the directory once is the portable zip;

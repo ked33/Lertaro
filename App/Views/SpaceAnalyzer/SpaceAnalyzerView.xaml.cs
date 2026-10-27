@@ -14,6 +14,7 @@ using Lertaro.PluginSdk.Abstractions;
 using Button = System.Windows.Controls.Button;
 using UserControl = System.Windows.Controls.UserControl;
 namespace Lertaro.App.Views.SpaceAnalyzer;
+
 public partial class SpaceAnalyzerView : UserControl, IDisposable
 {
     private readonly List<SpaceAnalyzerLocation> _history = [];
@@ -81,7 +82,7 @@ public partial class SpaceAnalyzerView : UserControl, IDisposable
         try
         {
             var locationChanged = background && await SpaceAnalyzerLocationResolver.TrimUnavailableAsync(
-                _history, _searchService.GetSpaceEntriesAsync, token);
+                _history, (path, tok) => _searchService.GetSpaceEntriesAsync(path, tok), token);
             if (onlyIfLocationUnavailable && !locationChanged)
                 return;
             var entries = await _searchService.GetSpaceEntriesAsync(_history[^1].Path, token);

@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Text;
+using Lertaro.Core.IndexV2.Space;
 
 namespace Lertaro.Core.Wire;
 
@@ -8,14 +9,9 @@ public static class SearchRequestBinarySerializer
 {
     private const int Magic = 0x51504C53; // SLPQ
     // v5: Search/SearchDir gained ExactMatch; v6: EnumerateDir; v7: in-memory space entries; v8: file-name filtering.
-    // v9: Search/SearchDir gained OrFirstPrecedence. v10: ApplyUpdate. v11: FileTypeRule.
-    // v12: FileTypeRule presence flag preserves null (no filter) versus empty (matches nothing).
-    // Bumped for a new request id too, not only for a changed payload layout: the set of ids IS part of
-    // this contract, and the version is what makes an App/Service pair that disagree about it fail
-    // loudly and at once, in both directions, instead of one side quietly answering "Unknown command"
-    // to a request the other believes is supported. App and Service always ship and restart together,
-    // so a mismatch is an install-time transient, not a state worth degrading gracefully into.
-    private const int VersionSearchRequest = 12;
+    // v13 combines upstream space filters with local nullable FileTypeRule (local v12).
+    // A changed payload always requires a new version; both peers must ship together.
+    private const int VersionSearchRequest = 13;
 
     public static async Task WriteSearchRequestAsync(Stream stream, SearchRequestMessage msg, CancellationToken token = default)
     {
@@ -28,8 +24,10 @@ public static class SearchRequestBinarySerializer
             case SearchRequestId.RebuildDrive:
             case SearchRequestId.DeleteDriveIndex:
             case SearchRequestId.CancelDriveIndex:
-            case SearchRequestId.GetSpaceEntries:
                 payloadSize += GetStringByteCount(msg.Drive) + 5;
+                break;
+            case SearchRequestId.GetSpaceEntries:
+                payloadSize += GetStringByteCount(msg.Drive) + 5 + 1;
                 break;
             case SearchRequestId.Search:
                 payloadSize += 8 + GetStringByteCount(msg.Query) + 5 + SearchRequestValueCodec.CalculateStringListSize(msg.DisabledAliasComponents) + 5 + GetStringByteCount(msg.FileNameFilter) + 2 + 1 + 5 + GetStringByteCount(msg.FileTypeRule);
@@ -73,8 +71,11 @@ public static class SearchRequestBinarySerializer
                 case SearchRequestId.RebuildDrive:
                 case SearchRequestId.DeleteDriveIndex:
                 case SearchRequestId.CancelDriveIndex:
+                    WriteString(span, ref offset, msg.Drive);
+                    break;
                 case SearchRequestId.GetSpaceEntries:
                     WriteString(span, ref offset, msg.Drive);
+                    span[offset++] = (byte)msg.SpaceOptions;
                     break;
                 case SearchRequestId.Search:
                     BinaryPrimitives.WriteInt32LittleEndian(span.Slice(offset), msg.Limit);
@@ -175,8 +176,11 @@ public static class SearchRequestBinarySerializer
             case SearchRequestId.RebuildDrive:
             case SearchRequestId.DeleteDriveIndex:
             case SearchRequestId.CancelDriveIndex:
+                msg.Drive = ReadString(payload, ref offset);
+                break;
             case SearchRequestId.GetSpaceEntries:
                 msg.Drive = ReadString(payload, ref offset);
+                msg.SpaceOptions = (SpaceEntryFilters)payload[offset++];
                 break;
             case SearchRequestId.Search:
                 msg.Limit = BinaryPrimitives.ReadInt32LittleEndian(payload.AsSpan(offset));

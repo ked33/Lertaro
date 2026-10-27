@@ -112,4 +112,23 @@ public sealed class DirectChildrenLocatorTests
         Assert.IsTrue(results.Any(r => r.Name == "report-folder" && r.IsDir));
         Assert.IsFalse(results.Single(r => r.Name == "report.txt").IsDir);
     }
+    [TestMethod]
+    public void TypeAndFolderFiltersRunBeforeTheResultLimit()
+    {
+        var entries = new[]
+        {
+            new DirectChildrenLocator.Entry("report.exe", @"C:eport.exe", false, FileAttributes.Normal),
+            new DirectChildrenLocator.Entry("report.txt", @"C:eport.txt", false, FileAttributes.Normal),
+            new DirectChildrenLocator.Entry("report-folder", @"C:eport-folder", true, FileAttributes.Directory)
+        };
+        var results = new List<Core.SearchResult>();
+        DirectChildrenLocator.MatchInto(entries, @"C:\", "report", 1, results.Add, CancellationToken.None, "txt");
+        Assert.AreEqual("report.txt", Assert.ContainsSingle(results).Name);
+        results.Clear();
+        DirectChildrenLocator.MatchInto(entries, @"C:\", "", 1, results.Add, CancellationToken.None, ":f", true);
+        Assert.AreEqual("report-folder", Assert.ContainsSingle(results).Name);
+        results.Clear();
+        DirectChildrenLocator.MatchInto(entries, @"C:\", "report", 1, results.Add, CancellationToken.None, "");
+        Assert.IsEmpty(results);
+    }
 }

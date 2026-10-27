@@ -3,6 +3,8 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using Lertaro.App.Views.SearchWindow;
 using Lertaro.App.Services;
+using Lertaro.App.Helpers;
+using Lertaro.Core;
 using KeyEventArgs = System.Windows.Input.KeyEventArgs;
 using Size = System.Windows.Size;
 using TextBox = System.Windows.Controls.TextBox;
@@ -17,14 +19,16 @@ using Lertaro.App.Services.Theme;
 using Lertaro.App.Services.ShellMenu.Presenter;
 using Lertaro.App.Helpers.Visuals;
 namespace Lertaro.App;
+
 public partial class SearchWindow : Window, ISearchWindow, IHasVisibleContentInset
 {
     private readonly SearchViewModel _viewModel;
     private readonly SearchWindowChromeHandler _chromeHandler;
     private readonly SearchWindowInputHandler _inputHandler;
     private readonly ShellMenuPresenter _menuPresenter;
-    // Must match SearchWindow.xaml's MainBorder Margin.
-    public Thickness VisibleContentInset => new(8);
+    // The window is the card: the 8 DIP transparent halo this used to publish is gone with the layered
+    // window that needed it, so anything docking against this window targets the real visible edge.
+    public Thickness VisibleContentInset => new(0);
 
     // Whether to reopen the preview once this window has a first result to show it for. Applied then
     // rather than now because there is nothing to preview yet, and because the quick window this is
@@ -42,6 +46,9 @@ public partial class SearchWindow : Window, ISearchWindow, IHasVisibleContentIns
         // close it as usual.
         SystemMenuBlocker.Attach(this, blockClose: false);
         ThemedWindowIconHelper.Apply(this);
+        // The corners are the window's own shape now rather than a painting inside a transparent one.
+        // Windows 11 rounds the real window; older Windows keeps the painted radius above.
+        DwmWindowCorners.ApplyRound(this);
 
         // XAML's Height/Width are just the design-time/factory-reset default -- the real size (user's
         // last resize, or the General settings page value) comes from UiMetrics, mirroring how
@@ -54,6 +61,7 @@ public partial class SearchWindow : Window, ISearchWindow, IHasVisibleContentIns
         _inputHandler = new SearchWindowInputHandler(this);
         SearchBox.IconLeftClicked += (_, _) => TrayIconService.Instance?.ShowMenuAt(SearchBox, hideShowWindow: true);
         SearchBox.IconMiddleClicked += () => SearchWindowStayOpenSupport.Toggle(this);
+        SearchBox.IconRightClicked += _chromeHandler.CenterInWorkArea;
         this.PreviewKeyDown += Window_PreviewKeyDown;
         this.PreviewMouseDown += (_, e) => _inputHandler.HandleWindowPreviewMouseDown(e);
         this.StateChanged += SearchWindow_StateChanged;
@@ -79,7 +87,10 @@ public partial class SearchWindow : Window, ISearchWindow, IHasVisibleContentIns
                 Keyboard.Focus(txtSearch);
                 if (initialQuery != null)
                 {
-                    txtSearch.SelectionStart = initialQuery.Length;
+                    if (SearchInputHelper.ShouldSelectCarriedText(initialQuery, UserSettings.Load().SearchWindow.KeepSearchText))
+                        txtSearch.SelectAll();
+                    else
+                        txtSearch.SelectionStart = initialQuery.Length;
                 }
             }), System.Windows.Threading.DispatcherPriority.Input);
         };
@@ -279,7 +290,7 @@ public partial class SearchWindow : Window, ISearchWindow, IHasVisibleContentIns
     {
         var size = WindowState == WindowState.Normal ? new Size(Width, Height) : RestoreBounds.Size;
         if (size.Width <= 0 || size.Height <= 0) return;
-        var settings = Core.UserSettings.Load();
+        var settings = UserSettings.Load();
         settings.MainWindow.Width = UiMetrics.RoundWindowSize(size.Width);
         settings.MainWindow.Height = UiMetrics.RoundWindowSize(size.Height);
         settings.Save();

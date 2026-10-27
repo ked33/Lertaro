@@ -11,9 +11,42 @@ namespace Lertaro.App.ViewModels.Search.Mapping;
 internal static class HistorySearchCandidateMapper
 {
     private const int MaxCandidates = 50;
+    public const int MaxLearnedCandidatesPerQuery = 1;
 
-    public static List<SearchResultMapper.RankedCandidate> Collect(FuzzyQuery fuzzy, string? scope) =>
-        Collect(fuzzy, scope, SearchHistoryStore.GetEntries(), SafeFileExists, SafeDirectoryExists);
+    public static List<SearchResultMapper.RankedCandidate> Collect(FuzzyQuery fuzzy, string? scope, int typeRank = int.MaxValue) =>
+        CollectLearned(fuzzy, scope, rankContext: null, typeRank);
+
+    public static List<SearchResultMapper.RankedCandidate> CollectLearned(
+        FuzzyQuery fuzzy,
+        string? scope,
+        RankContext? rankContext,
+        int typeRank = int.MaxValue) =>
+        CollectLearned(
+            fuzzy,
+            scope,
+            SearchHistoryStore.GetLearnedAssociationEntries(),
+            SafeFileExists,
+            SafeDirectoryExists,
+            rankContext,
+            typeRank);
+
+    internal static List<SearchResultMapper.RankedCandidate> CollectLearned(
+        FuzzyQuery fuzzy,
+        string? scope,
+        IEnumerable<HistoryEntry> associationEntries,
+        Func<string, bool> fileExists,
+        Func<string, bool> directoryExists,
+        RankContext? rankContext = null,
+        int typeRank = int.MaxValue) =>
+        CollectCore(
+            fuzzy,
+            scope,
+            associationEntries.Where(entry => entry.Count >= SearchHistoryStore.MinAssociationOrganicOpens),
+            fileExists,
+            directoryExists,
+            typeRank,
+            rankContext,
+            MaxLearnedCandidatesPerQuery);
 
     private static bool SafeFileExists(string path)
     {
@@ -34,47 +67,127 @@ internal static class HistorySearchCandidateMapper
         string? scope,
         IEnumerable<HistoryEntry> entries,
         Func<string, bool> fileExists,
-        Func<string, bool> directoryExists)
+        Func<string, bool> directoryExists,
+        // The caller's rank for the Files type: history rows ARE file paths, so they have to land in the
+        // same type group as the index's file rows instead of a group of their own.
+        int typeRank = int.MaxValue) =>
+        CollectCore(fuzzy, scope, entries, fileExists, directoryExists, typeRank, rankContext: null, MaxCandidates);
+
+    // The association key already passed the exact canonical comparison. Give it a full-strength
+    // keyword rank so the history-only marker, not a fuzzy coincidence, decides its tier.
+    private static MatchEvidenceResult ExactHistoryMatch(HistoryEntry entry)
+    {
+        var rank = new MatchRank(MatchRank.TierName, 0, 1d, 1d, MatchRank.ShapeWholeWord);
+        var evidence = MatchEvidence.Accepted(
+            entry.Keyword,
+            entry.Keyword,
+            MatchEvidenceField.HistoryKeyword,
+            rank,
+            MatchEvidenceMode.LearnedAlias,
+            MatchQueryVariant.HistoryExact);
+        return new MatchEvidenceResult(rank, evidence);
+    }
+
+    private static List<SearchResultMapper.RankedCandidate> CollectCore(
+        FuzzyQuery fuzzy,
+        string? scope,
+        IEnumerable<HistoryEntry> entries,
+        Func<string, bool> fileExists,
+        Func<string, bool> directoryExists,
+        int typeRank,
+        RankContext? rankContext,
+        int maxCandidates)
     {
         if (fuzzy.IsEmpty)
             return [];
 
         var query = fuzzy.Text;
+        // Learned association is an exact canonical lookup, not another fuzzy surface: the only query
+        // allowed to recall a learned pair is the one the user confirmed, after P4's pinyin-equivalence
+        // folding (see SearchHistoryStore.NormalizeAssociationQuery).
+        var canonicalQuery = SearchHistoryStore.NormalizeAssociationQuery(query);
         var matches = entries
-            .Select(entry => (Entry: entry, Match: fuzzy.BestMatch(entry.Keyword)))
-            .Where(candidate => candidate.Match.IsMatch)
-            .OrderBy(candidate => candidate.Match.Start)
-            .ThenByDescending(candidate => candidate.Entry.Count)
+            .Where(entry => canonicalQuery.Length > 0
+                && string.Equals(
+                    SearchHistoryStore.NormalizeAssociationQuery(entry.Keyword),
+                    canonicalQuery,
+                    StringComparison.OrdinalIgnoreCase))
+            .Select(entry => (Entry: entry, Matched: ExactHistoryMatch(entry)))
+            .OrderBy(candidate => candidate.Matched.Rank.Start)
+            // Most recent pick first: choosing the 10th result for "atlas" makes it the top one next time,
+            // even over something opened more often before.
             .ThenByDescending(candidate => candidate.Entry.Time)
-            .ThenByDescending(candidate => candidate.Match.Weight);
-        var candidates = new List<SearchResultMapper.RankedCandidate>(MaxCandidates);
+            .ThenByDescending(candidate => candidate.Entry.Count)
+            // Shape is gone; the shared quality ladder is the only textual order.
+            .ThenBy(candidate => candidate.Matched.Rank, MatchRankQualityComparer.Instance);
+        var candidates = new List<SearchResultMapper.RankedCandidate>(Math.Min(maxCandidates, MaxCandidates));
         var candidatePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var normalizedScope = string.IsNullOrEmpty(scope) ? null : SearchResultHelper.NormalizePath(scope);
 
-        foreach (var (entry, match) in matches)
+        foreach (var (entry, matched) in matches)
         {
-            if (candidates.Count >= MaxCandidates)
+            if (candidates.Count >= maxCandidates)
                 break;
             if (!TryCreateResult(entry, query, normalizedScope, fileExists, directoryExists, out var result, out var normalizedPath) ||
                 !candidatePaths.Add(normalizedPath))
                 continue;
+            if (rankContext?.PriorityResolver?.Invoke(normalizedPath, result.IsDir).Effect == IndexRuleEffect.Low)
+                continue;
+            if (IsExcludedFromSearch(result))
+                continue;
+            result.IsLearnedAliasRecall = true;
 
-            // Negative priorities put a learned keyword match ahead of ordinary global history, whose
-            // priorities start at zero. Match position, usage count, recency, and match quality determine
-            // this list's order above.
+            // The row is marked history-only: the keyword matched, not the displayed name, so the
+            // quality ladder must not treat its perfect keyword rank as a name hit. Its open count feeds the
+            // decayed-score budget instead of a separate priority signal.
             candidates.Add(new SearchResultMapper.RankedCandidate(
                 result,
-                IsCurated: true,
-                Priority: candidates.Count - MaxCandidates,
-                TypeRank: int.MaxValue,
-                Match: match,
-                NormalizedPath: normalizedPath));
+                IsFavorite: false,
+                HistoryCount: entry.Count,
+                TypeRank: typeRank,
+                Match: matched.Rank,
+                NormalizedPath: normalizedPath,
+                IsHistoryOnly: true,
+                Source: RankingCandidateSource.History,
+                Evidence: matched.Evidence with
+                {
+                    Mode = MatchEvidenceMode.LearnedAlias,
+                    QueryVariant = MatchQueryVariant.HistoryExact,
+                }));
         }
 
         return candidates;
     }
 
-    private static bool TryCreateResult(
+    // The two exclusions the index side applies to every row IT returns, applied here to the rows this
+    // window can produce on its own (history, Windows' Recent Items, favorites):
+    //
+    //   * hidden/system entries -- SearchService drops them from index results (FileSystemItemFilter);
+    //   * a source this session found unreachable -- SearchStreamRenderer drops those rows (SearchReachabilityGate).
+    //
+    // Without this, a hidden file or one on a disabled drive was listed by the quick window and could never
+    // appear in the full window, which reads as "the same query works in one window and not the other". Being
+    // reachable-by-this-window-only is not supposed to mean "found only here": the row still has to clear the
+    // bar the index side holds its rows to.
+    //
+    // Split from the convenience overload below so the policy itself is testable without a session probe or a
+    // real hidden file.
+    internal static bool IsExcludedFromSearch(AppSearchResult row, IReadOnlySet<string> unreachable, Func<string, bool> isHiddenOrSystem)
+        => !SearchReachabilityGate.IsPathReachable(row.FullPath, unreachable) || IsHiddenSystemLocalPath(row.FullPath, isHiddenOrSystem);
+
+    internal static bool IsExcludedFromSearch(AppSearchResult row)
+        => IsExcludedFromSearch(row, SearchReachabilityGate.UnreachableSources, FileSystemItemFilter.IsHiddenOrSystem);
+
+    // The attribute half is only ever asked of a LOCAL path. File.GetAttributes has no timeout, and this runs
+    // while a search paints -- on a share that is gone it is the same multi-second stall SafeFileExists above
+    // exists to avoid, and for a path this machine has no attributes for the index side would not have had a
+    // row either way. The drive-letter test is SearchReachabilityGate's own.
+    private static bool IsHiddenSystemLocalPath(string path, Func<string, bool> isHiddenOrSystem)
+        => path.Length > 2 && path[1] == ':' && isHiddenOrSystem(path);
+
+    // Also builds WindowsRecentCandidateMapper's rows: a Recent Items hit is presented exactly like a
+    // history entry for the same path.
+    internal static bool TryCreateResult(
         HistoryEntry entry,
         string query,
         string? normalizedScope,
@@ -164,21 +277,5 @@ internal static class HistorySearchCandidateMapper
         for (var index = 0; index < merged.Count; index++)
             merged[index].Index = index;
         return merged;
-    }
-
-    internal static IReadOnlyDictionary<string, int> ApplyPriorities(
-        IReadOnlyDictionary<string, int> existing,
-        IReadOnlyList<SearchResultMapper.RankedCandidate> learned)
-    {
-        var priorities = existing.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
-        foreach (var candidate in learned)
-        {
-            var path = candidate.Result.FullPath;
-            if (path.Length > 3 && path[^1] == '\\')
-                path = path.TrimEnd('\\');
-            if (!priorities.TryGetValue(path, out var priority) || candidate.Priority < priority)
-                priorities[path] = candidate.Priority;
-        }
-        return priorities;
     }
 }
