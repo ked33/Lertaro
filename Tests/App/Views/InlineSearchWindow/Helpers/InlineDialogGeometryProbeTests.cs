@@ -10,6 +10,7 @@ namespace Lertaro.App.Tests.Views.InlineSearchWindow.Helpers;
 // the thread that asks, must ask once per dialog layout instead of once per placement pass, and must not act
 // on an answer that arrived for a layout the card has already left.
 [TestClass]
+[DoNotParallelize] // Blocking worker gates must not starve the thread pool used by other tests.
 public sealed class InlineDialogGeometryProbeTests
 {
     private static readonly IntPtr Dialog = new(0x1234);

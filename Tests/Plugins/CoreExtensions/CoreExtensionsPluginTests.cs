@@ -31,13 +31,14 @@ public sealed class CoreExtensionsPluginTests
     }
 
     [TestMethod]
-    public void GetActions_RegistersCopyNameImmediatelyBeforeCopyPath()
+    public void GetActions_RegistersCopyNameVariantsBeforeCopyPath()
     {
         var actions = new CoreExtensionsPlugin().GetActions().ToList();
 
         var copyName = actions.FindIndex(action => action is CoreExtensions.Actions.CopyNameAction);
         var copyPath = actions.FindIndex(action => action is CoreExtensions.Actions.CopyPathAction);
-        Assert.AreEqual(copyPath - 1, copyName);
+        Assert.AreEqual(copyPath - 2, copyName);
+        Assert.IsInstanceOfType<CoreExtensions.Actions.CopyNameWithoutExtensionAction>(actions[copyName + 1]);
     }
 
     [TestMethod]

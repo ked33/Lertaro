@@ -144,7 +144,7 @@ public sealed class ServiceConnectionHandlerTests
         using var handler = new ServiceConnectionHandler(search, _ => { }, () => { }, () => { }, _ => { },
             () => failures++, () => recoveries++);
         handler.Start();
-        SetGlobalField("_globalAutoInstallAttempted", true); // Do not invoke an installer in a test.
+        SetGlobalField("_globalAutoInstallAttempts", ServiceConnectionMonitor.MaximumAutoInstallAttempts); // Exhaust the retry budget.
 
         handler.ProcessPingResult(true);
         handler.ProcessPingResult(false);
@@ -170,7 +170,7 @@ public sealed class ServiceConnectionHandlerTests
         using var handler = new ServiceConnectionHandler(search, status => statuses.Add(status.State),
             () => { }, () => { }, _ => { }, () => failures++, () => { });
         handler.Start(requireDetailedStatus: true);
-        SetGlobalField("_globalAutoInstallAttempted", true);
+        SetGlobalField("_globalAutoInstallAttempts", ServiceConnectionMonitor.MaximumAutoInstallAttempts);
 
         handler.ProcessStatus(new() { State = "error" });
         handler.ProcessStatus(new() { State = "error" });

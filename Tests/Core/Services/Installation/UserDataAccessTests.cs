@@ -20,7 +20,7 @@ public sealed class UserDataAccessTests
     [TestMethod]
     public void Verify_LeavesAUsableDirectoryUsable()
     {
-        Directory.CreateDirectory(_root);
+        UserDataAccess.Verify(_root); // Create the same user-owned root that production creates.
 
         UserDataAccess.Verify(_root);
 

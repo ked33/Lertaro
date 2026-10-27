@@ -103,7 +103,8 @@ public sealed class DeltaPathApplierTests
         var allowed = Directory.CreateDirectory(Path.Combine(excluded, "allowed")).FullName;
         File.WriteAllText(Path.Combine(allowed, "keep.txt"), "x");
         File.WriteAllText(Path.Combine(excluded, "skip.txt"), "x");
-        var rules = ExclusionRuleSet.From(new UserSettings { WhitelistedPaths = [allowed] });
+        var rules = ExclusionRuleSet.From(new UserSettings { WhitelistedPaths = [allowed],
+            IndexRules = [new() { Pattern = ".*", Effect = IndexRuleEffect.Exclude }] });
 
         Assert.IsTrue(rules.IsExcludedPath(excluded, true));
         Assert.IsFalse(rules.IsExcludedFromIndex(excluded, true));

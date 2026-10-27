@@ -40,12 +40,19 @@ jobs:
           $failed = $false
           foreach ($project in $projects) {
             $relative = [IO.Path]::GetRelativePath($PWD.Path, $project.FullName)
-            $name = ($relative -replace '[\/]', '_') + '.trx'
+            $name = $relative.Replace([IO.Path]::DirectorySeparatorChar, '_').Replace([IO.Path]::AltDirectorySeparatorChar, '_') + '.trx'
+            # These upstream projects currently contain no test methods; still compile their references.
+            if ($project.Directory.Name -in @('Files', 'OneCommander')) {
+              dotnet build $project.FullName -c Release
+              if ($LASTEXITCODE -ne 0) { $failed = $true }
+              continue
+            }
             dotnet test $project.FullName -c Release --logger "trx;LogFileName=$name" --results-directory TestResults
             if ($LASTEXITCODE -ne 0) { $failed = $true; continue }
             [xml]$report = Get-Content (Join-Path TestResults $name) -Raw
             if ([int]$report.TestRun.ResultSummary.Counters.total -eq 0) {
-              throw "No tests ran for $relative"
+              Write-Host "::error::No tests ran for $relative"
+              $failed = $true
             }
           }
           if ($failed) { exit 1 }
@@ -55,7 +62,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: TestResults
-          path: TestResults/*.trx
+          path: TestResults/**/*.trx
           if-no-files-found: ignore
 
       - name: Publish

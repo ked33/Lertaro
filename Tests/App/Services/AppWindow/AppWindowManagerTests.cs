@@ -67,7 +67,7 @@ public sealed class AppWindowManagerTests
 
         Assert.Contains("HandleSummon(treatFullWindowAsFocused: true)", tray,
             "the tray icon must summon through the shared handler, treating the full window as focused");
-        Assert.Contains("HandleGlobalSummonHotkey() => HandleSummon(treatFullWindowAsFocused: false)", manager,
+        Assert.Contains("HandleGlobalSummonHotkey(int activationId) => HandleSummon(false, activationId)", manager,
             "the hotkey route must be the same handler with the flag off, not a second implementation");
     }
 

@@ -20,7 +20,7 @@
     <SolidColorBrush x:Key="FileIconColor" Color="#AFBDC7"/>
     <SolidColorBrush x:Key="ShortcutColor" Color="#AFBDC7"/>
     <SolidColorBrush x:Key="ControlBackground" Color="#262B31"/>
-    <SolidColorBrush x:Key="ControlBorderBrush" Color="#56646E"/>
+    <SolidColorBrush x:Key="ControlBorderBrush" Color="#879AA6"/>
     <SolidColorBrush x:Key="ControlHoverBackground" Color="#354149"/>
     <SolidColorBrush x:Key="ControlDisabledBackground" Color="#2B3036"/>
     <SolidColorBrush x:Key="ControlDisabledBorderBrush" Color="#3B454E"/>
@@ -92,7 +92,7 @@
     <SolidColorBrush x:Key="DefaultPluginIconColor" Color="#8FC8BE"/>
 
     <!-- Visible at the scrollbar's 0.6 resting opacity on every surface above. -->
-    <SolidColorBrush x:Key="ScrollBarThumbBackground" Color="#7B8D99"/>
+    <SolidColorBrush x:Key="ScrollBarThumbBackground" Color="#879AA6"/>
     <SolidColorBrush x:Key="ScrollBarThumbHover" Color="#9CB2BB"/>
     <SolidColorBrush x:Key="ScrollBarThumbDragging" Color="#8FC8BE"/>
     <!-- CloseButton also uses PrimaryButtonText, so its hover fill stays light. -->

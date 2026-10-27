@@ -268,7 +268,11 @@ public sealed class SettingsBackupTests
 
         var restored = new FileInfo(Path.Combine(target, "user-settings.json"));
         Assert.IsFalse(restored.IsReadOnly);
-        Assert.AreEqual(WindowsIdentity.GetCurrent().User, restored.GetAccessControl().GetOwner(typeof(SecurityIdentifier)));
+        // The default owner may be Administrators when this test runs elevated. Compare a file created
+        // in the destination, not the account SID: imported data must follow the destination's policy.
+        var control = Write(target, "owner-control.txt", [0]);
+        Assert.AreEqual(new FileInfo(control).GetAccessControl().GetOwner(typeof(SecurityIdentifier)),
+            restored.GetAccessControl().GetOwner(typeof(SecurityIdentifier)));
         Assert.IsFalse(restored.GetAccessControl().GetAccessRules(true, false, typeof(SecurityIdentifier)).Cast<FileSystemAccessRule>().Any(r => r.IdentityReference == everyone));
         File.AppendAllText(restored.FullName, " ");
     }

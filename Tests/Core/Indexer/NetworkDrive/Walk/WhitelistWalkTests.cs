@@ -25,7 +25,8 @@ public sealed class WhitelistWalkTests
         Assert.IsTrue(withWhitelist.Records.Any(r => r.Name == "keep.tmp"));
         Assert.IsFalse(withWhitelist.Records.Any(r => r.Name == "sibling.txt"));
 
-        var rules = ExclusionRuleSet.From(new UserSettings { WhitelistedPaths = [allowed] });
+        var rules = ExclusionRuleSet.From(new UserSettings { WhitelistedPaths = [allowed],
+            IndexRules = [new() { Pattern = ".*", Effect = IndexRuleEffect.Exclude }] });
         Assert.IsTrue(rules.IsExcludedPath(excluded, true), "Traversal must not reveal an excluded ancestor in search.");
         Assert.IsFalse(rules.IsExcludedPath(Path.Combine(cache, "keep.tmp"), false));
 

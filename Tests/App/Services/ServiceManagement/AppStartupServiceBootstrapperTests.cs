@@ -22,7 +22,7 @@ public sealed class AppStartupServiceBootstrapperTests
     [TestMethod]
     public async Task VerifyUserDataAsync_LockThatGoesAway_IsWaitedOutRatherThanEscalated()
     {
-        Directory.CreateDirectory(_root);
+        UserDataAccess.Verify(_root); // Elevated runners otherwise create an Administrators-owned directory.
         var settings = Path.Combine(_root, "user-settings.json");
         File.WriteAllText(settings, "{}");
         using var busy = new FileStream(settings, FileMode.Open, FileAccess.ReadWrite, FileShare.None);

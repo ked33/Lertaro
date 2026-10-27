@@ -44,7 +44,7 @@ public sealed class StayOpenGateTests
     {
         var logos = LoadSearchBox().Descendants().Where(e => (string?)e.Attribute("MouseUp") == "Icon_MouseUp").ToList();
         Assert.HasCount(2, logos);
-        CollectionAssert.AreEquivalent(new[] { "0", "3" }, logos.Select(e => (string?)e.Attribute("Grid.Column")).ToArray());
+        CollectionAssert.AreEquivalent(new[] { "0", "4" }, logos.Select(e => (string?)e.Attribute("Grid.Column")).ToArray());
         Assert.IsTrue(logos.All(e => e.Name.LocalName == "Grid"));
     }
 

@@ -6,11 +6,12 @@ namespace Lertaro.Core.Tests;
 public sealed class PathWhitelistTests
 {
     [TestMethod]
-    public void DefaultSettings_KeepDotDirectoriesExcluded()
+    public void DefaultSettings_KeepUpstreamDotDirectoryDemotion()
     {
         var settings = new UserSettings();
         Assert.IsEmpty(settings.WhitelistedPaths);
-        Assert.IsTrue(ExclusionRuleSet.From(settings).IsExcludedPath(@"C:\work\.claude\settings.json", false));
+        Assert.IsFalse(ExclusionRuleSet.From(settings).IsExcludedPath(@"C:\work\.claude\settings.json", false));
+        Assert.AreEqual(IndexRuleEffect.Low, ExclusionRuleSet.From(settings).GetPriority(@"C:\work\.claude\settings.json", false));
     }
 
     [TestMethod]
@@ -18,7 +19,8 @@ public sealed class PathWhitelistTests
     {
         var settings = new UserSettings { WhitelistedPaths = null! };
         Assert.IsEmpty(settings.WhitelistedPaths);
-        Assert.IsTrue(ExclusionRuleSet.From(settings).IsExcludedPath(@"C:\work\.claude\settings.json", false));
+        Assert.IsFalse(ExclusionRuleSet.From(settings).IsExcludedPath(@"C:\work\.claude\settings.json", false));
+        Assert.AreEqual(IndexRuleEffect.Low, ExclusionRuleSet.From(settings).GetPriority(@"C:\work\.claude\settings.json", false));
     }
 
     [TestMethod]
@@ -76,7 +78,8 @@ public sealed class PathWhitelistTests
     [TestMethod]
     public void Whitelist_UsesAbsolutePathEvenForScopedSearch()
     {
-        var settings = new UserSettings { WhitelistedPaths = [@"C:\work\.claude"] };
+        var settings = new UserSettings { WhitelistedPaths = [@"C:\work\.claude"],
+            IndexRules = [new() { Pattern = ".*", Effect = IndexRuleEffect.Exclude }] };
         var rules = ExclusionRuleSet.From(settings, @"C:\work");
         Assert.IsFalse(rules.IsExcludedPath(@"C:\work\.claude\.cache\a.txt", false));
         Assert.IsTrue(rules.IsExcludedPath(@"C:\work\project\.claude\a.txt", false));

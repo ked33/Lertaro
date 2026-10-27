@@ -5,7 +5,6 @@ using System.Windows.Interop;
 using System.Windows.Threading;
 using Lertaro.App.Services;
 using Lertaro.App.Services.ShellIcons;
-using Lertaro.App.Helpers.Visuals;
 using Lertaro.Core;
 using Lertaro.App.ViewModels.Search;
 namespace Lertaro.App.Views.QuickSearchWindow.Helpers;

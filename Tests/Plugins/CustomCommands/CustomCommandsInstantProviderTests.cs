@@ -276,6 +276,8 @@ public sealed class CustomCommandsInstantProviderTests
         Assert.IsFalse(command.UseCurrentDirectory);
         Assert.IsFalse(command.MatchKeywordPrefix);
         var commands = new CustomCommandsPlugin().GetConfigSchema().Fields.Single(f => f.Key == "Commands");
+        Assert.HasCount(commands.SubFields!.Count, commands.SubFields.Select(f => f.Key).Distinct().ToList(),
+            "duplicate schema keys break entry import/export");
         Assert.IsEmpty((List<object>)commands.DefaultValue!);
         Assert.AreEqual(false, commands.SubFields!.Single(f => f.Key == "UseCurrentDirectory").DefaultValue);
         Assert.AreEqual(false, commands.SubFields!.Single(f => f.Key == "MatchKeywordPrefix").DefaultValue);

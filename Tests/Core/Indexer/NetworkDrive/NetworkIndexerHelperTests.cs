@@ -39,9 +39,8 @@ public sealed class NetworkIndexerHelperTests
     public void WhitelistChanges_RefreshAllOverlappingSourcesIncludingRemovedPaths()
     {
         var affected = NetworkIndexerHelper.FindWhitelistChangedRoots(
-            ["C", @"C:\work", @"C:\work\.claude\cache", @"C:\other", "Z", @"\server\share"],
-            [@"C:\work\.claude"], [@"Z:
-ew"]);
+            ["C", @"C:\work", @"C:\work\.claude\cache", @"C:\other", "Z", @"\\server\share"],
+            [@"C:\work\.claude"], [@"Z:\new"]);
         CollectionAssert.AreEqual(new[] { "C", @"C:\work", @"C:\work\.claude\cache", "Z" }, affected);
     }
 
