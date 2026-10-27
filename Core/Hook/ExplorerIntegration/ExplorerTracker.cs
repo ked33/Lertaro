@@ -499,6 +499,7 @@ public class ExplorerTracker : IDisposable
             FileDialogNavigationNative.IsCurrent, FileDialogNavigationNative.ResolveAdapter,
             ReadQuickSwitchSource, 100);
         _classifier = new ExplorerWindowClassifier(this, _dialogTracker);
+        _pathPoller = new ExplorerActivePathPoller(this, _classifier, getForeground);
         _windowEvents = new QuietPeriodScheduler(() =>
         {
             if (!_isRunning) return;
@@ -512,7 +513,6 @@ public class ExplorerTracker : IDisposable
         }, 25);
         _recentFolders = new ExplorerRecentFolderTracker(GetProcessName,
             (hwnd, path, time) => OnRecentFolderVisited?.Invoke(hwnd, path, time));
-        _pathPoller = new ExplorerActivePathPoller(this, _classifier, getForeground);
         _seeder = new ExplorerPathSeeder(this);
     }
 

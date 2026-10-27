@@ -237,6 +237,8 @@ internal sealed class ExplorerWindowClassifier
 
     private void TrackFileDialogWindow(IntPtr mainDialog, TimeSpan pluginReadTimeout)
     {
+        var previousWasPathProvider = !_tracker.IsDesktop && !_tracker.IsActiveWindowDialog
+            && (_tracker.ActiveInlineAdapter?.IsFileExplorer ?? false);
         // Capture the actual departing provider before ActiveHwnd selects the dialog's adapters.
         var providerAdapter = previousWasPathProvider ? _tracker.ActiveInlineAdapter : null;
         var providerHwnd = _tracker.ActiveHwnd;

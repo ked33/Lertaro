@@ -37,16 +37,26 @@ jobs:
           NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
         run: |
           $projects = Get-ChildItem Tests -Recurse -Filter *.csproj
+          $failed = $false
           foreach ($project in $projects) {
             $relative = [IO.Path]::GetRelativePath($PWD.Path, $project.FullName)
             $name = ($relative -replace '[\/]', '_') + '.trx'
             dotnet test $project.FullName -c Release --logger "trx;LogFileName=$name" --results-directory TestResults
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            if ($LASTEXITCODE -ne 0) { $failed = $true; continue }
             [xml]$report = Get-Content (Join-Path TestResults $name) -Raw
             if ([int]$report.TestRun.ResultSummary.Counters.total -eq 0) {
               throw "No tests ran for $relative"
             }
           }
+          if ($failed) { exit 1 }
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: TestResults
+          path: TestResults/*.trx
+          if-no-files-found: ignore
 
       - name: Publish
         shell: pwsh
