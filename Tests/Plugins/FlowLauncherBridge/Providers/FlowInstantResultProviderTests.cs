@@ -42,7 +42,11 @@ public sealed class FlowInstantResultProviderTests
         });
 
         var refreshCalls = 0;
-        PluginSdk.Services.SearchRefreshService.RefreshMatchingFunc = _ => Interlocked.Increment(ref refreshCalls);
+        PluginSdk.Services.SearchRefreshService.RefreshMatchingFunc = predicate =>
+        {
+            // Community-list fetches can finish after their own tests; only this query is relevant.
+            if (predicate("dev")) Interlocked.Increment(ref refreshCalls);
+        };
 
         var dispatcher = new FlowQueryDispatcher(host);
         var provider = new FlowInstantResultProvider(dispatcher);
@@ -112,8 +116,9 @@ public sealed class FlowInstantResultProviderTests
 
         var refreshCalls = 0;
         var refreshed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        PluginSdk.Services.SearchRefreshService.RefreshMatchingFunc = _ =>
+        PluginSdk.Services.SearchRefreshService.RefreshMatchingFunc = predicate =>
         {
+            if (!predicate("same")) return;
             Interlocked.Increment(ref refreshCalls);
             refreshed.TrySetResult();
         };

@@ -54,7 +54,8 @@ public sealed class PluginConfigEntryTransferTests
         Assert.AreEqual(field.PluginVersion, root.GetProperty("pluginVersion").GetString());
         Assert.AreEqual(field.PluginId, root.GetProperty("pluginId").GetString());
         Assert.AreEqual(field.SchemaField.Key, root.GetProperty("settingKey").GetString());
-        Assert.AreEqual(12, root.GetProperty("item").EnumerateObject().Count());
+        CollectionAssert.AreEquivalent(field.SchemaField.SubFields!.Select(f => f.Key).ToArray(),
+            root.GetProperty("item").EnumerateObject().Select(p => p.Name).ToArray());
         Assert.AreEqual("FilePath", root.GetProperty("fields").GetProperty("Path").GetString());
         Assert.AreEqual("Boolean", root.GetProperty("fields").GetProperty("Enabled").GetString());
         Assert.IsFalse(bytes.AsSpan().StartsWith(new byte[] { 0xEF, 0xBB, 0xBF }));

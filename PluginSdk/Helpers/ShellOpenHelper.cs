@@ -110,7 +110,7 @@ public static class ShellOpenHelper
             var path = UserPathResolver.Expand(itemPath);
             if (UserPathResolver.IsVirtualPath(path)) return TryRevealShellItem(path);
 
-            var startInfo = BuildRevealStartInfo(path);
+            var startInfo = BuildRevealStartInfo(itemPath);
             if (!File.Exists(path) && !Directory.Exists(path))
             {
                 Logger.Log($"[ShellOpenHelper] Cannot locate missing or inaccessible item '{path}'.", LogLevel.Error);
@@ -134,8 +134,13 @@ public static class ShellOpenHelper
     internal static ProcessStartInfo BuildRevealStartInfo(string itemPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(itemPath);
+        // ExpandEnvironmentVariables uses a native string on Windows: a NUL can truncate the input
+        // before validation. Quotes are invalid inside a filesystem path and break /select quoting.
+        if (itemPath.Any(c => c < ' ' || c is '"' or '<' or '>' or '|'))
+            throw new ArgumentException("Explorer selection requires a valid file-system path.", nameof(itemPath));
         var path = UserPathResolver.Expand(itemPath);
-        if (UserPathResolver.IsVirtualPath(path) || path.IndexOfAny(Path.GetInvalidPathChars()) >= 0)
+        if (UserPathResolver.IsVirtualPath(path) || path.IndexOfAny(Path.GetInvalidPathChars()) >= 0
+            || path.Any(c => c < ' ' || c is '"' or '<' or '>' or '|'))
             throw new ArgumentException("Explorer selection requires a valid file-system path.", nameof(itemPath));
 
         path = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));

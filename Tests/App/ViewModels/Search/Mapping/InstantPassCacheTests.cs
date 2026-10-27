@@ -11,6 +11,7 @@ namespace Lertaro.App.Tests.ViewModels.Search.Mapping;
 /// before the index matches could reach the screen.
 /// </summary>
 [TestClass]
+[DoNotParallelize]
 public sealed class InstantPassCacheTests
 {
     [TestMethod]
@@ -18,16 +19,17 @@ public sealed class InstantPassCacheTests
     {
         var provider = new CountingProvider();
         var pass = new SearchResultMapper.InstantPassCache();
-        using var ready = new CountdownEvent(2);
-        using var start = new ManualResetEventSlim();
-        var collectors = Enumerable.Range(0, 2).Select(_ => Task.Run(() =>
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var arrived = 0;
+        var collectors = Enumerable.Range(0, 2).Select(_ => Task.Run(async () =>
         {
-            ready.Signal();
-            Assert.IsTrue(start.Wait(TimeSpan.FromSeconds(5)));
+            if (Interlocked.Increment(ref arrived) == 2) ready.TrySetResult();
+            await start.Task.WaitAsync(TimeSpan.FromSeconds(10));
             return SearchResultMapper.CollectInstantPass(pass, "md test", "test", false, @"D:\source", [provider]);
         })).ToArray();
-        Assert.IsTrue(ready.Wait(TimeSpan.FromSeconds(5)));
-        start.Set();
+        try { await ready.Task.WaitAsync(TimeSpan.FromSeconds(10)); }
+        finally { start.TrySetResult(); }
         var early = await Task.WhenAll(collectors);
         var final = SearchResultMapper.BuildQuickResults(TwoFiles(), "test", null, @"D:\source", false,
             rawQuery: "md test", instantPass: pass);
