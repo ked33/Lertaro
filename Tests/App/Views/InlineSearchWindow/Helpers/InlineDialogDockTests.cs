@@ -86,6 +86,21 @@ public sealed class InlineDialogDockTests
         Assert.IsFalse(dock.Value.Fits(600, 12));
     }
 
+    [TestMethod]
+    public void TallerBannerUsesTheOtherExteriorBeforeFallingBackInside()
+    {
+        var host = Box(50, 500, 1870, 700);
+        var work = new System.Drawing.Rectangle(0, 0, 1920, 1040);
+        var estimated = InlineDialogDock.Find(host, work, 600, 320, 200, 12, 12, 4);
+        Assert.IsNotNull(estimated);
+        Assert.AreEqual(InlineDialogDock.Side.Below, estimated.Value.Edge);
+        Assert.IsFalse(estimated.Value.Fits(450, 12));
+        var actual = InlineDialogDock.Find(host, work, estimated.Value.WindowWidth, 450, 200, 12, 12, 4);
+        Assert.IsNotNull(actual);
+        Assert.AreEqual(InlineDialogDock.Side.Above, actual.Value.Edge);
+        AssertOutsideAndOnScreen(actual.Value, host, work, 450, 12);
+    }
+
     private static void AssertOutsideAndOnScreen(InlineDialogDock dock, DockRect host,
         System.Drawing.Rectangle work, double height, double margin)
     {

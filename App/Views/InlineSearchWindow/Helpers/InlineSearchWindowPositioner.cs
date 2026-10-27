@@ -172,6 +172,13 @@ public class InlineSearchWindowPositioner
             : _window.Height;
         var windowWidth = _window.Width;
 
+        // A long path banner can exceed the stable height estimate. Recheck every exterior region
+        // with the real height before falling back inside; retain the chosen width to avoid reflow loops.
+        if (outsideDock is { } estimatedDock && !estimatedDock.Fits(windowHeight * targetDpiScaleY, 12 * targetDpiScaleY))
+            outsideDock = InlineDialogDock.Find(rect, workingArea, windowWidth * targetDpiScaleX,
+                windowHeight * targetDpiScaleY, 200 * targetDpiScaleX,
+                12 * targetDpiScaleX, 12 * targetDpiScaleY, 4 * targetDpiScaleX);
+
         if (_hasCachedInputs
             && _cachedActiveHwnd == tracker.ActiveHwnd
             && _cachedIsDesktop == tracker.IsDesktop
