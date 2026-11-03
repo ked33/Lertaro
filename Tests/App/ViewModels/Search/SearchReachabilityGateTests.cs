@@ -92,7 +92,10 @@ public sealed class SearchReachabilityGateTests
         Assert.IsTrue(SearchReachabilityGate.IsNetworkSourceReachable(@"\\wsl.localhost\Ubuntu", new HashSet<string>(), distros));
     }
 
+    // These two checks use the production 1.5s Task.Run deadline. Run without competing MSTest
+    // workers so a queued filesystem probe is not mistaken for an unreachable directory.
     [TestMethod]
+    [DoNotParallelize]
     public void IsNetworkSourceReachable_FolderIndexPathExists_ReturnsTrue()
     {
         using var dir = new TempDirectory();
@@ -101,9 +104,11 @@ public sealed class SearchReachabilityGateTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void IsNetworkSourceReachable_FolderIndexPathDeleted_ReturnsFalse()
     {
-        var path = Path.Combine(Path.GetTempPath(), "lertaro-tests-nonexistent-folder-index");
+        using var dir = new TempDirectory();
+        var path = Path.Combine(dir.Path, "absent");
 
         Assert.IsFalse(SearchReachabilityGate.IsNetworkSourceReachable(path, new HashSet<string>(), new List<string>()));
     }
