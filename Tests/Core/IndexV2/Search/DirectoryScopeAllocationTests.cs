@@ -14,7 +14,6 @@ public sealed class DirectoryScopeAllocationTests
     {
         using var fixture = BuildDrive(fileCount: 10_000);
 
-        Search(fixture, "item", null); // Warm JIT and thread-static search scratch state.
         var unscopedBytes = MeasureAllocatedBytes(() => Search(fixture, "item", null));
         var scopedBytes = MeasureAllocatedBytes(() => Search(fixture, "item", @"C:\Scope"));
         var unscopedTime = MeasureMedianElapsed(() => Search(fixture, "item", null));
@@ -34,7 +33,6 @@ public sealed class DirectoryScopeAllocationTests
     {
         using var fixture = BuildDrive(fileCount: 10_000);
 
-        Search(fixture, @"scope\ item", null);
         var unscopedBytes = MeasureAllocatedBytes(() => Search(fixture, @"scope\ item", null));
         var scopedBytes = MeasureAllocatedBytes(() => Search(fixture, @"scope\ item", @"C:\Scope"));
         var unscopedTime = MeasureMedianElapsed(() => Search(fixture, @"scope\ item", null));
@@ -53,9 +51,12 @@ public sealed class DirectoryScopeAllocationTests
         GC.Collect();
         GC.WaitForPendingFinalizers();
         GC.Collect();
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        _ = action(); // Warm this exact query's JIT, scope resolution, and pooled search buffers.
+        // Matching can allocate on Parallel.For workers, so counting only the calling thread makes
+        // identical searches differ with scheduling. This class already excludes other parallel tests.
+        var before = GC.GetTotalAllocatedBytes(precise: true);
         _ = action();
-        return GC.GetAllocatedBytesForCurrentThread() - before;
+        return GC.GetTotalAllocatedBytes(precise: true) - before;
     }
 
     private static int Search(LiveIndexFixture fixture, string query, string? directoryFilter)
@@ -85,8 +86,16 @@ public sealed class DirectoryScopeAllocationTests
             LiveIndexFixture.Root(),
             new FileRecord(2, 1, "Scope", FileRecordFlags.Directory),
         };
-        for (var i = 0; i < fileCount; i++)
-            records.Add(new FileRecord((UInt128)(i + 3), 2, $"item{i:D5}.txt", FileRecordFlags.None));
+        // Keep 10,000 matched rows but few unique names: this tests per-ROW scope allocations, not
+        // parallel matcher chunk assignment or growth/trim of oversized pooled unique-name hit lists.
+        // Repeated filenames live in distinct real directories, as they would in an actual index.
+        for (var start = 0; start < fileCount; start += 100)
+        {
+            var parent = (UInt128)(records.Count + 1);
+            records.Add(new FileRecord(parent, 2, $"Group{start / 100:D3}", FileRecordFlags.Directory));
+            for (var i = 0; i < Math.Min(100, fileCount - start); i++)
+                records.Add(new FileRecord((UInt128)(records.Count + 1), parent, $"item{i:D5}.txt", FileRecordFlags.None));
+        }
         return LiveIndexFixture.Build("C", records);
     }
 }
