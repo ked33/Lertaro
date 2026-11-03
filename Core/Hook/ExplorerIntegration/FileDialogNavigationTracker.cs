@@ -188,6 +188,7 @@ internal sealed class FileDialogNavigationTracker
     {
         var token = request.Cancellation.Token;
         var elapsed = Stopwatch.StartNew();
+        var failure = "navigation retry deadline reached";
         for (var attempt = 0; attempt < 8 && elapsed.ElapsedMilliseconds < 3000; attempt++)
         {
             token.ThrowIfCancellationRequested();
@@ -198,7 +199,7 @@ internal sealed class FileDialogNavigationTracker
                     || !_canRestoreFocus(request.Hwnd)) return;
                 var focusAdapter = _resolve(request.Hwnd);
                 token.ThrowIfCancellationRequested();
-                if (focusAdapter == null) continue;
+                if (focusAdapter == null) { failure = "dialog adapter unavailable while restoring focus"; continue; }
                 if (_processId(request.Hwnd) != request.Pid || !_canRestoreFocus(request.Hwnd)
                     || !focusAdapter.RestoreFocus(request.Hwnd)) return;
             }
@@ -216,19 +217,21 @@ internal sealed class FileDialogNavigationTracker
             if (path == null)
             {
                 // Never substitute an old folder if the newly visited Explorer hasn't registered yet.
-                if (source == IntPtr.Zero || _processId(source) != sourcePid) continue;
+                if (source == IntPtr.Zero || _processId(source) != sourcePid)
+                { failure = "source window unavailable"; continue; }
                 path = _readSource(source);
-                if (_processId(source) != sourcePid) continue;
+                if (_processId(source) != sourcePid) { failure = "source window changed during read"; continue; }
                 lock (_gate)
-                    if (source != _source || sourcePid != _sourcePid || version != _version) continue;
-                if (!IsPath(path)) continue;
+                    if (source != _source || sourcePid != _sourcePid || version != _version)
+                    { failure = "source changed during read"; continue; }
+                if (!IsPath(path)) { failure = "source directory could not be read"; continue; }
             }
             var adapter = _resolve(request.Hwnd);
             token.ThrowIfCancellationRequested();
             if (!_isCurrent(request.Hwnd, request.Pid)) return;
-            if (adapter == null) continue;
+            if (adapter == null) { failure = "dialog adapter unavailable"; continue; }
             lock (_gate)
-                if (request.Path == null && version != _version) continue;
+                if (request.Path == null && version != _version) { failure = "source changed before navigation"; continue; }
             var target = request.Path == null && !Path.EndsInDirectorySeparator(path!) ? path + "\\" : path!;
             // The adapter owns preparation retries and completion checks. Never blindly repeat a
             // submission: a slow dialog may still be processing the first Enter/Open operation.
@@ -246,7 +249,7 @@ internal sealed class FileDialogNavigationTracker
             Logger.Log($"[QuickSwitch] Navigation completed for 0x{request.Hwnd:X} on attempt {attempt + 1}.", LogLevel.Debug);
             return;
         }
-        Logger.Log($"[QuickSwitch] Navigation expired for 0x{request.Hwnd:X}: source or adapter unavailable.", LogLevel.Warn);
+        Logger.Log($"[QuickSwitch] Navigation expired for 0x{request.Hwnd:X}: {failure}.", LogLevel.Warn);
     }
 
     public void Clear()

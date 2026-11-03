@@ -199,6 +199,42 @@ public sealed class FileDialogNavigationTrackerTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
+    [DataRow(false, false, "source window unavailable")]
+    [DataRow(true, false, "source directory could not be read")]
+    [DataRow(true, true, "dialog adapter unavailable")]
+    public async Task ExhaustedNavigationLogsTheFailingStage(bool hasSource, bool readable, string reason)
+    {
+        var logDirectory = Path.Combine(Path.GetTempPath(), "LertaroNavigationLog_" + Guid.NewGuid().ToString("N"));
+        var oldLevel = Logger.MinimumLevel;
+        Logger.Initialize("navigation.log", logDirectory);
+        Logger.MinimumLevel = LogLevel.Warn;
+        try
+        {
+            var reads = 0;
+            var resolutions = 0;
+            var tracker = new FileDialogNavigationTracker(_ => 1, (_, _) => true,
+                _ => { resolutions++; return null; },
+                _ => { reads++; return readable ? @"C:\Current" : null; }, retryMs: 1);
+            if (hasSource) tracker.SetSource(Explorer);
+            tracker.RequestNavigation(Dialog);
+            await tracker.Completion.WaitAsync(TimeSpan.FromSeconds(10));
+
+            var log = string.Join('\n', Logger.ReadLogLines(Path.Combine(logDirectory, "logs", "navigation.log")));
+            StringAssert.Contains(log, $": {reason}.");
+            Assert.AreEqual(hasSource ? 8 : 0, reads);
+            Assert.AreEqual(readable ? 8 : 0, resolutions,
+                "An unavailable source must be diagnosed before asking a dialog adapter to navigate.");
+        }
+        finally
+        {
+            Logger.MinimumLevel = oldLevel;
+            Logger.Initialize("release.log", Path.Combine(Path.GetTempPath(), "LertaroLoggerRelease"));
+            Directory.Delete(logDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task FavoriteRestoresOwnedForegroundBeforeNavigatingInTheSameQueue()
     {
         var current = false;

@@ -93,4 +93,28 @@ public sealed class ExplorerFolderPathReaderTests
         cancelled.Cancel();
         Assert.IsNull(ExplorerFolderPathReader.Read(IntPtr.Zero, IntPtr.Zero, "Report", cancelled.Token));
     }
+
+    [TestMethod]
+    [DataRow(@"C:\Work", @"C:\Work")]
+    [DataRow(@"Address: C:\Work\New folder", @"C:\Work\New folder")]
+    [DataRow(@"地址: D:\中文目录", @"D:\中文目录")]
+    [DataRow(@"地址：D:\中文目录", @"D:\中文目录")]
+    [DataRow(@"Adresse : \\server\share\folder", @"\\server\share\folder")]
+    [DataRow(@"\\server\share\folder", @"\\server\share\folder")]
+    [DataRow(@"Address: \\?\C:\Long folder", @"\\?\C:\Long folder")]
+    public void AddressBarsKeepExplicitLocalAndNetworkPaths(string text, string expected) =>
+        Assert.AreEqual(expected, ExplorerFolderPathReader.ParseAddressBarPath(text));
+
+    [TestMethod]
+    [DataRow("")]
+    [DataRow("Home")]
+    [DataRow("地址: 下载")]
+    [DataRow("Address: This PC")]
+    [DataRow(@"Address: C:relative")]
+    [DataRow(@"Address: \rooted-but-not-qualified")]
+    [DataRow("Address: shell:Downloads")]
+    [DataRow(@"shell:C:\Work")]
+    [DataRow(@"C:\Work\::{20D04FE0-3AEA-1069-A2D8-08002B30309D}")]
+    public void AddressBarsNeverGuessVirtualOrRelativeLocations(string text) =>
+        Assert.IsNull(ExplorerFolderPathReader.ParseAddressBarPath(text));
 }

@@ -5,7 +5,8 @@ using System.Text;
 
 namespace Lertaro.PluginSdk.Helpers;
 
-/// <summary>Reads one Explorer tab through Shell COM. Call only on an isolated STA worker.</summary>
+/// <summary>Reads one Explorer tab through Shell COM, with an address-bar fallback for its directory.
+/// Call only on an isolated STA worker.</summary>
 public static class ExplorerFolderPathReader
 {
     public static IntPtr GetActiveTab(IntPtr window)
@@ -28,6 +29,18 @@ public static class ExplorerFolderPathReader
     public static string? Read(IntPtr target, IntPtr activeTab, string? itemName) => Read(target, activeTab, itemName, default);
 
     public static string? Read(IntPtr target, IntPtr activeTab, string? itemName, CancellationToken cancellationToken)
+    {
+        if (target == IntPtr.Zero || !IsWindow(target) || cancellationToken.IsCancellationRequested || GetActiveTab(target) != activeTab)
+            return null;
+        var path = ReadShell(target, activeTab, itemName, cancellationToken);
+        // An address bar identifies the current directory, never a hovered item. Do not turn a failed
+        // item lookup into its parent, or reuse an old directory when Explorer has no COM registration.
+        if (path == null && itemName == null && !cancellationToken.IsCancellationRequested)
+            path = ReadAddressBar(target);
+        return !cancellationToken.IsCancellationRequested && IsWindow(target) && GetActiveTab(target) == activeTab ? path : null;
+    }
+
+    private static string? ReadShell(IntPtr target, IntPtr activeTab, string? itemName, CancellationToken cancellationToken)
     {
         object? windows = null;
         try
@@ -63,6 +76,54 @@ public static class ExplorerFolderPathReader
         catch { }
         finally { Release(windows); }
         return null;
+    }
+
+    private static string? ReadAddressBar(IntPtr target)
+    {
+        if (!IsWindowVisible(target) || ClassName(target) != "CabinetWClass") return null;
+        var toolbar = IntPtr.Zero;
+        var ambiguous = false;
+        // Explorer can keep its address bar outside ShellTabWindowClass, in the shared window frame.
+        // Read only one visible breadcrumb toolbar, then let Read recheck the active tab after WM_GETTEXT.
+        EnumChildWindows(target, (child, _) =>
+        {
+            if (!IsWindowVisible(child) || ClassName(child) != "ToolbarWindow32"
+                || ClassName(GetParent(child)) != "Breadcrumb Parent") return true;
+            if (toolbar != IntPtr.Zero) { ambiguous = true; return false; }
+            toolbar = child;
+            return true;
+        }, IntPtr.Zero);
+        if (toolbar == IntPtr.Zero || ambiguous) return null;
+        var text = new StringBuilder(32768);
+        // SMTO_BLOCK | SMTO_ABORTIFHUNG | SMTO_ERRORONEXIT: do not pump unrelated callbacks or wait
+        // indefinitely for Explorer. A truncated path must never become a different navigation target.
+        if (SendMessageTimeout(toolbar, 0x000D /* WM_GETTEXT */, (IntPtr)text.Capacity, text,
+                0x0023, 200, out var length) == IntPtr.Zero || length.ToInt64() >= text.Capacity - 1)
+            return null;
+        return ParseAddressBarPath(text.ToString());
+    }
+
+    internal static string? ParseAddressBarPath(string text)
+    {
+        var path = text.Trim();
+        if (UserPathResolver.IsVirtualPath(path)) return null;
+        if (!Path.IsPathFullyQualified(path))
+        {
+            var colon = path.IndexOfAny([':', '：']);
+            if (colon < 0) return null;
+            path = path[(colon + 1)..].Trim();
+        }
+        // ponytail: accept only explicit filesystem paths. Localized names like Downloads/Home are
+        // ambiguous; resolving those would need Shell item identity, not a guessed special folder.
+        return Path.IsPathFullyQualified(path) && !UserPathResolver.IsVirtualPath(path)
+            && !path.Contains("::{", StringComparison.Ordinal) ? path : null;
+    }
+
+    private static string ClassName(IntPtr hwnd)
+    {
+        var name = new StringBuilder(128);
+        GetClassName(hwnd, name, name.Capacity);
+        return name.ToString();
     }
 
     private static IEnumerable<(string Path, bool IsFolder)> ReadMatchingItems(object folder, string name, CancellationToken cancellationToken)
@@ -152,4 +213,9 @@ public static class ExplorerFolderPathReader
     [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr parent, EnumWindowsProc callback, IntPtr parameter);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr hwnd, StringBuilder name, int length);
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern IntPtr GetParent(IntPtr hwnd);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr SendMessageTimeout(IntPtr hwnd, uint message, IntPtr wParam, StringBuilder text,
+        uint flags, uint timeout, out IntPtr result);
 }
